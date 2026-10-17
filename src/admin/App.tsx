@@ -13,6 +13,10 @@ import { Security } from './screens/Security'
 import { Settings } from './screens/Settings'
 import { SignIn } from './screens/SignIn'
 import { Users } from './screens/Users'
+import { Categories } from './programmes/Categories'
+import { ProgrammeList } from './programmes/ProgrammeList'
+import { ProgrammePage } from './programmes/ProgrammePage'
+import { Venues } from './programmes/Venues'
 import { SeasonList } from './seasons/SeasonList'
 import { SeasonPage } from './seasons/SeasonPage'
 import { Button, Card, RoleBadge } from './ui'
@@ -49,7 +53,12 @@ function Shell({ me, children }: { me: Me; children: React.ReactNode }) {
       <nav className="bg-brand" aria-label="Admin">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center px-4">
           {!me.totpRequired && <NavLink href="/">Home</NavLink>}
-          {!me.totpRequired && <NavLink href="/seasons">Seasons</NavLink>}
+          {!me.totpRequired && <NavLink href="/leagues">Leagues</NavLink>}
+          {!me.totpRequired && <NavLink href="/training">Training</NavLink>}
+          {!me.totpRequired && <NavLink href="/development">Development</NavLink>}
+          {!me.totpRequired && <NavLink href="/events">Events</NavLink>}
+          {!me.totpRequired && <NavLink href="/categories">Categories</NavLink>}
+          {!me.totpRequired && <NavLink href="/venues">Venues</NavLink>}
           {!me.totpRequired && <NavLink href="/pages">Pages</NavLink>}
           {!me.totpRequired && <NavLink href="/news">News</NavLink>}
           {!me.totpRequired && <NavLink href="/menu">Menu</NavLink>}
@@ -81,8 +90,34 @@ function Home({ me }: { me: Me }) {
         <p className="text-sm">You can:</p>
         <ul className="mt-3 list-disc space-y-1 pl-5 text-sm">
           <li>
-            <Link href="/seasons" className="text-brand underline">
+            <Link href="/leagues" className="text-brand underline">
               {me.user.role === 'editor' ? 'Enter and publish results' : 'Set up seasons, make the draw and enter results'}
+            </Link>
+          </li>
+          <li>
+            {me.user.role === 'editor' ? 'See' : 'Manage'} the{' '}
+            <Link href="/leagues" className="text-brand underline">
+              leagues
+            </Link>
+            ,{' '}
+            <Link href="/training" className="text-brand underline">
+              training
+            </Link>
+            ,{' '}
+            <Link href="/development" className="text-brand underline">
+              development programmes
+            </Link>{' '}
+            and{' '}
+            <Link href="/events" className="text-brand underline">
+              events
+            </Link>
+            , their{' '}
+            <Link href="/categories" className="text-brand underline">
+              categories
+            </Link>{' '}
+            and{' '}
+            <Link href="/venues" className="text-brand underline">
+              venues
             </Link>
           </li>
           <li>
@@ -164,7 +199,29 @@ function SignedIn({ me }: { me: Me }) {
           <Home me={me} />
         </Route>
         <Route path="/seasons">
+          <Redirect to="/leagues" replace />
+        </Route>
+        <Route path="/leagues">
           <SeasonList me={me} />
+        </Route>
+        <Route path="/leagues/:id/:tab?">{(p) => <ProgrammePage key={p.id} me={me} kind="league" id={p.id} tab={p.tab} />}</Route>
+        <Route path="/training">
+          <ProgrammeList me={me} kind="training" />
+        </Route>
+        <Route path="/training/:id/:tab?">{(p) => <ProgrammePage key={p.id} me={me} kind="training" id={p.id} tab={p.tab} />}</Route>
+        <Route path="/development">
+          <ProgrammeList me={me} kind="development" />
+        </Route>
+        <Route path="/development/:id/:tab?">{(p) => <ProgrammePage key={p.id} me={me} kind="development" id={p.id} tab={p.tab} />}</Route>
+        <Route path="/events">
+          <ProgrammeList me={me} kind="event" />
+        </Route>
+        <Route path="/events/:id/:tab?">{(p) => <ProgrammePage key={p.id} me={me} kind="event" id={p.id} tab={p.tab} />}</Route>
+        <Route path="/categories">
+          <Categories me={me} />
+        </Route>
+        <Route path="/venues">
+          <Venues me={me} />
         </Route>
         <Route path="/seasons/:id/:tab?">{(p) => <SeasonPage key={p.id} me={me} id={p.id} tab={p.tab} />}</Route>
         <Route path="/pages">

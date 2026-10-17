@@ -502,8 +502,8 @@ export function SeasonPage({ me, id, tab: requested }: { me: Me; id: string; tab
   if (loadError)
     return (
       <div className="space-y-4">
-        <Link href="/seasons" className="text-brand text-sm underline">
-          ← Seasons
+        <Link href={view ? `/leagues/${view.league.id}/seasons` : '/leagues'} className="text-brand text-sm underline">
+          ← {view ? view.league.name : 'Leagues'}
         </Link>
         <Notice kind="error">{loadError}</Notice>
       </div>
@@ -520,8 +520,8 @@ export function SeasonPage({ me, id, tab: requested }: { me: Me; id: string; tab
   if (!isAdmin && status === 'draft')
     return (
       <div className="space-y-4">
-        <Link href="/seasons" className="text-brand text-sm underline">
-          ← Seasons
+        <Link href={view ? `/leagues/${view.league.id}/seasons` : '/leagues'} className="text-brand text-sm underline">
+          ← {view ? view.league.name : 'Leagues'}
         </Link>
         <h1 className="text-2xl font-bold">{view.season.name}</h1>
         <Notice>This season isn't published yet. Results can be entered once an admin publishes it.</Notice>
@@ -531,8 +531,8 @@ export function SeasonPage({ me, id, tab: requested }: { me: Me; id: string; tab
   return (
     <div>
       <div className="mb-5">
-        <Link href="/seasons" className="text-brand text-sm underline">
-          ← Seasons
+        <Link href={view ? `/leagues/${view.league.id}/seasons` : '/leagues'} className="text-brand text-sm underline">
+          ← {view ? view.league.name : 'Leagues'}
         </Link>
         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-2">
           <h1 className="text-2xl font-bold">{s.name || view.season.name}</h1>

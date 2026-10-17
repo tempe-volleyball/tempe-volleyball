@@ -7,6 +7,7 @@ import {
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
 } from 'react'
+import { Link } from 'wouter'
 
 // Small building blocks for the admin, styled with the site tokens (src/styles/global.css).
 
@@ -109,6 +110,11 @@ export function StatusBadge({ status }: { status: string }) {
     published: 'bg-green-100 text-green-900',
     draft: 'bg-accent/30 text-ink',
     archived: 'bg-black/10 text-black/70',
+    active: 'bg-green-100 text-green-900',
+    retired: 'bg-black/10 text-black/70',
+    scheduled: 'bg-green-100 text-green-900',
+    postponed: 'bg-accent/30 text-ink',
+    cancelled: 'bg-red-100 text-red-900',
   }
   return <span className={`inline-block rounded px-2 py-0.5 text-xs font-bold uppercase ${styles[status] ?? ''}`}>{status}</span>
 }
@@ -147,3 +153,64 @@ export function Dialog({ title, onCancel, children, wide }: { title: string; onC
 /** Extra words for a save message when the live site's cache couldn't be cleared. */
 export const purgeNote = (cache: string | undefined) =>
   cache === 'failed' ? ' The live site may show the old version for a few minutes.' : ''
+
+/** A labelled tick box. */
+export function Checkbox({
+  label,
+  hint,
+  checked,
+  onChange,
+  disabled,
+}: {
+  label: string
+  hint?: string
+  checked: boolean
+  onChange: (checked: boolean) => void
+  disabled?: boolean
+}) {
+  return (
+    <label className="flex items-start gap-2">
+      <input
+        type="checkbox"
+        className="accent-brand mt-1 h-4 w-4"
+        checked={checked}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      <span>
+        <span className="block text-sm font-semibold">{label}</span>
+        {hint && <span className="block text-xs text-black/60">{hint}</span>}
+      </span>
+    </label>
+  )
+}
+
+/** Tabs as links (the tab is part of the URL, so it survives a reload), styled like the season tabs. */
+export function TabLinks({
+  tabs,
+  active,
+  href,
+  label,
+}: {
+  tabs: { key: string; label: string }[]
+  active: string
+  href: (key: string) => string
+  label: string
+}) {
+  return (
+    <nav className="mt-4 mb-5 flex overflow-x-auto border-b border-black/10 sm:gap-1" aria-label={label}>
+      {tabs.map((t) => (
+        <Link
+          key={t.key}
+          href={href(t.key)}
+          aria-current={t.key === active ? 'page' : undefined}
+          className={`border-b-4 px-3 py-2 text-sm font-semibold whitespace-nowrap uppercase ${
+            t.key === active ? 'border-accent text-ink' : 'border-transparent text-black/60 hover:text-black'
+          }`}
+        >
+          {t.label}
+        </Link>
+      ))}
+    </nav>
+  )
+}

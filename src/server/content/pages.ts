@@ -1,7 +1,17 @@
 import { and, desc, eq, ne, notInArray, or, sql } from 'drizzle-orm'
 import { tags } from '../cache'
 import { runBatch, type AppDb } from '../db'
-import { menuItems, pageRevisions, pages, pageTemplates, user, type ContentBody, type Page, type PageTemplate } from '../db/schema'
+import {
+  categories,
+  menuItems,
+  pageRevisions,
+  pages,
+  pageTemplates,
+  user,
+  type ContentBody,
+  type Page,
+  type PageTemplate,
+} from '../db/schema'
 import { checkPagePath, planMove } from '../../lib/content/paths'
 import { checkBlocks, renderBlocks } from '../../lib/content/render'
 import {
@@ -114,6 +124,15 @@ async function assertPathFree(db: AppDb, p: string, exceptId?: string) {
     .where(exceptId ? and(eq(pages.path, p), ne(pages.id, exceptId)) : eq(pages.path, p))
     .get()
   if (taken) throw conflict(`${p} is already used by the page “${taken.title}”.`)
+  // Category landing pages live at /<slug> too (src/server/programmes/categories.ts).
+  const category = /^\/[^/]+$/.test(p)
+    ? await db
+        .select({ name: categories.name })
+        .from(categories)
+        .where(eq(categories.slug, p.slice(1)))
+        .get()
+    : null
+  if (category) throw conflict(`${p} is the landing page of the category “${category.name}”.`)
 }
 
 const pathTaken = (p: string) => conflict(`${p} is already used by another page.`)

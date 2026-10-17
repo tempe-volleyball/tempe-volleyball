@@ -6,6 +6,9 @@ The fixtures library (`src/lib/fixtures`) is the shared vocabulary: the API send
 `Settings`, `Week`, `Game`, `Ref` and `Result` types, so the browser can run `generate()`, `validate()`, `standings()`,
 `courtClashes()` and the edit helpers on exactly what it loaded.
 
+Leagues themselves (create, edit, status, delete), training, development, events, categories and venues are in
+[programmes.md](programmes.md).
+
 ## Basics
 
 - **Auth.** The middleware answers `401 { error: 'unauthenticated' }` without a session, and `403 { error: 'totp_required' }`

@@ -39,6 +39,28 @@ export function rfc822Sydney(at: Date): string {
   )
 }
 
+/**
+ * A Sydney wall-clock time ("2026-10-18T09:00" or "2026-10-18 09:00", as a datetime-local input gives it) as a UTC
+ * ISO instant, DST aware. Null for anything else. In the hour skipped when DST starts it lands an hour later; in the
+ * repeated hour when DST ends it picks one of the two.
+ */
+export function sydneyToUtc(local: string): string | null {
+  const m = /^(\d{4}-\d{2}-\d{2})[T ]([01]\d|2[0-3]):([0-5]\d)$/.exec(local.trim())
+  if (!m) return null
+  const wanted = Date.parse(`${m[1]}T${m[2]}:${m[3]}:00Z`)
+  if (Number.isNaN(wanted)) return null
+  let t = wanted
+  for (let i = 0; i < 3; i++) {
+    const wall = Date.parse(`${sydneyDateTime(new Date(t)).replace(' ', 'T')}:00Z`)
+    if (wall === wanted) break
+    t -= wall - wanted
+  }
+  return new Date(t).toISOString()
+}
+
+/** The datetime-local value ("2026-10-18T09:00") for a UTC instant, in Sydney time. '' for null. */
+export const utcToSydneyInput = (iso: string | null | undefined): string => (iso ? sydneyDateTime(new Date(iso)).replace(' ', 'T') : '')
+
 /** Formats integer cents as AUD, e.g. 12500 -> "$125.00". Store money as integer cents everywhere. */
 export function formatAud(cents: number): string {
   return new Intl.NumberFormat(LOCALE, { style: 'currency', currency: CURRENCY }).format(cents / 100)
