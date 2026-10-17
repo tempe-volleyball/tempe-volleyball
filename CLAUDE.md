@@ -54,7 +54,11 @@ src/middleware.ts    Runs on every SSR request: admin guard (server/auth/guard.t
 src/admin/           The admin React app (one client:only island at /admin/*, wouter router with base /admin):
                      sign-in, TOTP enrolment, admin users, audit log. src/pages/admin/[...path].astro mounts it.
 src/pages/           Routes. api/health.ts is the deploy smoke test. robots.txt.ts disallows all outside production.
-src/layouts/         Page shells for public pages.
+                     Public: index (home page row), [...path] (content pages by pages.path, else the redirects table
+                     → 301, else 404), leagues/ (index, [league] = current season #ladder/#fixtures, [league]/[season]
+                     archive), news/, media/[id]/[file].ts (R2 MEDIA, immutable caching). Each calls cachePublic().
+src/layouts/         BaseLayout.astro: the public shell (hero header + <details> menu, optional ladder sidebar, footer).
+src/components/      Public Astro components: SiteHeader, SiteFooter, LadderTable/Widget, FixturesTable, SeasonView.
 src/lib/             Pure logic with tests. No bindings, no `cloudflare:*` imports, no DOM. time.ts, indexing.ts.
 src/lib/fixtures/    The demo's fixtures logic, ported (Phase 4): types, scheduler (+ rng, dates, holidays),
                      analysis (validate, teamStats), results (ladder, ratio, set scores, finals resolver, ladder
@@ -67,6 +71,11 @@ scripts/             Node-only tools run with tsx: import-wp.ts (+ wp/: fetch, c
 src/server/          Code that touches bindings: db/schema.ts + db/index.ts (Drizzle; AppDb + runBatch work for D1
                      and the test DB), cron.ts, health.ts, http.ts (JSON route helpers), services.ts (per-isolate
                      db/mailer/auth from `cloudflare:workers`; only routes/middleware import it), later payments/.
+                     Public site: site.ts (loadSite: menu, venues, every league's current season + ladder in one
+                     batch; page/redirect/post lookups), competition/ (load.ts batched season queries, adapter.ts
+                     DB rows -> fixtures lib Settings/Week[] -> ladder rows (+ ladder_adjustments) and fixture rows),
+                     cache.ts (route-cache tags + purgePage/purgeSeason/purgeSite/purgePost for admin publishes),
+                     media.ts, public.ts (publicDb, redirect fallback). src/lib/content.ts tidies stored HTML.
                      auth/: auth.ts (Better Auth runtime config), options.ts (schema-shaping plugins),
                      passwordless-2fa.ts (TOTP challenge after email-code/magic-link sign-in, which Better Auth's
                      twoFactor doesn't do itself), roles.ts (all role/invite/audit rules), guard.ts, bootstrap.ts.

@@ -1,0 +1,47 @@
+---
+// One season of a league (archived ones included), e.g. /leagues/tnl/tnl-q4-2026.
+import NotFound from '../../../components/NotFound.astro'
+import SeasonView from '../../../components/SeasonView.astro'
+import BaseLayout from '../../../layouts/BaseLayout.astro'
+import { DEFAULT_DESCRIPTION, documentTitle } from '../../../lib/content'
+import { leagueRoute, normalisePath, seasonRoute } from '../../../lib/wp-import/routes'
+import { cachePublic, tags } from '../../../server/cache'
+import { publicSeasons } from '../../../server/competition/load'
+import { publicDb, redirectFor } from '../../../server/public'
+import { loadSeason, loadSite, seasonView, type LeagueSeason } from '../../../server/site'
+
+const leagueSlug = (Astro.params.league ?? '').toLowerCase()
+const seasonSlug = (Astro.params.season ?? '').toLowerCase()
+const db = publicDb()
+const site = await loadSite(db)
+const league = site.leagues.find((l) => l.slug === leagueSlug)
+const summary = league && site.seasons.find((s) => s.slug === seasonSlug && s.leagueId === league.id && s.status !== 'draft')
+const current = site.current.find((c) => c.summary.id === summary?.id)
+
+let view: LeagueSeason | undefined = current
+if (!view && summary) {
+  const data = await loadSeason(db, summary.id, site)
+  if (data) view = seasonView(data, summary)
+}
+
+if (!view) {
+  const redirect = await redirectFor(Astro, db, normalisePath(Astro.url.pathname))
+  if (redirect) return redirect
+  Astro.response.status = 404
+} else cachePublic(Astro.cache, tags.league(leagueSlug), tags.season(seasonSlug))
+---
+
+{view ? (
+  <BaseLayout
+    title={documentTitle(`${view.summary.name} Ladder, Fixtures and Results`)}
+    description={`${view.league.name} ${view.summary.name}: final ladder, fixtures and results.`}
+    site={site}
+    canonicalPath={current ? leagueRoute(leagueSlug) : seasonRoute(leagueSlug, seasonSlug)}
+  >
+    <SeasonView view={view} others={publicSeasons(site.seasons, view.league.id)} current={false} />
+  </BaseLayout>
+) : (
+  <BaseLayout title={documentTitle('Page not found')} description={DEFAULT_DESCRIPTION} site={site}>
+    <NotFound />
+  </BaseLayout>
+)}

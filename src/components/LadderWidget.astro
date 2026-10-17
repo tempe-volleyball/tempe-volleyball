@@ -1,0 +1,28 @@
+---
+import { leagueLadderRoute } from '../lib/wp-import/routes'
+import type { LeagueSeason } from '../server/site'
+import LadderTable from './LadderTable.astro'
+
+// A league's current ladder, top 4, with a link to the full table. `heading` renders an H2 above it (footer);
+// without it the league name is the table caption (sidebar).
+type Props = { item: LeagueSeason; heading?: boolean; dark?: boolean }
+const { item, heading = false, dark = false } = Astro.props
+const name = `${item.league.name} Ladder`
+---
+
+<section class="min-w-0">
+  {heading && <h2 class="mb-3 text-2xl leading-tight sm:text-3xl">{name}</h2>}
+  <LadderTable rows={item.ladder} caption={heading ? undefined : `${item.league.code} Ladder`} compact limit={4} />
+  <p class="mt-2 text-sm">
+    <a
+      href={leagueLadderRoute(item.league.slug)}
+      class={
+        dark
+          ? 'text-accent underline-offset-2 hover:underline'
+          : 'text-link decoration-accent font-semibold underline decoration-2 underline-offset-2'
+      }
+    >
+      Full {item.league.code} ladder<span class="sr-only"> ({item.summary.name})</span>
+    </a>
+  </p>
+</section>

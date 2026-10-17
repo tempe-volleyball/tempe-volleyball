@@ -1,0 +1,14 @@
+---
+import { prepareHtml } from '../lib/content'
+
+// A page or post: the H1 (with the amber rule) and the stored HTML, tidied for headings, vague links and embeds.
+type Props = { title: string; html: string; titles?: Map<string, string> }
+const { title, html, titles } = Astro.props
+---
+
+<article>
+  <h1 class="page-title">{title}</h1>
+  <slot name="meta" />
+  <div class="prose" set:html={prepareHtml(html, { titles })} />
+  <slot />
+</article>

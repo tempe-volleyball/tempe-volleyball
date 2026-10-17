@@ -1,0 +1,40 @@
+---
+// Content pages by path (pages table), and the fallback for everything no other route matched: an old WordPress URL
+// in the redirects table gets a 301, anything else a 404.
+import NotFound from '../components/NotFound.astro'
+import PageBody from '../components/PageBody.astro'
+import BaseLayout from '../layouts/BaseLayout.astro'
+import { DEFAULT_DESCRIPTION, documentTitle, metaDescription } from '../lib/content'
+import { normalisePath } from '../lib/wp-import/routes'
+import { cachePublic, tags } from '../server/cache'
+import { followRedirect, publicDb } from '../server/public'
+import { loadSite, lookupPath } from '../server/site'
+
+const path = normalisePath(`/${Astro.params.path ?? ''}`)
+const db = publicDb()
+const [site, found] = await Promise.all([loadSite(db), lookupPath(db, path)])
+
+if (!found.page && found.redirect) return followRedirect(Astro, db, path, found.redirect)
+// The home page has its own route; send "/home" style duplicates of it there.
+if (found.page?.template === 'home') return Astro.redirect('/', 301)
+
+const page = found.page
+if (page) cachePublic(Astro.cache, tags.page(path))
+else Astro.response.status = 404
+---
+
+{page ? (
+  <BaseLayout
+    title={documentTitle(page.title)}
+    description={metaDescription(page.metaDescription)}
+    site={site}
+    sidebar
+    canonicalPath={path}
+  >
+    <PageBody title={page.title} html={page.body.html} titles={found.titles} />
+  </BaseLayout>
+) : (
+  <BaseLayout title={documentTitle('Page not found')} description={DEFAULT_DESCRIPTION} site={site}>
+    <NotFound />
+  </BaseLayout>
+)}

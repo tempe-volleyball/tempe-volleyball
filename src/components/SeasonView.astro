@@ -1,0 +1,74 @@
+---
+import { ladderUpdatedLabel, ladderWeekLabel } from '../lib/fixtures'
+import { seasonRoute } from '../lib/wp-import/routes'
+import { fixtureRows } from '../server/competition/adapter'
+import type { SeasonSummary } from '../server/competition/load'
+import type { LeagueSeason } from '../server/site'
+import FixturesTable from './FixturesTable.astro'
+import LadderTable from './LadderTable.astro'
+
+// One season: ladder (#ladder) with the generated "Week N of M" / "Updated dd/mm/yyyy", then fixtures and results
+// (#fixtures), then links to the league's other seasons.
+type Props = { view: LeagueSeason; others: SeasonSummary[]; current: boolean }
+const { view, others, current } = Astro.props
+const { league, summary, competition } = view
+const week = ladderWeekLabel(competition.weeks)
+const updated = ladderUpdatedLabel(competition.weeks)
+const rows = fixtureRows(competition, view.data.matches)
+const hasFinals = competition.weeks.some((w) => w.kind === 'semi' || w.kind === 'final')
+---
+
+<h1 class="page-title">
+  {league.name}
+  {current ? '' : ` – ${summary.name}`}
+</h1>
+<p class="-mt-4 mb-10 text-lg">
+  {current ? `${summary.name}. ` : summary.status === 'archived' ? 'Past season. ' : ''}
+  <a class="text-link decoration-accent font-semibold underline decoration-2 underline-offset-2" href="#fixtures">
+    Fixtures and results
+  </a>
+  {' · '}
+  <a class="text-link decoration-accent font-semibold underline decoration-2 underline-offset-2" href="#ladder">
+    Ladder
+  </a>
+</p>
+
+<section id="ladder" aria-labelledby="ladder-heading" class="mb-14 scroll-mt-4">
+  <h2 id="ladder-heading" class="mb-4 text-2xl font-bold sm:text-3xl">
+    Ladder{week ? ` – ${week}` : ''}
+  </h2>
+  <LadderTable rows={view.ladder} caption={`${summary.name} Ladder`} />
+  <div class="mt-3 flex flex-wrap justify-between gap-2 text-sm">
+    <p>{hasFinals ? 'Round-robin matches only; finals are in the fixtures.' : ''}</p>
+    {updated && <p class="font-semibold">{updated}</p>}
+  </div>
+</section>
+
+<section id="fixtures" aria-labelledby="fixtures-heading" class="mb-14 scroll-mt-4">
+  <h2 id="fixtures-heading" class="mb-4 text-2xl font-bold sm:text-3xl">
+    Fixtures and Results
+  </h2>
+  <FixturesTable rows={rows} caption={`${summary.name} Fixtures and Results`} showDuty={view.data.season.dutyEnabled} />
+</section>
+
+{others.length > 0 && (
+  <section aria-labelledby="seasons-heading">
+    <h2 id="seasons-heading" class="mb-4 text-2xl font-bold">
+      {league.code} seasons
+    </h2>
+    <ul class="flex flex-wrap gap-3">
+      {others.map((s) => (
+        <li>
+          <a
+            href={seasonRoute(league.slug, s.slug)}
+            class="bg-brand hover:bg-brand-dark inline-block px-3 py-2 text-white"
+            aria-current={s.id === summary.id ? 'page' : undefined}
+          >
+            {s.name}
+            {s.status === 'published' ? ' (current)' : ''}
+          </a>
+        </li>
+      ))}
+    </ul>
+  </section>
+)}

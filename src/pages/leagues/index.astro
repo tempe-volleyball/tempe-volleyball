@@ -1,0 +1,51 @@
+---
+// The league index: each league's night, place and current season, with links to its ladder and fixtures.
+import BaseLayout from '../../layouts/BaseLayout.astro'
+import { documentTitle } from '../../lib/content'
+import { leagueFixturesRoute, leagueLadderRoute } from '../../lib/wp-import/routes'
+import { cachePublic, tags } from '../../server/cache'
+import { publicDb } from '../../server/public'
+import { loadSite } from '../../server/site'
+
+const site = await loadSite(publicDb())
+cachePublic(Astro.cache, tags.page('/leagues'))
+const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+const venueName = (id: string | null) => site.venues.find((v) => v.id === id)?.name
+---
+
+<BaseLayout
+  title={documentTitle('Leagues: Ladders, Fixtures and Results')}
+  description="Tempe Volleyball's leagues: Thursday, Friday and Saturday night, Sunday afternoon and the Super League. Current ladders, fixtures and results."
+  site={site}
+  sidebar
+>
+  <h1 class="page-title">Leagues</h1>
+  <ul class="space-y-6">
+    {site.leagues
+      .filter((l) => l.active)
+      .map((l) => {
+        const c = site.current.find((x) => x.league.id === l.id)
+        const venue = venueName(l.defaultVenueId)
+        return (
+          <li class="bg-white/60 p-5">
+            <h2 class="text-2xl font-bold">{l.name}</h2>
+            <p class="mt-1">
+              {DAYS[l.weekday]}
+              {venue ? ` at ${venue}` : ''}
+              {c ? ` · ${c.summary.name}` : ''}
+            </p>
+            {c && (
+              <p class="mt-3 flex flex-wrap gap-4">
+                <a class="bg-brand hover:bg-brand-dark px-3 py-2 text-white" href={leagueLadderRoute(l.slug)}>
+                  {l.code} ladder
+                </a>
+                <a class="bg-brand hover:bg-brand-dark px-3 py-2 text-white" href={leagueFixturesRoute(l.slug)}>
+                  {l.code} fixtures and results
+                </a>
+              </p>
+            )}
+          </li>
+        )
+      })}
+  </ul>
+</BaseLayout>

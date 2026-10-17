@@ -1,0 +1,35 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro'
+import { documentTitle, formatPostDate } from '../../lib/content'
+import { postRoute } from '../../lib/wp-import/routes'
+import { cachePublic, tags } from '../../server/cache'
+import { publicDb } from '../../server/public'
+import { listPosts, loadSite } from '../../server/site'
+
+const db = publicDb()
+const [site, posts] = await Promise.all([loadSite(db), listPosts(db)])
+cachePublic(Astro.cache, tags.news)
+---
+
+<BaseLayout
+  title={documentTitle('News')}
+  description="News from Tempe Volleyball: grand finals, tournaments and league updates."
+  site={site}
+  sidebar
+>
+  <h1 class="page-title">News</h1>
+  {posts.length === 0 && <p>No news yet.</p>}
+  <ul class="space-y-8">
+    {posts.map((p) => (
+      <li>
+        <h2 class="text-2xl leading-tight font-bold">
+          <a class="hover:text-link hover:decoration-accent hover:underline" href={postRoute(p.slug)}>
+            {p.title}
+          </a>
+        </h2>
+        {p.publishedAt && <p class="mt-1 text-sm text-neutral-700">{formatPostDate(p.publishedAt)}</p>}
+        {p.excerpt && <p class="mt-2">{p.excerpt}</p>}
+      </li>
+    ))}
+  </ul>
+</BaseLayout>

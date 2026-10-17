@@ -1,0 +1,48 @@
+---
+import NotFound from '../../components/NotFound.astro'
+import PageBody from '../../components/PageBody.astro'
+import BaseLayout from '../../layouts/BaseLayout.astro'
+import { DEFAULT_DESCRIPTION, documentTitle, formatPostDate, metaDescription } from '../../lib/content'
+import { normalisePath, postRoute } from '../../lib/wp-import/routes'
+import { cachePublic, tags } from '../../server/cache'
+import { publicDb, redirectFor } from '../../server/public'
+import { findPost, loadSite, pageTitles } from '../../server/site'
+
+const slug = Astro.params.slug ?? ''
+const db = publicDb()
+const [site, post, titles] = await Promise.all([loadSite(db), findPost(db, slug), pageTitles(db)])
+
+if (!post) {
+  const redirect = await redirectFor(Astro, db, normalisePath(Astro.url.pathname))
+  if (redirect) return redirect
+  Astro.response.status = 404
+} else cachePublic(Astro.cache, tags.news, tags.post(slug))
+---
+
+{post ? (
+  <BaseLayout
+    title={documentTitle(post.title)}
+    description={metaDescription(post.excerpt)}
+    site={site}
+    sidebar
+    canonicalPath={postRoute(slug)}
+    ogType="article"
+  >
+    <PageBody title={post.title} html={post.body.html} titles={titles}>
+      {post.publishedAt && (
+        <p slot="meta" class="-mt-4 mb-6 text-sm text-neutral-700">
+          <time datetime={post.publishedAt}>{formatPostDate(post.publishedAt)}</time>
+        </p>
+      )}
+      <p class="mt-10">
+        <a class="text-link decoration-accent font-semibold underline decoration-2 underline-offset-2" href="/news">
+          All news
+        </a>
+      </p>
+    </PageBody>
+  </BaseLayout>
+) : (
+  <BaseLayout title={documentTitle('Page not found')} description={DEFAULT_DESCRIPTION} site={site}>
+    <NotFound />
+  </BaseLayout>
+)}
