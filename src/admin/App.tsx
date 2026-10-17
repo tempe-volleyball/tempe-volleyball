@@ -279,7 +279,7 @@ function SignedIn({ me }: { me: Me }) {
         </Route>
         <Route path="/news/:id">{(p) => <PostEditor key={p.id} id={p.id} />}</Route>
         <Route path="/menu">
-          <Menu />
+          <Menu me={me} />
         </Route>
         <Route path="/media">
           <Media />

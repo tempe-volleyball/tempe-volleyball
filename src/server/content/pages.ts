@@ -13,7 +13,9 @@ import {
   type PageTemplate,
 } from '../db/schema'
 import { checkPagePath, planMove } from '../../lib/content/paths'
-import { checkBlocks, renderBlocks } from '../../lib/content/render'
+import { dataBlockRefs, normaliseDataBlocks } from '../../lib/content/data-blocks'
+import { checkBlocks, renderBlocks, type JsonNode } from '../../lib/content/render'
+import { pageRefStatements } from './blocks'
 import {
   assertMedia,
   audit,
@@ -98,11 +100,19 @@ export async function getRevision(db: AppDb, pageId: string, revisionId: string)
   return rev
 }
 
+/**
+ * The stored body: data blocks get normalised attrs, and the HTML leaves them out (they render at view time, see
+ * src/server/content/blocks.ts).
+ */
 const body = (blocks: unknown): ContentBody => {
   const checked = checkBlocks(blocks)
   if (!checked.ok) throw invalid(checked.message)
-  return { blocks: checked.blocks, html: renderBlocks(checked.blocks) }
+  const clean = normaliseDataBlocks(checked.blocks)
+  return { blocks: clean, html: renderBlocks(clean) }
 }
+
+/** page_data_refs for a stored body (an HTML-only imported body has none). */
+const refsOf = (b: ContentBody) => dataBlockRefs(Array.isArray(b.blocks) ? (b.blocks as JsonNode[]) : [])
 
 const template = (v: unknown): PageTemplate => {
   if (v === undefined || v === null) return 'content'
@@ -180,6 +190,7 @@ export async function createPage(db: AppDb, actor: Editor, input: PageInput, now
     await runBatch(db, [
       db.insert(pages).values({ ...values, createdAt: at, updatedAt: at }),
       db.insert(pageRevisions).values({ pageId: values.id, title: values.title, body: values.body, createdBy: actor.id, createdAt: at }),
+      ...pageRefStatements(db, values.id, refsOf(values.body), at),
     ])
   } catch (e) {
     if (isUniqueFailure(e, 'pages.path')) throw pathTaken(values.path)
@@ -252,6 +263,8 @@ export async function updatePage(
       db.insert(pageRevisions).values({ pageId: id, title: next.title, body: next.body, createdBy: actor.id, createdAt: at }),
       pruneRevisions(db, id),
       ...(move ? moveRedirectStatements(db, move, actor, at) : []),
+      // Which data the blocks read, so data changes purge this page (src/server/programmes/common.ts blockPageTags).
+      ...pageRefStatements(db, id, refsOf(next.body), at),
     ])
   } catch (e) {
     if (isUniqueFailure(e, 'pages.path')) throw pathTaken(next.path)

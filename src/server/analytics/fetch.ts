@@ -206,7 +206,8 @@ export async function runAnalytics(db: AppDb, deps: AnalyticsDeps, now = new Dat
     return { status: 'ok', source, ...plan, rows: written, ...(warning ? { warning } : {}) }
   } catch (e) {
     const error = (e instanceof Error ? e.message : String(e)).slice(0, 1000)
-    const at = new Date().toISOString()
+    // The run's own clock, not the wall clock: the retry back-off compares lastErrorAt with `now`.
+    const at = nowIso
     await runBatch(db, [
       db.update(analyticsFetches).set({ status: 'error', finishedAt: at, error, updatedAt: at }).where(eq(analyticsFetches.id, fetchId)),
       db

@@ -6,7 +6,8 @@ import StarterKit from '@tiptap/starter-kit'
 import { safeEmbedSrc } from '../../lib/content/render'
 
 // The editor's schema. It must stay in step with src/lib/content/render.ts, which turns the saved JSON into the
-// public HTML on the server: every node and mark here has a case there, and anything else is dropped on save.
+// public HTML on the server: every node and mark here has a case there, and anything else is dropped on save. The
+// page editor adds the data blocks (data-blocks.ts), which render at view time from live data.
 
 /** Images keep srcset/sizes so library images stay responsive. */
 const ResponsiveImage = Image.extend({

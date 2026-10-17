@@ -27,7 +27,7 @@ Status as of 2026-10-18: **Done** = built and on staging, **Partial** = some of 
 | **Scoring rules**                 | Fixed ladder columns, with W/D/L points, sets per match and tie-break order per season                                                 | **Done**    | Points and sets per match are per season. **Tie-break order** is configurable per season (Setup → Ladder rules: set or points difference, ratio or totals, wins, head to head; name is always last), defaulting to the old order. The 1–1 rule (draw, or decided on points as SportsPress did) is still open.                                                                       |
 | **Ladders**                       | Automatic, with point adjustments plus a reason, hiding a withdrawn team, and automatic "Week X of Y" and "Updated" lines              | **Done**    | Automatic, adjustments with reasons, and the generated headings. **Withdrawn teams**: withdraw one from the Results tab with a reason, optionally cancelling its remaining games (undoable with Reinstate). Per season, the ladder marks it (last, "withdrawn") or hides it, its results count or are voided, and its cancelled games show as cancelled or as byes.                 |
 | **Fixture lists**                 | Filtered lists ("this week", "upcoming") and an iCal feed per team                                                                     | **Missing** | The league page shows the whole season. No "this week" view, no team pages, no iCal feeds.                                                                                                                                                                                                                                                                                          |
-| **Fixtures and ladders on pages** | "Ladder" and "Fixtures" blocks in the page editor that follow the current season (SportsPress used shortcodes)                         | **Missing** | Block types are defined (`src/lib/content/blocks.ts`) and `page_data_refs` is in the schema for cache purges. The editor and rendering are missing. Designed in section 3.4.                                                                                                                                                                                                        |
+| **Fixtures and ladders on pages** | "Ladder" and "Fixtures" blocks in the page editor that follow the current season (SportsPress used shortcodes)                         | **Done**    | Page editor → “+ Block…”: Ladder, Fixtures and Programme list blocks with a live preview and a settings dialog; they render on the public page from D1 at view time and purge with the data they show. See section 3.4 and [api/menu-and-blocks.md](api/menu-and-blocks.md).                                                                                                        |
 | **Bulk postpone or cancel**       | Postpone or cancel a whole night, with a choice to push the season back a week                                                         | **Done**    | Results tab → "Postpone or cancel the night" on a published season: postpone or cancel every game on it, or push this night and the rest of the season back a week (previewed with the lib's `pushBack()`, stepping over weeks off and holidays; results stay attached). One batch, audited, and undoable from the night or the new week off.                                       |
 | **Import and export**             | A one-time WordPress import, plus CSV export                                                                                           | **Done**    | `npm run import:wp` (staging so far; production in Phase 8) and a CSV download per season.                                                                                                                                                                                                                                                                                          |
 | **Roles**                         | Owner / admin / editor; a results-only helper role could come later                                                                    | **Done**    | With invites, the audit log and TOTP for owners. Editors see only results in Seasons.                                                                                                                                                                                                                                                                                               |
@@ -336,7 +336,9 @@ Programmes admin (build step 1), decisions taken the robust and configurable way
 
 1. **Done:** programmes and categories: data model, the four admin sections, category management (absorbs "league
    management" and "venues and courts" from section 1).
-2. Menu and blocks: automatic category dropdowns, the Programme list block, Ladder and Fixtures blocks.
+2. **Done:** menu and blocks: automatic category dropdowns, the Programme list block, Ladder and Fixtures blocks
+   (decisions in section 3.12, API in [api/menu-and-blocks.md](api/menu-and-blocks.md)). The category landing pages
+   the dropdowns link to come with step 3.
 3. Public pages: category and programme pages, flat URLs with 301s, league page tabs.
 4. Enrolment: forms, caps, waitlists, manual paid/unpaid, CSV export. **Done** (section 3.7); the pages showing the
    form come with step 3.
@@ -367,6 +369,46 @@ Each takes the more robust or more configurable option:
   CSV draw publishes like any other. Its problems are listed by line before anything is saved.
 - **Postponed and TBD games keep their draft results**; cancelled ones lose them, as before.
 
+### 3.12 Menu and blocks decisions
+
+Build step 2, each taking the more robust and more configurable option:
+
+- **One menu module:** `src/lib/content/menu.ts` validates (`checkMenu`), builds the tree (`buildMenuTree`) and the
+  public menu (`publicMenu`, `isActive`); `src/lib/menu.ts` is gone. `loadSite()` loads every non-draft programme and
+  category in its one batch, so the header needs no extra queries.
+- **Category items fill themselves:** a top-level `category` item links its landing page and lists each active,
+  menu-visible programme in it, in programme order. A category that isn't active hides its dropdown.
+- **Hiding a programme from menus** is the programme's `menu_visible` switch, set from the menu editor's dropdown
+  preview (admins, since it's a programme setting; audited with the menu save) or the programme page. Retired and
+  draft programmes never show.
+- **Pinned links:** hand-made sub-items of a category item sit before or after the automatic links (`placement`). A
+  `programme` sub-item for a programme the dropdown lists anyway replaces its automatic link, which is how a link is
+  renamed or moved without a new column.
+- **Hidden items:** any item can be hidden (kept in the admin, off the site), so Michael can stage a change.
+- **Old league links still work:** `league_ladder` / `league_fixtures` items keep resolving to `#ladder` /
+  `#fixtures`, but the editor only offers them on items that already use them.
+- **Instagram and Facebook** are icons in the header (from Settings → Social), not menu items; Login left the menu.
+- **The staging menu** was moved to the proposed top level by `scripts/menu-phase6.ts` (guarded: it refuses once the
+  menu has been edited in the admin, and writes a `menu.update` audit row so it runs once). The importer's `MENU` is the
+  same structure, and the importer now only writes the menu while nobody has edited it.
+- **Programme JDP, ADP and training pages** aren't programme records yet, so they're pinned links under Juniors and
+  Adult Training; once Michael creates the programmes, he removes the pinned links (or hides the programmes).
+- **Blocks render at view time** from the body's blocks; the stored HTML leaves them out, so revisions, excerpts and
+  meta descriptions never contain stale data. A page without data blocks is served from its stored HTML as before.
+- **Which text wins:** page override → the programme's summary line → the block's template, as agreed; a block can
+  turn summary lines off (`useSummaryLines`) when it needs its own wording for every line. Overrides use the same
+  placeholders as the template.
+- **Change flags:** an override stores the programme's details when it was written; the editor shows “TNL's venue
+  changed since you edited this line” on the block and in its settings, with Reset to automatic or Keep my text.
+- **The "status" filter** is enrolment state (any, open now, closed now): only active programmes are ever listed, so a
+  programme-status filter would have nothing to choose.
+- **Ladder and Fixtures follow the current season**, falling back to the latest archived season between seasons so a
+  page doesn't go blank. A league with no season shows nothing on the site and a note in the editor.
+- **Previews are the real renderer:** the editor asks the server to render the block (`POST /api/admin/blocks/preview`),
+  so what Michael sees is what the page shows.
+- **Attrs are normalised on save** (bounded lengths and counts, unknown fields dropped), and every value is escaped
+  when rendered. Blocks are offered in the page editor only, not news posts.
+
 ## 4. Admin UI/UX
 
 To be written with Jeremy. Known items so far:
@@ -376,7 +418,8 @@ To be written with Jeremy. Known items so far:
 - Media: Safari versions without canvas WebP encoding can't upload; abandoned uploads leave files in R2.
 - Pages: re-inserting an image is needed after changing its alt text; the editor drops unsupported imported content on
   first save (the original is kept as a revision).
-- Menu: no drag and drop between levels.
+- Menu: no drag and drop between levels (“Move to” changes level).
+- Page editor: data blocks move by their ⠿ grip; there's no keyboard shortcut to insert one yet.
 
 ## 5. Later or optional
 

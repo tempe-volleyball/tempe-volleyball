@@ -185,6 +185,32 @@ h3 {
 .prose th {
   @apply border border-neutral-400 px-2 py-1 align-top;
 }
+/* Data blocks in a page body (src/lib/content/data-blocks.ts): the blue tables keep their own look inside .prose. */
+.prose .data-block {
+  @apply my-8;
+}
+.prose .data-block > * + * {
+  @apply mt-3;
+}
+.prose .data-block h2 {
+  @apply mt-0;
+}
+.prose .data-table {
+  @apply text-xs sm:text-sm;
+}
+.prose .data-table td,
+.prose .data-table th {
+  @apply border-0;
+}
+.prose .data-table a {
+  @apply font-normal text-white decoration-white/40 decoration-1;
+}
+.data-block-meta {
+  @apply text-sm font-semibold;
+}
+.data-block-link {
+  @apply text-sm;
+}
 .prose blockquote {
   @apply border-accent border-l-4 pl-4 italic;
 }

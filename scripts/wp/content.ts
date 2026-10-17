@@ -19,7 +19,7 @@ import {
   seasonRoute,
   wordpressRedirects,
 } from '../../src/lib/wp-import/routes'
-import type { SqlValue } from '../../src/lib/wp-import/sql'
+import { sqlLiteral, type SqlValue } from '../../src/lib/wp-import/sql'
 import { describeHtml } from '../../src/lib/content'
 import { decodeEntities, isAutoExcerpt } from '../../src/lib/wp-import/text'
 import type { Competition } from './competition'
@@ -241,68 +241,90 @@ export function mediaRedirects(items: { url: string; resolved: ResolvedMedia }[]
 
 type MenuNode = {
   label: string
-  kind: 'page' | 'url' | 'league_ladder' | 'league_fixtures'
+  kind: 'page' | 'url' | 'category' | 'league_ladder' | 'league_fixtures'
   page?: string
   league?: LeagueCode
+  /** categories.id (seeded by migration 0003: cat_mixed_leagues, cat_super_league, cat_juniors, cat_adult_training). */
+  category?: string
   url?: string
+  /** Children of a category item: before or after its automatic programme links. */
+  placement?: 'before' | 'after'
   children?: MenuNode[]
 }
 
 /**
- * The live site's menu (captured 2026-10-17; the WP menu API isn't public). The old "Mixed Leagues" had a third
- * level (League Ladders / League Fixtures); it's flattened to two levels here. Headings without a link are
- * kind 'url' with url null.
+ * The menu for the new site (docs/admin.md §3.5): Home · Mixed Leagues · Super League · Juniors · Adult Training ·
+ * Enrol · About. Category items fill their dropdowns on their own (landing page, then each active programme); the
+ * programme pages that aren't programme records yet (JDP, ADP, training) are pinned under their category until
+ * Michael creates them as programmes. Instagram is a header icon and Login is gone (/admin still works).
+ *
+ * The old site's menu, captured 2026-10-17 (the WP menu API isn't public), was: Home, Junior Dev Program (JDP),
+ * Adult Dev Program (ADP), Mixed Leagues (ladder and fixtures links per league), Super League (TVSL), Enrolment,
+ * About (… Login) and Instagram. scripts/menu-phase6.ts moves an already-imported menu to this one.
  */
 export const MENU: MenuNode[] = [
   { label: 'Home', kind: 'page', page: FRONT_PAGE_SLUG },
-  { label: 'Junior Dev Program (JDP)', kind: 'page', page: 'junior-development-program-jdp' },
-  { label: 'Adult Dev Program (ADP)', kind: 'page', page: 'adult-development-program-adp' },
+  { label: 'Mixed Leagues', kind: 'category', category: 'cat_mixed_leagues' },
   {
-    label: 'Mixed Leagues',
-    kind: 'url',
+    label: 'Super League',
+    kind: 'category',
+    category: 'cat_super_league',
+    children: [{ label: 'About the Super League', kind: 'page', page: 'saturday-night-endorsed-league', placement: 'after' }],
+  },
+  {
+    label: 'Juniors',
+    kind: 'category',
+    category: 'cat_juniors',
     children: [
-      ...(['TNL', 'FNL', 'SNL', 'SAL'] as const).map((c): MenuNode => ({ label: `${c} Ladder`, kind: 'league_ladder', league: c })),
-      ...(['TNL', 'FNL', 'SNL', 'SAL'] as const).map((c): MenuNode => ({
-        label: `${c} Fixtures and Results`,
-        kind: 'league_fixtures',
-        league: c,
-      })),
+      { label: 'Junior Development Program (JDP)', kind: 'page', page: 'junior-development-program-jdp', placement: 'after' },
+      { label: 'VolleyJoeys', kind: 'page', page: 'junior-development-program-jdp-volleyjoeys', placement: 'after' },
     ],
   },
   {
-    label: 'Super League (TVSL)',
-    kind: 'page',
-    page: 'saturday-night-endorsed-league',
+    label: 'Adult Training',
+    kind: 'category',
+    category: 'cat_adult_training',
     children: [
-      { label: 'Fixtures and Results', kind: 'league_fixtures', league: 'TVSL' },
-      { label: 'Ladder', kind: 'league_ladder', league: 'TVSL' },
+      { label: 'Scrim & Coached Training', kind: 'page', page: 'adults-social-training', placement: 'after' },
+      { label: 'Adult Development Program (ADP)', kind: 'page', page: 'adult-development-program-adp', placement: 'after' },
     ],
   },
-  {
-    label: 'Enrolment',
-    kind: 'url',
-    children: [
-      { label: 'Juniors & Social Mixed Leagues Enrolment', kind: 'page', page: '2023-enrolment' },
-      { label: 'Juniors Development Program (JDP)', kind: 'page', page: 'junior-development-program-jdp-volleyjoeys' },
-      { label: 'Scrim & Coached Training Sessions', kind: 'page', page: 'adults-social-training' },
-    ],
-  },
+  { label: 'Enrol', kind: 'page', page: '2023-enrolment' },
   {
     label: 'About',
-    kind: 'url',
+    kind: 'page',
+    page: 'about-tempe-vb',
     children: [
-      { label: 'About Tempe VB', kind: 'page', page: 'about-tempe-vb' },
       { label: 'Where We Play', kind: 'page', page: 'where-we-play' },
       { label: 'Contact', kind: 'page', page: 'contact' },
       { label: 'Rules', kind: 'page', page: 'rules' },
       { label: 'FAQ', kind: 'page', page: 'faq' },
-      { label: 'Login', kind: 'url', url: '/admin' },
     ],
   },
-  { label: 'Instagram', kind: 'url', url: 'https://www.instagram.com/tempe.volleyball/' },
 ]
 
-function buildMenu(pageIdBySlug: Map<string, string>, leagueIdByCode: Map<LeagueCode, string>): Row[] {
+/** True while nobody has edited the menu in the admin (every admin save is audited and stamps updated_by). */
+export const MENU_UNEDITED_SQL = `NOT EXISTS (SELECT 1 FROM "audit_log" WHERE "action" = 'menu.update') AND NOT EXISTS (SELECT 1 FROM "menu_items" WHERE "updated_by" IS NOT NULL)`
+
+const MENU_COLUMNS = ['id', 'parent_id', 'label', 'kind', 'page_id', 'league_id', 'category_id', 'url', 'placement', 'sort'] as const
+
+/**
+ * SQL that replaces the menu with `rows`, but only while it's unedited (MENU_UNEDITED_SQL): an imported menu is
+ * replaced whole (so items dropped from MENU don't linger), and a menu Michael has edited is never touched.
+ * Parents come before children in `rows`.
+ */
+export function guardedMenuStatements(rows: Row[]): string[] {
+  const cols = MENU_COLUMNS.map((c) => `"${c}"`).join(', ')
+  return [
+    `DELETE FROM "menu_items" WHERE ${MENU_UNEDITED_SQL};`,
+    ...rows.map(
+      (r) =>
+        `INSERT INTO "menu_items" (${cols}) SELECT ${MENU_COLUMNS.map((c) => sqlLiteral(r[c] ?? null)).join(', ')} WHERE ${MENU_UNEDITED_SQL};`,
+    ),
+  ]
+}
+
+export function buildMenu(pageIdBySlug: Map<string, string>, leagueIdByCode: Map<LeagueCode, string>): Row[] {
   const rows: Row[] = []
   const walk = (nodes: MenuNode[], parent: string | null, path: string) => {
     nodes.forEach((n, sort) => {
@@ -316,7 +338,9 @@ function buildMenu(pageIdBySlug: Map<string, string>, leagueIdByCode: Map<League
         kind: n.kind,
         page_id: pageId,
         league_id: n.league ? leagueIdByCode.get(n.league)! : null,
+        category_id: n.category ?? null,
         url: n.url ?? null,
+        placement: n.placement ?? null,
         sort,
       })
       if (n.children) walk(n.children, id, `${path}/${n.label}`)

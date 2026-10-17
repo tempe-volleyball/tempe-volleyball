@@ -91,7 +91,7 @@ const tracking = analyticsTags(site.settings.analytics, isIndexable(Astro.url, e
         )}
       </div>
     )}
-    <SiteHeader menu={site.menu} pathname={Astro.url.pathname} />
+    <SiteHeader menu={site.menu} pathname={Astro.url.pathname} social={site.settings.social} />
     <div class="mx-auto w-full max-w-6xl flex-1 px-4 py-10 lg:px-8 lg:py-16">
       {sidebar ? (
         <div class="grid gap-12 lg:grid-cols-[minmax(0,1fr)_21rem]">

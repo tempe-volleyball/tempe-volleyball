@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { createTestDb, type TestDb } from '../db/testing'
+import { createTestDb, type QueryStats, type TestDb } from '../db/testing'
+import { loadSite } from '../site'
 import { auditLog, leagues, media, menuItems, pageRevisions, pages, redirects, siteSettings, user, type UserRole } from '../db/schema'
 import { HttpError } from '../http'
 import { purge } from '../cache'
@@ -14,9 +15,10 @@ const NOW = new Date('2026-10-18T00:00:00.000Z')
 const at = (minutes: number) => new Date(NOW.getTime() + minutes * 60_000)
 
 let db: TestDb
+let stats: QueryStats
 let editor: { id: string; ip: string }
 beforeEach(async () => {
-  db = createTestDb().db
+  ;({ db, stats } = createTestDb())
   editor = await addUser('ed', 'editor')
 })
 
@@ -264,6 +266,64 @@ describe('menu', () => {
     const rows = await db.select().from(menuItems).all()
     expect(rows.map((r) => [r.id, r.label])).toEqual([[tree[0]!.id, 'Start']])
     expect((await db.select().from(auditLog).where(eq(auditLog.action, 'menu.update')).all()).length).toBe(2)
+  })
+
+  it('saves category dropdowns, pinned links and programme visibility, and expands them on the public site', async () => {
+    const admin = { ...(await addUser('ad', 'admin')), role: 'admin' as const }
+    const rules = await createPage(db, editor, { title: 'Rules', path: '/rules' })
+    await setPageStatus(db, editor, rules.id, 'published')
+    await db.insert(leagues).values([
+      { id: 'tnl', code: 'TNL', name: 'Thursday Night League', slug: 'tnl', weekday: 4, categoryId: 'cat_mixed_leagues', sort: 0 },
+      { id: 'fnl', code: 'FNL', name: 'Friday Night League', slug: 'fnl', weekday: 5, categoryId: 'cat_mixed_leagues', sort: 1 },
+      { id: 'tr', code: 'SCT', name: 'Scrims', slug: 'scrims', weekday: 3, kind: 'training', categoryId: 'cat_adult_training' },
+    ])
+    const items = [
+      {
+        label: 'Mixed Leagues',
+        kind: 'category',
+        categoryId: 'cat_mixed_leagues',
+        children: [
+          { label: 'Rules', kind: 'page', pageId: rules.id, placement: 'before' },
+          { label: 'Secret', kind: 'url', url: '/secret', hidden: true },
+        ],
+      },
+      { label: 'Training', kind: 'programme', leagueId: 'tr' },
+      // Near the size limit: 4 hidden headings with 25 links each.
+      ...Array.from({ length: 4 }, (_, h) => ({
+        label: `Heading ${h}`,
+        kind: 'url',
+        hidden: true,
+        children: Array.from({ length: 25 }, (_, i) => ({ label: `Link ${i}`, kind: 'url', url: `/x${h}-${i}` })),
+      })),
+    ]
+    stats.reset()
+    // Editors can edit the menu but not programme settings.
+    await rejects(saveMenu(db, { ...editor, role: 'editor' }, items, NOW, { fnl: false }), 403)
+    const res = await saveMenu(db, admin, items, NOW, { fnl: false })
+    expect(res.purge.tags).toEqual(['site', 'programmes'])
+    expect(stats.queries).toBeLessThanOrEqual(50)
+    expect(stats.maxParams).toBeLessThanOrEqual(100)
+    expect((await db.select({ v: leagues.menuVisible }).from(leagues).where(eq(leagues.id, 'fnl')).get())!.v).toBe(false)
+
+    const site = await loadSite(db)
+    expect(site.menu.map((m) => [m.label, m.href])).toEqual([
+      ['Mixed Leagues', '/mixed-leagues'],
+      ['Training', '/training/scrims'],
+    ])
+    // Rules pinned before the automatic programme links; FNL hidden from menus; the hidden link left out.
+    expect(site.menu[0]!.children.map((c) => [c.label, c.href])).toEqual([
+      ['Rules', '/rules'],
+      ['Thursday Night League', '/leagues/tnl'],
+    ])
+    const { tree, programmes: progs, categories: cats } = await getMenu(db)
+    expect(tree[0]!.children.map((c) => [c.label, c.placement, c.hidden])).toEqual([
+      ['Rules', 'before', false],
+      ['Secret', null, true],
+    ])
+    expect(progs.map((p) => p.code)).toEqual(['SCT', 'TNL', 'FNL'])
+    expect(cats.map((c) => c.id)).toContain('cat_juniors')
+    const entry = await db.select().from(auditLog).where(eq(auditLog.action, 'menu.update')).get()
+    expect(entry!.after).toMatchObject({ programmeVisibility: { FNL: false } })
   })
 
   it('rejects invalid menus without touching the saved one', async () => {

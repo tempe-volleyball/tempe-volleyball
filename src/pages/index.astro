@@ -5,13 +5,15 @@ import BaseLayout from '../layouts/BaseLayout.astro'
 import { documentTitle, metaDescription } from '../lib/content'
 import { SITE_NAME } from '../lib/site'
 import { cachePublic, tags } from '../server/cache'
+import { renderBody } from '../server/content/blocks'
 import { publicDb } from '../server/public'
 import { loadSite, lookupPath } from '../server/site'
 
 const db = publicDb()
 const [site, found] = await Promise.all([loadSite(db), lookupPath(db, '/')])
 const page = found.page
-cachePublic(Astro.cache, tags.page('/'))
+const body = page ? await renderBody(db, site, page.body) : null
+cachePublic(Astro.cache, tags.page('/'), ...(body?.tags ?? []))
 ---
 
 <BaseLayout
@@ -21,5 +23,5 @@ cachePublic(Astro.cache, tags.page('/'))
   sidebar
   canonicalPath="/"
 >
-  <PageBody title={page?.title ?? `Welcome to ${SITE_NAME}`} html={page?.body.html ?? ''} titles={found.titles} />
+  <PageBody title={page?.title ?? `Welcome to ${SITE_NAME}`} html={body?.html ?? ''} titles={found.titles} />
 </BaseLayout>
