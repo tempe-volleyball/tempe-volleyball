@@ -494,7 +494,10 @@ export function SeasonPage({ me, id, tab: requested }: { me: Me; id: string; tab
     if (tab && tab !== requested) navigate(`/seasons/${id}/${tab}`, { replace: true })
   }, [tab, requested, id, navigate])
   // A new tab starts at the top (the router doesn't reset the scroll).
-  useEffect(() => window.scrollTo(0, 0), [tab])
+  // Block body on purpose: newer browsers return a Promise from scrollTo(), and React would call it as a cleanup.
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [tab])
 
   if (loadError)
     return (
