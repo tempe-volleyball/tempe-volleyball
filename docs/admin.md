@@ -1,6 +1,6 @@
-# Admin plan (Phase 7)
+# Admin plan (Phase 6)
 
-What the organiser needs from `/admin`, and how far the rebuild has got. PLAN.md links here for Phase 7; keep the detail
+What the organiser needs from `/admin`, and how far the rebuild has got. PLAN.md links here for Phase 6; keep the detail
 here so PLAN.md stays short.
 
 **The rule: no regressions.** Anything Michael relies on in SportsPress today must exist in the new admin before the
