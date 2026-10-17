@@ -1,13 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_DESCRIPTION,
+  describeHtml,
   describeVagueLinks,
   documentTitle,
   fixEmbeds,
   fixHeadings,
   formatPostDate,
+  htmlToText,
   metaDescription,
   prepareHtml,
+  truncateWords,
 } from './content'
 
 describe('fixHeadings', () => {
@@ -78,13 +81,60 @@ describe('metaDescription', () => {
     expect(metaDescription('Too short')).toBe(DEFAULT_DESCRIPTION)
   })
 
-  it('keeps a good one, collapsing whitespace, and trims long ones to 160 characters at a word', () => {
+  it('keeps a good one, collapsing whitespace, and trims long ones to 155 characters at a word', () => {
     expect(metaDescription('  Founded in 2005 Tempe Volleyball is one of the earliest\n social leagues.  ')).toBe(
       'Founded in 2005 Tempe Volleyball is one of the earliest social leagues.',
     )
     const long = metaDescription('word '.repeat(60))
-    expect(long.length).toBeLessThanOrEqual(160)
+    expect(long.length).toBeLessThanOrEqual(155)
     expect(long.endsWith('word…')).toBe(true)
+  })
+
+  it('uses the body text when nothing usable is stored', () => {
+    const bodyHtml = '<p><strong>Contact</strong><br><a href="mailto:m@x.com">m@x.com</a> or phone Michael on 0414 911 544.</p>'
+    expect(metaDescription(null, { bodyHtml })).toBe('Contact m@x.com or phone Michael on 0414 911 544.')
+    expect(metaDescription('', { bodyHtml: '<p>Hi</p>' })).toBe(DEFAULT_DESCRIPTION)
+    expect(metaDescription('A description typed by the admin, long enough to use.', { bodyHtml })).toBe(
+      'A description typed by the admin, long enough to use.',
+    )
+  })
+})
+
+describe('htmlToText', () => {
+  it('puts spaces at block boundaries and <br>, not inside inline formatting', () => {
+    expect(
+      htmlToText('<p class="x">Tempe Volleyball Super League(TVSL)</p>\n\n<p>Division 3 Men<br>Division 3 Women</p><h1>Overview</h1>'),
+    ).toBe('Tempe Volleyball Super League(TVSL) Division 3 Men Division 3 Women Overview')
+    expect(htmlToText('<p>Play <strong>nice</strong>ly, <a href="/r">read</a> the rules</p><ul><li>one</li><li>two</li></ul>')).toBe(
+      'Play nicely, read the rules one two',
+    )
+    expect(htmlToText('<td>A</td><td>B</td><div>C</div><hr>D')).toBe('A B C D')
+  })
+  it('drops iframe fallback text, scripts, comments and shortcodes, and decodes entities', () => {
+    expect(
+      htmlToText(
+        '<!--StartFragment--><p>Fill in the form&nbsp;below.</p><iframe src="x">Loading…</iframe>[sp_table id="1"]<p>Fish &amp; chips &#8211; Q4</p>',
+      ),
+    ).toBe('Fill in the form below. Fish & chips – Q4')
+    expect(htmlToText('<script>alert(1)</script><style>p{}</style>ok')).toBe('ok')
+  })
+})
+
+describe('truncateWords and describeHtml', () => {
+  it('cuts on a word boundary and adds an ellipsis', () => {
+    const s =
+      'The league is designed to support teams progressing beyond social-level volleyball into a more structured and competitive environment, while aligning with Volleyball NSW.'
+    const out = truncateWords(s)
+    expect(out.length).toBeLessThanOrEqual(155)
+    expect(out).toBe(
+      'The league is designed to support teams progressing beyond social-level volleyball into a more structured and competitive environment, while aligning with…',
+    )
+    expect(truncateWords('short one')).toBe('short one')
+    expect(truncateWords(`see ${'x'.repeat(200)}`, 20)).toBe(`see ${'x'.repeat(15)}…`)
+  })
+  it('describeHtml is null for HTML without text', () => {
+    expect(describeHtml('<p> </p><iframe src="x">Loading…</iframe>')).toBeNull()
+    expect(describeHtml('<p>Contact</p><p>m@x.com</p>')).toBe('Contact m@x.com')
   })
 })
 

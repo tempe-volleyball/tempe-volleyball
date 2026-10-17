@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { withGenerated } from './competition'
 import { demoCompetition } from './demo'
 import { publishWeekResults, setResult, undoWeekResultChanges } from './edit'
-import { ladderUpdatedLabel, ladderWeek, ladderWeekLabel, lastResultsPublishedAt } from './results'
+import { ladderTitle, ladderUpdatedLabel, ladderWeek, ladderWeekLabel, lastResultsPublishedAt } from './results'
 import type { Week } from './types'
 
 const enterAll = (weeks: Week[], w: Week) =>
@@ -56,5 +56,29 @@ describe('ladder heading', () => {
     expect(ladderUpdatedLabel(weeks)).toBe('Updated 16/10/2026')
     // undoing unpublished edits doesn't count as a publish
     expect(ladderUpdatedLabel(undoWeekResultChanges(weeks, w1.id))).toBe('Updated 16/10/2026')
+  })
+})
+
+describe('ladderTitle', () => {
+  const c = withGenerated({ ...demoCompetition() })
+  const publishRegular = (weeks: Week[], count: number) => {
+    let out = weeks
+    for (const w of weeks.filter((x) => x.kind === 'regular').slice(0, count)) out = publishWeekResults(enterAll(out, w), w.id)
+    return out
+  }
+
+  it('is "Ladder" while round-robin match days are still to be published', () => {
+    expect(ladderTitle(c.weeks!)).toBe('Ladder')
+    expect(ladderTitle(publishRegular(c.weeks!, 8))).toBe('Ladder')
+  })
+
+  it('is "Final standings" once every round-robin match day is published, finals or not', () => {
+    const weeks = publishRegular(c.weeks!, 9)
+    expect(ladderWeekLabel(weeks)).toBe('Week 9 of 9')
+    expect(ladderTitle(weeks)).toBe('Final standings')
+  })
+
+  it('is "Ladder" for a season with no games', () => {
+    expect(ladderTitle([])).toBe('Ladder')
   })
 })

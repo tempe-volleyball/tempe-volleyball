@@ -6,7 +6,7 @@ import SiteFooter from '../components/SiteFooter.astro'
 import SiteHeader from '../components/SiteHeader.astro'
 import { announcementActive } from '../lib/content/settings'
 import { SITE_NAME } from '../lib/site'
-import { normalisePath } from '../lib/wp-import/routes'
+import { NEWS_FEED_ROUTE, normalisePath } from '../lib/wp-import/routes'
 import type { Site } from '../server/site'
 
 type Props = {
@@ -37,6 +37,7 @@ const showBanner = announcementActive(banner, new Date())
     <title>{title}</title>
     <meta name="description" content={description} />
     <link rel="canonical" href={canonical} />
+    <link rel="alternate" type="application/rss+xml" title={`${SITE_NAME} news`} href={NEWS_FEED_ROUTE} />
     <link rel="preload" href="/fonts/lato-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="preload" href="/fonts/noto-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin />
     <link

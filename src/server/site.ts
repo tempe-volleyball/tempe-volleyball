@@ -141,6 +141,26 @@ export async function lookupPath(db: AppDb, path: string): Promise<PathLookup> {
   return { page: pageRows[0], redirect: redirectRows[0], titles: new Map(titleRows.map((p) => [p.path, p.title])) }
 }
 
+/**
+ * For a trailing-slash request: the redirect stored for its slashless `path`, unless a published page lives there
+ * (pages win, as in lookupPath). One round trip; lets "/ladders/" go straight to its target in one 301.
+ */
+export async function slashRedirect(db: AppDb, path: string): Promise<{ toPath: string; status: number; id: string } | undefined> {
+  const [pageRows, redirectRows] = (await runBatch(db, [
+    db
+      .select({ id: pages.id })
+      .from(pages)
+      .where(and(eq(pages.path, path), eq(pages.status, 'published')))
+      .limit(1),
+    db
+      .select({ id: redirects.id, toPath: redirects.toPath, status: redirects.status })
+      .from(redirects)
+      .where(eq(redirects.fromPath, path))
+      .limit(1),
+  ])) as unknown as [{ id: string }[], { id: string; toPath: string; status: number }[]]
+  return pageRows.length ? undefined : redirectRows[0]
+}
+
 export const findRedirect = async (db: AppDb, path: string) =>
   (
     await db

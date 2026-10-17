@@ -22,7 +22,7 @@ if (!post) {
 {post ? (
   <BaseLayout
     title={documentTitle(post.title)}
-    description={metaDescription(post.excerpt)}
+    description={metaDescription(post.excerpt, { bodyHtml: post.body.html })}
     site={site}
     sidebar
     canonicalPath={postRoute(slug)}

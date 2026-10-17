@@ -127,6 +127,31 @@ describe('url checks', () => {
     expect(safeEmbedSrc('https://www.google.com/maps/embed?pb=1')).toBe('https://www.google.com/maps/embed?pb=1')
     expect(safeEmbedSrc('http://www.youtube.com/embed/x')).toBeNull()
   })
+  it('safeEmbedSrc allows Google Maps embeds only on Google hosts', () => {
+    const old = 'https://maps.google.com.au/maps?f=d&source=s_d&saddr=Holbeach+Ave&hl=en&output=embed'
+    expect(safeEmbedSrc(old)).toBe(old)
+    expect(safeEmbedSrc('https://maps.google.com/maps?q=Tempe&output=embed')).not.toBeNull()
+    expect(safeEmbedSrc('https://www.google.com.au/maps/embed?pb=!1m18')).not.toBeNull()
+    expect(safeEmbedSrc('https://www.google.com/maps/embed/v1/place?q=x')).not.toBeNull()
+    expect(safeEmbedSrc('https://www.google.com.au/maps?q=x&output=embed')).not.toBeNull()
+    // Not embeds, or not maps
+    expect(safeEmbedSrc('https://maps.google.com.au/maps?q=Tempe')).toBeNull()
+    expect(safeEmbedSrc('https://www.google.com/search?q=x&output=embed')).toBeNull()
+    expect(safeEmbedSrc('https://www.google.com/url?q=https://evil.example')).toBeNull()
+    expect(safeEmbedSrc('https://www.google.com/mapsx?output=embed')).toBeNull()
+    expect(safeEmbedSrc('https://maps.google.com.au.evil.example/maps?output=embed')).toBeNull()
+    expect(safeEmbedSrc('https://user@www.google.com/maps/embed?pb=1')).toBeNull()
+    expect(safeEmbedSrc('http://maps.google.com.au/maps?output=embed')).toBeNull()
+    // Other embed hosts are unchanged
+    expect(safeEmbedSrc('https://docs.google.com/forms/d/e/x/viewform?embedded=true')).not.toBeNull()
+    expect(safeEmbedSrc('https://www.youtube-nocookie.com/embed/abc')).not.toBeNull()
+  })
+  it('renders an old Google Maps embed', () => {
+    const src = 'https://maps.google.com.au/maps?q=Holbeach+Ave&output=embed'
+    expect(renderBlocks([{ type: 'embed', attrs: { src, width: 425, height: 350 } }])).toContain(
+      'src="https://maps.google.com.au/maps?q=Holbeach+Ave&amp;output=embed"',
+    )
+  })
 })
 
 describe('checkBlocks', () => {

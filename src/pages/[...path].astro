@@ -26,7 +26,7 @@ else Astro.response.status = 404
 {page ? (
   <BaseLayout
     title={documentTitle(page.title)}
-    description={metaDescription(page.metaDescription)}
+    description={metaDescription(page.metaDescription, { bodyHtml: page.body.html })}
     site={site}
     sidebar
     canonicalPath={path}
