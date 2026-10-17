@@ -1,50 +1,109 @@
 ---
-// A league's current season: ladder (#ladder) and fixtures (#fixtures). The menu's league items link here.
+// A league's page (docs/admin.md §3.5, §3.6): breadcrumb, when and where, the description, then its current season
+// as Fixtures / Ladder / Results tabs (old #ladder and #fixtures links open the right tab), the season archive and
+// the enrol section. A retired league keeps its page ("This league has finished") with its past seasons; a draft is
+// a 404. An old slug follows the 301 the programmes admin left; a slug of another kind goes to that page.
 import NotFound from '../../../components/NotFound.astro'
-import SeasonView from '../../../components/SeasonView.astro'
+import Breadcrumbs from '../../../components/programmes/Breadcrumbs.astro'
+import EnrolSection from '../../../components/programmes/EnrolSection.astro'
+import ProgrammeIntro from '../../../components/programmes/ProgrammeIntro.astro'
+import SeasonView, { type CalendarLinks } from '../../../components/SeasonView.astro'
 import BaseLayout from '../../../layouts/BaseLayout.astro'
 import { DEFAULT_DESCRIPTION, documentTitle } from '../../../lib/content'
-import { leagueRoute, normalisePath } from '../../../lib/wp-import/routes'
+import { leagueCalendarPath, teamCalendarPath } from '../../../lib/fixture-lists'
+import { webcalUrl } from '../../../lib/ical'
+import { nextStartsLine, summaryLine } from '../../../lib/programme-text'
+import { categoryPath } from '../../../lib/programmes'
+import { sydneyDate } from '../../../lib/time'
+import { leagueRoute, normalisePath, seasonRoute } from '../../../lib/wp-import/routes'
 import { cachePublic, tags } from '../../../server/cache'
 import { publicSeasons } from '../../../server/competition/load'
+import { loadProgrammePage, programmePageTags, programmeSeo } from '../../../server/programmes/public'
 import { publicDb, redirectFor } from '../../../server/public'
+import { getTurnstileKeys } from '../../../server/services'
 import { loadSite } from '../../../server/site'
 
 const slug = (Astro.params.league ?? '').toLowerCase()
 const db = publicDb()
-const site = await loadSite(db)
-const view = site.current.find((c) => c.league.slug === slug)
-const league = site.leagues.find((l) => l.slug === slug)
-
-if (!view) {
+const now = new Date()
+const today = sydneyDate(now)
+const [site, lookup] = await Promise.all([
+  loadSite(db),
+  loadProgrammePage(db, 'league', slug, { turnstileSiteKey: getTurnstileKeys()?.siteKey ?? null, now }),
+])
+if (lookup && 'redirect' in lookup) return Astro.redirect(lookup.redirect, 301)
+const page = lookup?.found
+if (!page) {
   const redirect = await redirectFor(Astro, db, normalisePath(Astro.url.pathname))
   if (redirect) return redirect
   Astro.response.status = 404
-} else cachePublic(Astro.cache, tags.league(slug), tags.season(view.summary.slug))
+}
 
-const description = view
-  ? `${view.league.name} ${view.summary.name}: ladder, fixtures and results for Tempe Volleyball's ${view.league.name}.`
-  : DEFAULT_DESCRIPTION
+const league = page?.programme
+const view = league && league.status === 'active' ? site.current.find((c) => c.league.id === league.id) : undefined
+const venue = league?.defaultVenueId ? site.venues.find((v) => v.id === league.defaultVenueId) : undefined
+const nextStarts = league ? nextStartsLine(league, page?.nextInstanceDate) : ''
+const summary = league ? summaryLine(league, venue) : ''
+const seo = league ? programmeSeo(league, summary, nextStarts) : null
+const archive = league ? publicSeasons(site.seasons, league.id) : []
+const crumbs = league
+  ? [...(page?.category ? [{ label: page.category.name, href: categoryPath(page.category.slug) }] : []), { label: league.name }]
+  : []
+const enrolmentOpen = !!page?.enrolment?.targets.length
+const closedText = `Enrolment for ${league?.name ?? 'this league'} is closed right now.${nextStarts ? ` ${nextStarts}.` : ''}`
+
+// Calendar feeds follow the current season, so they're offered only on the current (published) season.
+const feed = (path: string) => new URL(path, Astro.url)
+const calendar: CalendarLinks | undefined =
+  view && view.summary.status === 'published'
+    ? {
+        league: { webcal: webcalUrl(feed(leagueCalendarPath(slug))), https: leagueCalendarPath(slug) },
+        teams: view.data.teams
+          .filter((t) => !t.withdrawnAt)
+          .map((t) => ({ name: t.name, webcal: webcalUrl(feed(teamCalendarPath(slug, t.slug))), https: teamCalendarPath(slug, t.slug) }))
+          .toSorted((a, b) => a.name.localeCompare(b.name)),
+      }
+    : undefined
+
+if (league && page)
+  cachePublic(Astro.cache, ...programmePageTags(league, page.category?.slug ?? null), ...(view ? [tags.season(view.summary.slug)] : []))
 ---
 
-{view ? (
-  <BaseLayout
-    title={documentTitle(`${view.league.name} Ladder, Fixtures and Results`)}
-    description={description}
-    site={site}
-    canonicalPath={leagueRoute(slug)}
-  >
-    <SeasonView view={view} others={publicSeasons(site.seasons, view.league.id)} current />
+{league && page && seo ? (
+  <BaseLayout title={documentTitle(seo.title)} description={seo.description} site={site} canonicalPath={leagueRoute(slug)}>
+    {view ? (
+      <SeasonView view={view} others={publicSeasons(site.seasons, view.league.id)} current today={today} calendar={calendar}>
+        <Breadcrumbs slot="before" items={crumbs} />
+        <ProgrammeIntro programme={league} venue={venue} nextStarts={nextStarts} enrolmentOpen={enrolmentOpen} noun="league" />
+      </SeasonView>
+    ) : (
+      <>
+        <Breadcrumbs items={crumbs} />
+        <h1 class="page-title">{league.name}</h1>
+        <ProgrammeIntro programme={league} venue={venue} nextStarts={nextStarts} enrolmentOpen={enrolmentOpen} noun="league" />
+        {league.status === 'active' && <p class="mt-6">No season has been published for this league yet.</p>}
+        {archive.length > 0 && (
+          <section aria-labelledby="seasons-heading" class="mt-10">
+            <h2 id="seasons-heading" class="mb-4 text-2xl font-bold">
+              {league.code} seasons
+            </h2>
+            <ul class="flex flex-wrap gap-3">
+              {archive.map((s) => (
+                <li>
+                  <a href={seasonRoute(league.slug, s.slug)} class="bg-brand hover:bg-brand-dark inline-block px-3 py-2 text-white">
+                    {s.name}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+      </>
+    )}
+    {league.status === 'active' && <EnrolSection enrolment={page.enrolment} name={league.name} closedText={closedText} />}
   </BaseLayout>
 ) : (
-  <BaseLayout title={documentTitle(league ? league.name : 'Page not found')} description={DEFAULT_DESCRIPTION} site={site}>
-    {league ? (
-      <>
-        <h1 class="page-title">{league.name}</h1>
-        <p>No season has been published for this league yet.</p>
-      </>
-    ) : (
-      <NotFound />
-    )}
+  <BaseLayout title={documentTitle('Page not found')} description={DEFAULT_DESCRIPTION} site={site}>
+    <NotFound />
   </BaseLayout>
 )}

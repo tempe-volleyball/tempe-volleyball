@@ -1,0 +1,52 @@
+---
+import { prepareHtml } from '../../lib/content'
+import { scheduleText, venueText, type VenueTextInput } from '../../lib/programme-text'
+import type { Programme } from '../../server/db/schema'
+
+// What sits above a programme's schedule or tabs: when and where, "Next … starts", the enrol button while enrolment
+// is open, the "more info" link, and Michael's description (rich text from the admin). A retired programme gets the
+// "This … has finished" notice instead of the enrol button.
+type Props = {
+  programme: Programme
+  venue: VenueTextInput
+  nextStarts: string
+  enrolmentOpen: boolean
+  /** "league", "training programme" … for the retired notice. */
+  noun: string
+  titles?: Map<string, string>
+}
+const { programme: p, venue, nextStarts, enrolmentOpen, noun, titles } = Astro.props
+const when = scheduleText(p)
+const where = venueText(venue)
+const retired = p.status === 'retired'
+const html = p.description?.html ?? ''
+---
+
+{retired && (
+  <p role="status" class="bg-accent text-ink mb-6 px-4 py-3 font-semibold">
+    This {noun} has finished. {p.kind === 'league' ? 'Its past seasons are below.' : 'What it ran is listed below.'}
+  </p>
+)}
+{(when || where) && !retired && (
+  <p class="text-lg">
+    {when}
+    {when && where ? ' · ' : ''}
+    {where}
+  </p>
+)}
+{!retired && nextStarts && <p class="mt-1 font-semibold">{nextStarts}</p>}
+{!retired && (enrolmentOpen || p.moreInfoUrl) && (
+  <p class="mt-4 flex flex-wrap gap-3">
+    {enrolmentOpen && (
+      <a class="bg-accent text-ink inline-block px-4 py-2 font-bold hover:brightness-95" href="#enrol">
+        Enrol now
+      </a>
+    )}
+    {p.moreInfoUrl && (
+      <a class="bg-brand hover:bg-brand-dark inline-block px-4 py-2 font-semibold text-white" href={p.moreInfoUrl}>
+        More info<span class="sr-only"> about {p.name}</span>
+      </a>
+    )}
+  </p>
+)}
+{html && <div class="prose mt-6 max-w-3xl" set:html={prepareHtml(html, titles ? { titles } : {})} />}

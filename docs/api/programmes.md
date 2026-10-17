@@ -168,6 +168,11 @@ Defined in `src/server/cache.ts` (`tags`). Public pages must carry these so the 
 | `tags.venues`          | Pages showing venue details (Where We Play).                                                       |
 | `tags.site`            | Every page (the menu), as before.                                                                  |
 
+The public pages ([admin.md §3.13](../admin.md#313-public-pages-build-step-3)) carry them: `programmePageTags()` and
+`categoryPageTags()` in `src/server/programmes/public.ts` list a programme page's and a category page's tags.
+Programme slugs can't be `fixtures` (`RESERVED_PROGRAMME_SLUGS` in `src/lib/programmes.ts`): `/leagues/fixtures` is
+the cross-league fixture list.
+
 What purges what:
 
 - **Programme:** nothing while it stays a draft. Otherwise its page tags (old and new slug), its category pages (old

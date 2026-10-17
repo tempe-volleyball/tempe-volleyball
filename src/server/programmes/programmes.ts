@@ -1,7 +1,7 @@
 import { and, asc, count, eq, gte, inArray, isNull, min, ne, or } from 'drizzle-orm'
 import { slugify } from '../../lib/content/paths'
 import { generatedSummaryLine, nextStartsLine, scheduleText, summaryLine } from '../../lib/programme-text'
-import { enrolmentOpen, programmePath } from '../../lib/programmes'
+import { enrolmentOpen, isReservedProgrammeSlug, programmePath } from '../../lib/programmes'
 import { sydneyDate } from '../../lib/time'
 import { tags, type PurgeTargets } from '../cache'
 import { runBatch, type AppDb } from '../db'
@@ -407,6 +407,7 @@ export function parseProgrammeFields(input: ProgrammeInput): Patch {
     out.code = code
   }
   if (has(input, 'slug')) out.slug = parseSlug(input.slug)
+  if (out.slug && isReservedProgrammeSlug(out.slug)) throw invalid(`URL: “${out.slug}” is used by the site itself; pick another.`)
   if (has(input, 'categoryId')) out.categoryId = requiredId(input.categoryId, 'Category')
   if (has(input, 'weekday')) out.weekday = int(input.weekday, 'Day', 0, 6)
   if (has(input, 'defaultVenueId')) out.defaultVenueId = idOrNull(input.defaultVenueId, 'Venue')
@@ -623,6 +624,7 @@ export async function createProgramme(
     updatedBy: actor.id,
   } as NewProgramme & { id: string; slug: string; code: string }
   if (!values.slug) throw invalid('URL: enter a slug, like tnl.')
+  if (isReservedProgrammeSlug(values.slug)) throw invalid(`URL: “${values.slug}” is used by the site itself; pick another.`)
   checkMerged({
     kind,
     ageMin: values.ageMin ?? null,

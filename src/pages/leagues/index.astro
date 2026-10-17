@@ -2,6 +2,7 @@
 // The league index: each league's night, place and current season, with links to its ladder and fixtures.
 import BaseLayout from '../../layouts/BaseLayout.astro'
 import { documentTitle } from '../../lib/content'
+import { FIXTURE_LIST_ROUTE } from '../../lib/fixture-lists'
 import { leagueFixturesRoute, leagueLadderRoute } from '../../lib/wp-import/routes'
 import { cachePublic, tags } from '../../server/cache'
 import { publicDb } from '../../server/public'
@@ -20,9 +21,14 @@ const venueName = (id: string | null) => site.venues.find((v) => v.id === id)?.n
   sidebar
 >
   <h1 class="page-title">Leagues</h1>
+  <p class="mb-8">
+    <a class="text-link decoration-accent font-semibold underline decoration-2 underline-offset-2" href={FIXTURE_LIST_ROUTE}>
+      This week's games in every league
+    </a>
+  </p>
   <ul class="space-y-6">
     {site.leagues
-      .filter((l) => l.active)
+      .filter((l) => l.status === 'active')
       .map((l) => {
         const c = site.current.find((x) => x.league.id === l.id)
         const venue = venueName(l.defaultVenueId)

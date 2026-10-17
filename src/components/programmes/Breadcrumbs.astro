@@ -1,0 +1,27 @@
+---
+// "Home › Mixed Leagues › Thursday Night League": the category a programme sits in (programme URLs are flat, so the
+// breadcrumb is where the category shows). The last item is the current page.
+type Props = { items: { label: string; href?: string | undefined }[] }
+const { items } = Astro.props
+const all = [{ label: 'Home', href: '/' }, ...items]
+---
+
+<nav aria-label="Breadcrumb" class="mb-4 text-sm">
+  <ol class="flex flex-wrap items-center gap-x-2 gap-y-1">
+    {all.map((item, i) => {
+      const last = i === all.length - 1
+      return (
+        <li class="flex items-center gap-2">
+          {last || !item.href ? (
+            <span aria-current={last ? 'page' : undefined}>{item.label}</span>
+          ) : (
+            <a class="text-link decoration-accent underline decoration-2 underline-offset-2" href={item.href}>
+              {item.label}
+            </a>
+          )}
+          {!last && <span aria-hidden="true">›</span>}
+        </li>
+      )
+    })}
+  </ol>
+</nav>

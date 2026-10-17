@@ -1,5 +1,9 @@
+import { checkPagePath } from '../content/paths'
+import { FIXTURE_LIST_ROUTE } from '../fixture-lists'
 import { describe, expect, it } from 'vitest'
 import {
+  ENROL_REDIRECTS,
+  ENROL_ROUTE,
   leagueDataPageTarget,
   normalisePath,
   pagePath,
@@ -56,6 +60,8 @@ describe('old pages', () => {
     expect(leagueDataPageTarget('sunday-super-league-week-1-of-6')).toBe('/leagues/tvsl#ladder')
     expect(leagueDataPageTarget('monday-results')).toBe('/leagues')
     expect(leagueDataPageTarget('about-tempe-vb')).toBeNull()
+    // The old "this week" page has a real successor: the cross-league fixture list.
+    expect(leagueDataPageTarget('this-weeks-fixtures')).toBe(FIXTURE_LIST_ROUTE)
   })
 
   it('keeps page slugs as paths', () => {
@@ -84,5 +90,16 @@ describe('isAutoExcerpt', () => {
   })
   it('treats anything else as typed', () => {
     expect(isAutoExcerpt('<p>Hi All, If keen please submit an entry</p>', '<p>If keen please submit an entry</p>')).toBe(false)
+  })
+})
+
+describe('ENROL_REDIRECTS', () => {
+  it('lists normalised, unreserved paths that all go to /enrol', () => {
+    expect(ENROL_ROUTE).toBe('/enrol')
+    for (const p of ENROL_REDIRECTS) {
+      expect(normalisePath(p)).toBe(p)
+      expect(checkPagePath(p)).toEqual({ ok: true, path: p })
+    }
+    expect(new Set(ENROL_REDIRECTS).size).toBe(ENROL_REDIRECTS.length)
   })
 })

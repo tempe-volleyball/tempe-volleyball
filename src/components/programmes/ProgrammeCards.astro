@@ -1,0 +1,70 @@
+---
+import type { ProgrammeCard } from '../../server/programmes/public'
+
+// Programme cards for category pages and /enrol: name, summary line, day and times, venue, next start, enrolment
+// status, and links. When and where are listed only under a hand-written summary (the generated one says them).
+// Links go to the programme page (and its enrol section while enrolment is open).
+type Props = { cards: ProgrammeCard[]; headingLevel?: 2 | 3; showTargets?: boolean }
+const { cards, headingLevel = 2, showTargets = false } = Astro.props
+const H = headingLevel === 2 ? 'h2' : 'h3'
+const button = 'bg-brand hover:bg-brand-dark inline-block px-3 py-2 font-semibold text-white'
+// "Next season starts Thursday 15 January 2027" -> "Season starts Thursday 15 January 2027" beside a "Next" label.
+const nextText = (s: string) => s.replace(/^Next (\w)/, (_, ch: string) => ch.toUpperCase())
+---
+
+<ul class="grid gap-6 md:grid-cols-2">
+  {cards.map((c) => (
+    <li class="flex flex-col bg-white/60 p-5">
+      <H class="text-2xl font-bold">
+        <a class="hover:underline" href={c.path}>
+          {c.name}
+        </a>
+      </H>
+      <p class="mt-1">{c.summary}</p>
+      <dl class="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+        {c.summaryCustom && c.schedule && (
+          <>
+            <dt class="font-semibold">When</dt>
+            <dd>{c.schedule}</dd>
+          </>
+        )}
+        {c.summaryCustom && c.venue && (
+          <>
+            <dt class="font-semibold">Where</dt>
+            <dd>{c.venue}</dd>
+          </>
+        )}
+        {c.nextStarts && (
+          <>
+            <dt class="font-semibold">Next</dt>
+            <dd>{nextText(c.nextStarts)}</dd>
+          </>
+        )}
+        <dt class="font-semibold">Enrolment</dt>
+        <dd>{c.enrolmentOpen ? <strong>Open now</strong> : 'Closed'}</dd>
+      </dl>
+      {showTargets && c.targets.length > 0 && (
+        <ul class="mt-3 list-disc space-y-1 pl-5 text-sm">
+          {c.targets.slice(0, 6).map((t) => (
+            <li>
+              {t.label}
+              {t.spots && ` – ${t.spots}`}
+            </li>
+          ))}
+          {c.targets.length > 6 && <li>and {c.targets.length - 6} more</li>}
+        </ul>
+      )}
+      <p class="mt-auto flex flex-wrap gap-3 pt-4">
+        <a class={button} href={c.path}>
+          About {c.code}
+          <span class="sr-only"> ({c.name})</span>
+        </a>
+        {c.enrolmentOpen && (
+          <a class="bg-accent text-ink inline-block px-3 py-2 font-semibold hover:brightness-95" href={`${c.path}#enrol`}>
+            Enrol<span class="sr-only"> in {c.name}</span>
+          </a>
+        )}
+      </p>
+    </li>
+  ))}
+</ul>

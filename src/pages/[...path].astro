@@ -1,13 +1,18 @@
 ---
-// Content pages by path (pages table), and the fallback for everything no other route matched: an old WordPress URL
-// in the redirects table gets a 301, anything else a 404.
+// Content pages by path (pages table), category landing pages (/mixed-leagues; categories table), and the fallback
+// for everything no other route matched: an old WordPress URL in the redirects table gets a 301, anything else a 404.
+// Pages and categories can't share a path (the admin refuses either way), so the order only matters for redirects:
+// a page or a category always wins over a redirect from the same path.
 import NotFound from '../components/NotFound.astro'
 import PageBody from '../components/PageBody.astro'
+import CategoryView from '../components/programmes/CategoryView.astro'
 import BaseLayout from '../layouts/BaseLayout.astro'
 import { DEFAULT_DESCRIPTION, documentTitle, metaDescription } from '../lib/content'
+import { categoryPath } from '../lib/programmes'
 import { normalisePath } from '../lib/wp-import/routes'
 import { cachePublic, tags } from '../server/cache'
 import { renderBody } from '../server/content/blocks'
+import { categoryPageTags, loadCategoryPage, type CategoryPage } from '../server/programmes/public'
 import { followRedirect, publicDb } from '../server/public'
 import { loadSite, lookupPath } from '../server/site'
 
@@ -15,7 +20,11 @@ const path = normalisePath(`/${Astro.params.path ?? ''}`)
 const db = publicDb()
 const [site, found] = await Promise.all([loadSite(db), lookupPath(db, path)])
 
-if (!found.page && found.redirect) return followRedirect(Astro, db, path, found.redirect)
+// Category slugs are one segment (/mixed-leagues), so only one-segment paths without a page look for one.
+const categorySlug = !found.page && /^\/[a-z0-9-]+$/.test(path) ? path.slice(1) : null
+const category: CategoryPage | null = categorySlug ? await loadCategoryPage(db, categorySlug) : null
+
+if (!found.page && !category && found.redirect) return followRedirect(Astro, db, path, found.redirect)
 // The home page has its own route; send "/home" style duplicates of it there.
 if (found.page?.template === 'home') return Astro.redirect('/', 301)
 
@@ -23,7 +32,15 @@ const page = found.page
 // Data blocks (programme lists, ladders, fixtures) render from live data here; other pages use the stored HTML.
 const body = page ? await renderBody(db, site, page.body) : null
 if (page) cachePublic(Astro.cache, tags.page(path), ...(body?.tags ?? []))
+else if (category) cachePublic(Astro.cache, ...categoryPageTags(category.category.slug))
 else Astro.response.status = 404
+
+const categoryDescription = category
+  ? metaDescription(category.category.seoDescription, {
+      bodyHtml: category.category.intro?.html ?? '',
+      fallback: `${category.category.name} at Tempe Volleyball: ${category.cards.map((c) => c.name).join(', ') || 'programmes in Sydney'}.`,
+    })
+  : ''
 ---
 
 {page ? (
@@ -35,6 +52,15 @@ else Astro.response.status = 404
     canonicalPath={path}
   >
     <PageBody title={page.title} html={body?.html ?? page.body.html} titles={found.titles} />
+  </BaseLayout>
+) : category ? (
+  <BaseLayout
+    title={documentTitle(category.category.seoTitle?.trim() || category.category.name)}
+    description={categoryDescription}
+    site={site}
+    canonicalPath={categoryPath(category.category.slug)}
+  >
+    <CategoryView data={category} titles={found.titles} />
   </BaseLayout>
 ) : (
   <BaseLayout title={documentTitle('Page not found')} description={DEFAULT_DESCRIPTION} site={site}>

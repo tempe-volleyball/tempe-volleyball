@@ -177,9 +177,15 @@ export type FixtureRow = {
   note: string
   /** The date the night was first scheduled for, when it has moved; ''. */
   movedFrom: string
+  /** Resolved team ids (null for an unresolved finals placeholder, or none): for team filters and team calendars. */
+  teamIds: { home: string | null; away: string | null; duty: string | null }
+  /** The match as written for people rather than tables: "Hit For Brains vs Ice Cold", "Semi Final 1: (2nd) vs (3rd)". */
+  label: string
 }
 
 const label = (r: Ref, names: Map<string, string>) => (isTeam(r) ? (names.get(r.team) ?? 'Unknown team') : `(${r.label.toUpperCase()})`)
+const plainLabel = (r: Ref, names: Map<string, string>) => (isTeam(r) ? (names.get(r.team) ?? 'Unknown team') : `(${r.label})`)
+const noTeams = { home: null, away: null, duty: null }
 
 const OFF_RESULT: Partial<Record<Match['status'], string>> = { cancelled: 'Cancelled', postponed: 'Postponed', tbd: 'TBD' }
 
@@ -196,8 +202,13 @@ export function fixtureRows(c: SeasonCompetition, matches: Pick<Match, 'id' | 's
   const byId = new Map(matches.map((m) => [m.id, m]))
   const resolve = makeResolver(s, weeks)
   const name = (r: Ref | null) => (r ? label(resolve(r) ?? r, names) : '')
+  const plain = (r: Ref | null) => (r ? plainLabel(resolve(r) ?? r, names) : '')
+  const resolvedTeam = (r: Ref | null) => {
+    const t = r ? (resolve(r) ?? r) : null
+    return t && isTeam(t) ? t.team : null
+  }
   const rows: FixtureRow[] = []
-  const base = { sets: '', court: '', duty: '', forfeit: false, status: 'scheduled' as const, note: '' }
+  const base = { sets: '', court: '', duty: '', forfeit: false, status: 'scheduled' as const, note: '', teamIds: noTeams }
   for (const w of weeks) {
     const movedFrom = w.originalDate && w.originalDate !== w.date ? w.originalDate : ''
     if (w.kind === 'skip') {
@@ -208,6 +219,7 @@ export function fixtureRows(c: SeasonCompetition, matches: Pick<Match, 'id' | 's
         matchDay: 0,
         time: '',
         match: w.note ?? 'No games',
+        label: w.note ?? 'No games',
         result: '',
         kind: 'skip',
         movedFrom,
@@ -230,12 +242,15 @@ export function fixtureRows(c: SeasonCompetition, matches: Pick<Match, 'id' | 's
         continue
       }
       const vs = `${name(g.home).toUpperCase()} vs ${name(g.away).toUpperCase()}`
+      const plainVs = `${plain(g.home)} vs ${plain(g.away)}`
       rows.push({
         key: g.id,
         date: w.date,
         matchDay: w.matchDay,
         time,
         match: g.title ? `${g.title.toUpperCase()} - ${vs}` : vs,
+        label: g.title ? `${g.title}: ${plainVs}` : plainVs,
+        teamIds: { home: resolvedTeam(g.home), away: resolvedTeam(g.away), duty: resolvedTeam(g.duty) },
         result: r ? `${r.home} - ${r.away}` : (OFF_RESULT[status] ?? ''),
         sets: (g.publishedResult?.sets ?? []).map(([h, a]) => `${h}-${a}`).join(', '),
         court: courtName(s, w, g.session, g.court),
@@ -255,6 +270,8 @@ export function fixtureRows(c: SeasonCompetition, matches: Pick<Match, 'id' | 's
         matchDay: w.matchDay,
         time: 'Bye',
         match: `BYE - ${(names.get(teamId) ?? '').toUpperCase()}`,
+        label: `Bye: ${names.get(teamId) ?? ''}`,
+        teamIds: { home: teamId, away: null, duty: null },
         result: '-',
         duty: '-',
         kind: 'bye',

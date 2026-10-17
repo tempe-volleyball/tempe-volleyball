@@ -1,0 +1,194 @@
+---
+// /leagues/fixtures: "This week" (Monday to Sunday, Sydney) or "Upcoming" games across every league's current
+// season, filtered by league and team with plain GET parameters (?view=upcoming&league=tnl&team=ice-cold), so it
+// works without JavaScript and every view has a shareable URL. Under /leagues so no content page can take the path
+// (the slug "fixtures" is reserved for programmes). docs/admin.md §1 "Fixture lists".
+import FixturesTable from '../../components/FixturesTable.astro'
+import Breadcrumbs from '../../components/programmes/Breadcrumbs.astro'
+import BaseLayout from '../../layouts/BaseLayout.astro'
+import {
+  FIXTURE_LIST_ROUTE,
+  FIXTURE_VIEW_LABELS,
+  FIXTURE_VIEWS,
+  filterFixtureRows,
+  fixtureQueryString,
+  leagueCalendarPath,
+  parseFixtureQuery,
+  teamCalendarPath,
+  weekRange,
+} from '../../lib/fixture-lists'
+import { documentTitle } from '../../lib/content'
+import { formatDateLong } from '../../lib/programme-text'
+import { webcalUrl } from '../../lib/ical'
+import { sydneyDate } from '../../lib/time'
+import { leagueRoute } from '../../lib/wp-import/routes'
+import { cachePublic, tags } from '../../server/cache'
+import { fixtureRows, type FixtureRow } from '../../server/competition/adapter'
+import { publicDb } from '../../server/public'
+import { loadSite, type LeagueSeason } from '../../server/site'
+
+const site = await loadSite(publicDb())
+const today = sydneyDate(new Date())
+const asked = parseFixtureQuery(Astro.url.searchParams)
+const seasons = site.current.filter((c) => c.summary.status === 'published')
+const leagueView = seasons.find((c) => c.league.slug === asked.league)
+const inScope = leagueView ? [leagueView] : seasons
+const teamHit = asked.team
+  ? inScope.flatMap((c) => c.data.teams.filter((t) => t.slug === asked.team).map((t) => ({ team: t, view: c })))[0]
+  : undefined
+// Only what matched counts: an unknown league or team falls back to everything rather than an empty page.
+const q = { view: asked.view, league: leagueView ? asked.league : '', team: teamHit ? asked.team : '' }
+const range = q.view === 'week' ? weekRange(today) : { from: today, to: null }
+
+type Block = { view: LeagueSeason; rows: FixtureRow[] }
+const byDate = new Map<string, Block[]>()
+let nextDate: string | null = null
+for (const view of teamHit ? [teamHit.view] : inScope) {
+  const all = fixtureRows(view.competition, view.data.matches)
+  const teamId = teamHit?.team.id ?? null
+  const rows = filterFixtureRows(all, { ...range, teamId })
+  if (q.view === 'week') {
+    const after = filterFixtureRows(all, { from: range.to ?? today, to: null, teamId }).find((r) => r.date > (range.to ?? today))
+    if (after && (!nextDate || after.date < nextDate)) nextDate = after.date
+  }
+  for (const r of rows) {
+    const blocks = byDate.get(r.date) ?? []
+    let block = blocks.find((b) => b.view === view)
+    if (!block) blocks.push((block = { view, rows: [] }))
+    block.rows.push(r)
+    byDate.set(r.date, blocks)
+  }
+}
+const dates = [...byDate.keys()].toSorted()
+
+const subject = teamHit ? teamHit.team.name : leagueView ? leagueView.league.code : ''
+const heading = `${q.view === 'week' ? "This Week's" : 'Upcoming'} ${subject ? `${subject} ` : ''}Fixtures`
+const description =
+  q.view === 'week'
+    ? `This week's ${subject ? `${subject} ` : ''}volleyball games at Tempe Volleyball: times, courts and duty teams for every league.`
+    : `Upcoming ${subject ? `${subject} ` : ''}volleyball games at Tempe Volleyball: dates, times, courts and duty teams.`
+const linkClass = 'text-link decoration-accent font-semibold underline decoration-2 underline-offset-2'
+const select = 'border-ink/30 block w-full border bg-white px-3 py-2'
+const feedLeague = teamHit?.view ?? leagueView
+const feed = (path: string) => ({ webcal: webcalUrl(new URL(path, Astro.url)), https: path })
+const calendar = feedLeague
+  ? teamHit
+    ? feed(teamCalendarPath(feedLeague.league.slug, teamHit.team.slug))
+    : feed(leagueCalendarPath(feedLeague.league.slug))
+  : null
+
+cachePublic(Astro.cache, tags.page(FIXTURE_LIST_ROUTE), ...seasons.map((c) => tags.league(c.league.slug)))
+---
+
+<BaseLayout
+  title={documentTitle(heading)}
+  description={description}
+  site={site}
+  canonicalPath={`${FIXTURE_LIST_ROUTE}${fixtureQueryString(q)}`}
+>
+  <Breadcrumbs items={[{ label: 'Leagues', href: '/leagues' }, { label: 'Fixtures' }]} />
+  <h1 class="page-title">{heading}</h1>
+
+  <form method="get" action={FIXTURE_LIST_ROUTE} class="mb-10 grid gap-4 bg-white/60 p-4 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end">
+    <div>
+      <label for="fx-view" class="mb-1 block text-sm font-semibold">
+        Show
+      </label>
+      <select id="fx-view" name="view" class={select}>
+        {FIXTURE_VIEWS.map((v) => (
+          <option value={v} selected={v === q.view}>
+            {FIXTURE_VIEW_LABELS[v]}
+          </option>
+        ))}
+      </select>
+    </div>
+    <div>
+      <label for="fx-league" class="mb-1 block text-sm font-semibold">
+        League
+      </label>
+      <select id="fx-league" name="league" class={select}>
+        <option value="">All leagues</option>
+        {seasons.map((c) => (
+          <option value={c.league.slug} selected={c.league.slug === q.league}>
+            {c.league.name}
+          </option>
+        ))}
+      </select>
+    </div>
+    <div>
+      <label for="fx-team" class="mb-1 block text-sm font-semibold">
+        Team
+      </label>
+      <select id="fx-team" name="team" class={select}>
+        <option value="">All teams</option>
+        {inScope.map((c) => (
+          <optgroup label={c.league.code}>
+            {c.data.teams
+              .filter((t) => !t.withdrawnAt)
+              .toSorted((a, b) => a.name.localeCompare(b.name))
+              .map((t) => (
+                <option value={t.slug} selected={t.slug === q.team && teamHit?.view === c}>
+                  {t.name}
+                </option>
+              ))}
+          </optgroup>
+        ))}
+      </select>
+    </div>
+    <button type="submit" class="bg-brand hover:bg-brand-dark px-5 py-2 font-semibold text-white">
+      Show games
+    </button>
+  </form>
+
+  <p class="mb-8 flex flex-wrap gap-x-6 gap-y-2">
+    {FIXTURE_VIEWS.filter((v) => v !== q.view).map((v) => (
+      <a class={linkClass} href={`${FIXTURE_LIST_ROUTE}${fixtureQueryString({ ...q, view: v })}`}>
+        {FIXTURE_VIEW_LABELS[v]}
+        {subject ? ` (${subject})` : ''}
+      </a>
+    ))}
+    {calendar && (
+      <span>
+        <a class={linkClass} href={calendar.webcal}>
+          Subscribe in your calendar
+        </a>
+        {' · '}
+        <a class="underline underline-offset-2" href={calendar.https}>
+          .ics file
+        </a>
+      </span>
+    )}
+    {feedLeague && (
+      <a class={linkClass} href={leagueRoute(feedLeague.league.slug)}>
+        {feedLeague.league.code} ladder and results
+      </a>
+    )}
+  </p>
+
+  {dates.length === 0 ? (
+    <div class="space-y-2">
+      <p class="text-lg font-semibold">{q.view === 'week' ? 'No games this week.' : 'No more games are scheduled.'}</p>
+      {nextDate && (
+        <p>
+          The next games are on {formatDateLong(nextDate)}.{' '}
+          <a class={linkClass} href={`${FIXTURE_LIST_ROUTE}${fixtureQueryString({ ...q, view: 'upcoming' })}`}>
+            See upcoming games
+          </a>
+        </p>
+      )}
+    </div>
+  ) : (
+    dates.map((date) => (
+      <section aria-labelledby={`d-${date}`} class="mb-12">
+        <h2 id={`d-${date}`} class="mb-4 text-2xl font-bold sm:text-3xl">
+          {formatDateLong(date)}
+        </h2>
+        <div class="space-y-6">
+          {(byDate.get(date) ?? []).map((b) => (
+            <FixturesTable rows={b.rows} caption={b.view.league.name} showDuty={b.view.data.season.dutyEnabled} />
+          ))}
+        </div>
+      </section>
+    ))
+  )}
+</BaseLayout>
