@@ -1,4 +1,11 @@
-export type Team = { id: string; name: string }
+import type { MatchStatus, TieBreakRule } from '../../server/db/schema/enums'
+
+export type Team = {
+  id: string
+  name: string
+  /** Set when the team has withdrawn from the season (season_teams.withdrawn_at, UTC ISO, and the reason). */
+  withdrawn?: { at: string; reason: string }
+}
 
 /** A slot participant: either a real team or a finals placeholder like "1st" or "Winner SF1". */
 export type Ref = { team: string } | { label: string }
@@ -20,6 +27,13 @@ export type Game = {
    * ladder and the website, so edits stay private until they're republished.
    */
   publishedResult?: Result
+  /**
+   * matches.status, filled in by the server (missing = scheduled). Ignored by draw saves. cancelled, postponed and
+   * tbd games are "off" (see isOff): they take no result and don't hold up publishing their match day.
+   */
+  status?: MatchStatus
+  /** Public reason for the status ("Venue unavailable"). */
+  statusNote?: string
 }
 
 /** Rally points in one set: [home, away]. */
@@ -68,6 +82,13 @@ export type Week = {
   courtOverrides?: Record<string, string>
   /** When this match day's results were last published (UTC ISO). match_days.results_published_at. */
   resultsPublishedAt?: string
+  /**
+   * The whole night (match_days.status), filled in by the server: postponed or cancelled, missing = scheduled. A
+   * night postponed with "push the season back" becomes a week off (kind 'skip') with this status.
+   */
+  status?: 'postponed' | 'cancelled'
+  /** The date this night was first scheduled for, once it has been moved (match_days.original_date). */
+  originalDate?: string
 }
 
 export type SkipDate = { date: string; reason: string }
@@ -90,7 +111,25 @@ export type Settings = {
    */
   duty?: boolean
   seed: number
+  /**
+   * Ladder order after ladder points, first rule first ('name' is always last). Missing = DEFAULT_TIE_BREAKS (set
+   * difference, points difference, wins, name), the order before Phase 6.
+   */
+  tieBreaks?: TieBreakRule[]
+  /** How withdrawn teams show. Missing = { ladder: 'mark', results: 'keep', fixtures: 'cancelled' }. */
+  withdrawn?: WithdrawnPolicy
 }
+
+/**
+ * `ladder`: `mark` keeps a withdrawn team's row, flagged and sorted last; `hide` leaves it off. `results`: `keep`
+ * counts the games it played; `void` takes every game involving it off the ladder (both sides). `fixtures`: how
+ * its cancelled games show on the public fixtures: `bye` (as a bye for the opponent) or `cancelled`.
+ */
+export type WithdrawnPolicy = { ladder: 'mark' | 'hide'; results: 'keep' | 'void'; fixtures?: 'bye' | 'cancelled' }
+
+export const DEFAULT_WITHDRAWN: Required<WithdrawnPolicy> = { ladder: 'mark', results: 'keep', fixtures: 'cancelled' }
+
+export const withdrawnPolicy = (s: Pick<Settings, 'withdrawn'>): Required<WithdrawnPolicy> => ({ ...DEFAULT_WITHDRAWN, ...s.withdrawn })
 
 /** Whether a season assigns team duty. Missing means yes (social leagues). */
 export const dutyEnabled = (s: Settings): boolean => s.duty !== false

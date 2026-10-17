@@ -5,6 +5,7 @@ import { authClient } from './auth-client'
 import { aroundNav } from './leave-guard'
 import { AcceptInvite } from './screens/AcceptInvite'
 import { Audit } from './screens/Audit'
+import { Matches } from './screens/Matches'
 import { Media } from './screens/Media'
 import { Menu } from './screens/Menu'
 import { PageEditor, PageList } from './screens/Pages'
@@ -54,6 +55,7 @@ function Shell({ me, children }: { me: Me; children: React.ReactNode }) {
         <div className="mx-auto flex max-w-6xl flex-wrap items-center px-4">
           {!me.totpRequired && <NavLink href="/">Home</NavLink>}
           {!me.totpRequired && <NavLink href="/leagues">Leagues</NavLink>}
+          {!me.totpRequired && <NavLink href="/matches">Matches</NavLink>}
           {!me.totpRequired && <NavLink href="/training">Training</NavLink>}
           {!me.totpRequired && <NavLink href="/development">Development</NavLink>}
           {!me.totpRequired && <NavLink href="/events">Events</NavLink>}
@@ -118,6 +120,11 @@ function Home({ me }: { me: Me }) {
             and{' '}
             <Link href="/venues" className="text-brand underline">
               venues
+            </Link>
+          </li>
+          <li>
+            <Link href="/matches" className="text-brand underline">
+              See every game on a night, for a team or on a court
             </Link>
           </li>
           <li>
@@ -222,6 +229,9 @@ function SignedIn({ me }: { me: Me }) {
         </Route>
         <Route path="/venues">
           <Venues me={me} />
+        </Route>
+        <Route path="/matches">
+          <Matches />
         </Route>
         <Route path="/seasons/:id/:tab?">{(p) => <SeasonPage key={p.id} me={me} id={p.id} tab={p.tab} />}</Route>
         <Route path="/pages">

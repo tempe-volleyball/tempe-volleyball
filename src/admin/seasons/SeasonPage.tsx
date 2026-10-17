@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { Link, useLocation } from 'wouter'
 import {
   ALL_TABS,
+  isOffStatus,
   landingTab,
   publishWeekResults,
   setResult,
@@ -30,6 +31,7 @@ import { useUnsavedWarning } from '../screens/Pages'
 import { Button, Notice, StatusBadge, errorMessage, purgeNote } from '../ui'
 import { generateInWorker, newSeed } from './browser'
 import { ConfirmDialog, LeaveDialog } from './dialogs'
+import { GameStatusDialog, NightDialog, WithdrawDialog, type NightChoice } from './NightDialogs'
 import { isEmptyPlan, planSave, type Draft } from './draft'
 import { FixturesTab, IssueList } from './FixturesTab'
 import { PublishTab, WebsiteTab } from './PublishTab'
@@ -87,7 +89,15 @@ export function SeasonPage({ me, id, tab: requested }: { me: Me; id: string; tab
   const [leavingTo, setLeavingTo] = useState<string | null>(null)
   const [confirm, setConfirm] = useState<Confirm | null>(null)
   /** A question to ask before going ahead. */
-  const [pending, setPending] = useState<{ kind: 'cancel'; weekId: string; gameId: string } | { kind: 'regenerate' } | null>(null)
+  const [pending, setPending] = useState<
+    | { kind: 'status'; weekId: string; gameId: string; status: 'cancelled' | 'postponed' | 'tbd' }
+    | { kind: 'regenerate' }
+    | { kind: 'night'; weekId: string }
+    | { kind: 'restore'; weekId: string }
+    | { kind: 'withdraw' }
+    | { kind: 'reinstate'; teamId: string }
+    | null
+  >(null)
 
   const load = useCallback(async () => {
     const v = await api<SeasonView>(`/api/admin/seasons/${id}`)
@@ -176,6 +186,7 @@ export function SeasonPage({ me, id, tab: requested }: { me: Me; id: string; tab
             generatedFrom: c.generatedFrom ?? null,
             edited: c.edited,
             ...(plan.settings ? { settings: plan.settings } : {}),
+            ...(draft.source ? { source: draft.source } : {}),
           },
         })
         warnings = r.issues.filter((i) => i.level === 'warning')
@@ -320,7 +331,13 @@ export function SeasonPage({ me, id, tab: requested }: { me: Me; id: string; tab
         setMessage('Back to the published results.')
       }),
     onStatus: (weekId, gameId, status: GameStatus) =>
-      status === 'cancelled' ? setPending({ kind: 'cancel', weekId, gameId }) : setGameStatus(weekId, gameId, status),
+      status === 'cancelled' || status === 'postponed' || status === 'tbd'
+        ? setPending({ kind: 'status', weekId, gameId, status })
+        : setGameStatus(weekId, gameId, status),
+    onNight: (weekId) => (blockedByEdits() ? undefined : setPending({ kind: 'night', weekId })),
+    onRestoreNight: (weekId) => (blockedByEdits() ? undefined : setPending({ kind: 'restore', weekId })),
+    onWithdraw: () => (blockedByEdits() ? undefined : setPending({ kind: 'withdraw' })),
+    onReinstate: (teamId) => (blockedByEdits() ? undefined : setPending({ kind: 'reinstate', teamId })),
     onAddAdjustment: async (a) => {
       const r = await api<{ adjustments: AdjustmentRow[] }>(`/api/admin/seasons/${id}/adjustments`, { body: a })
       setView((v) => (v ? { ...v, adjustments: r.adjustments } : v))
@@ -335,39 +352,102 @@ export function SeasonPage({ me, id, tab: requested }: { me: Me; id: string; tab
     },
   }
 
-  /** Marks a game played, forfeit or cancelled (cancelling clears its result). */
-  function setGameStatus(weekId: string, gameId: string, status: GameStatus) {
+  /** Marks a game played, forfeit, cancelled, postponed or TBD, with an optional public note (cancelling clears its result). */
+  function setGameStatus(weekId: string, gameId: string, status: GameStatus, note?: string) {
     void dayAction(weekId, async () => {
       const r = await api<{
         matchDay: MatchDayState
-        match: { id: string; status: SeasonView['matches'][string]['status'] }
+        match: { id: string; status: SeasonView['matches'][string]['status']; statusNote: string | null }
         cache: PurgeResult
       }>(`/api/admin/seasons/${id}/match-days/${weekId}/matches/${gameId}/status`, {
-        body: { baseUpdatedAt: view!.matchDays[weekId]!.updatedAt, status },
+        body: { baseUpdatedAt: view!.matchDays[weekId]!.updatedAt, status, ...(note !== undefined ? { note } : {}) },
       })
-      const clear = (w: Week) =>
-        w.id !== weekId ? w : { ...w, games: w.games.map((g) => (g.id === gameId ? { ...g, result: undefined } : g)) }
-      applyDay(weekId, r.matchDay, (weeks) => (status === 'cancelled' ? weeks.map(clear) : weeks))
-      setView((v) => (v ? { ...v, matches: { ...v.matches, [gameId]: { ...v.matches[gameId]!, status: r.match.status } } } : v))
-      if (status === 'cancelled') {
+      const { status: stored, statusNote } = r.match
+      const off = isOffStatus(stored)
+      const patch = (w: Week, clearResult: boolean) =>
+        w.id !== weekId
+          ? w
+          : {
+              ...w,
+              games: w.games.map((g) =>
+                g.id !== gameId
+                  ? g
+                  : {
+                      ...g,
+                      ...(clearResult ? { result: undefined } : {}),
+                      status: stored === 'scheduled' ? undefined : stored,
+                      statusNote: statusNote ?? undefined,
+                    },
+              ),
+            }
+      applyDay(weekId, r.matchDay, (weeks) => weeks.map((w) => patch(w, stored === 'cancelled')))
+      setView((v) => (v ? { ...v, matches: { ...v.matches, [gameId]: { ...v.matches[gameId]!, status: stored, statusNote } } } : v))
+      if (off) {
+        // Unsaved typing for a game that's now off can't be saved: drop it.
         setEdits((all) => {
           const e = all[weekId]
           if (!e) return all
           const problems = { ...e.problems }
           delete problems[gameId]
-          return { ...all, [weekId]: { week: clear(e.week), problems } }
+          return { ...all, [weekId]: { week: patch(e.week, true), problems } }
         })
         resetDay(weekId)
       }
       setMessage(
-        status === 'cancelled'
+        stored === 'cancelled'
           ? 'Marked cancelled. Publish the match day to take any old result off the ladder.'
-          : status === 'forfeit'
-            ? 'Marked as a forfeit. Enter the score it counts as.'
-            : 'Marked played.',
+          : stored === 'postponed'
+            ? 'Postponed. It needs no result to publish the match day; set it back to played when it’s been played.'
+            : stored === 'tbd'
+              ? 'Marked TBD. It needs no result to publish the match day.'
+              : stored === 'forfeit'
+                ? 'Marked as a forfeit. Enter the score it counts as.'
+                : 'Marked played.',
       )
     })
   }
+
+  /** Season-level actions (a whole night, withdrawals) change many match days: unsaved work has to go first. */
+  const blockedByEdits = () => {
+    if (!dirtyRef.current) return false
+    setProblem({ message: 'Save or discard your unsaved changes first.', issues: [] })
+    return true
+  }
+
+  /** Runs a season-level action that answers with the whole season view. */
+  const seasonAction = async <T extends SeasonView & { cache?: PurgeResult }>(
+    path: string,
+    body: Record<string, unknown>,
+    done: (r: T) => string,
+  ) => {
+    setBusy('status')
+    start()
+    try {
+      const r = await api<T>(`/api/admin/seasons/${id}/${path}`, { body: { baseUpdatedAt: view!.season.updatedAt, ...body } })
+      setPending(null)
+      setView(r)
+      setDraft(null)
+      setEdits({})
+      setResets((x) => ({ ...x, all: x.all + 1 }))
+      setMessage(`${done(r)}${purgeNote(r.cache)}`)
+    } catch (e) {
+      setPending(null)
+      fail(e)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const nightAction = (weekId: string, c: NightChoice | { action: 'restore' }) =>
+    void seasonAction(`match-days/${weekId}/night`, c, () =>
+      c.action === 'restore'
+        ? 'Restored.'
+        : 'pushBack' in c && c.pushBack
+          ? 'Postponed: every night from this one is a week later, and the website shows the new dates.'
+          : c.action === 'postpone'
+            ? 'The night is postponed. Restore it, or push the season back, once there’s a new date.'
+            : 'The night is cancelled.',
+    )
 
   /** Saves the season and every match day with unsaved results. */
   const saveAll = async (): Promise<boolean> => {
@@ -699,20 +779,82 @@ export function SeasonPage({ me, id, tab: requested }: { me: Me; id: string; tab
         />
       )}
 
-      {pending?.kind === 'cancel' && (
-        <ConfirmDialog
-          title="Mark this game cancelled?"
-          confirmLabel="Mark cancelled"
-          danger
-          onConfirm={() => {
-            const { weekId, gameId } = pending
+      {pending?.kind === 'status' && (
+        <GameStatusDialog
+          status={pending.status}
+          current={view.matches[pending.gameId]?.statusNote ?? ''}
+          onConfirm={(note) => {
+            const { weekId, gameId, status: next } = pending
             setPending(null)
-            setGameStatus(weekId, gameId, 'cancelled')
+            setGameStatus(weekId, gameId, next, note)
           }}
           onCancel={() => setPending(null)}
+        />
+      )}
+      {pending?.kind === 'night' && view.competition.weeks?.find((w) => w.id === pending.weekId) && (
+        <NightDialog
+          week={view.competition.weeks.find((w) => w.id === pending.weekId)!}
+          weeks={view.competition.weeks}
+          settings={view.competition.settings}
+          busy={busy === 'status'}
+          onConfirm={(c) => nightAction(pending.weekId, c)}
+          onCancel={() => setPending(null)}
+        />
+      )}
+      {pending?.kind === 'restore' && (
+        <ConfirmDialog
+          title={
+            view.competition.weeks?.find((w) => w.id === pending.weekId)?.kind === 'skip' ? 'Move the nights back?' : 'Restore this night?'
+          }
+          confirmLabel="Restore"
+          busy={busy === 'status'}
+          onConfirm={() => nightAction(pending.weekId, { action: 'restore' })}
+          onCancel={() => setPending(null)}
         >
-          <p>It won't need a result to publish the match day, and any result typed in for it is cleared.</p>
-          <p>The website shows it as cancelled. You can set it back to played later.</p>
+          {view.competition.weeks?.find((w) => w.id === pending.weekId)?.kind === 'skip' ? (
+            <p>
+              This week off goes, and every night that was pushed back moves back to its old date. That only works while the nights are
+              still where the push-back put them.
+            </p>
+          ) : (
+            <p>The night and its games go back to how they were before it was postponed or cancelled.</p>
+          )}
+        </ConfirmDialog>
+      )}
+      {pending?.kind === 'withdraw' && (
+        <WithdrawDialog
+          teams={s.teams.filter((t) => !t.withdrawn)}
+          busy={busy === 'status'}
+          onConfirm={(c) =>
+            void seasonAction<SeasonView & { cancelled: number; dutyGames: number; cache?: PurgeResult }>(
+              `teams/${c.teamId}/withdraw`,
+              { reason: c.reason, cancelFixtures: c.cancelFixtures, from: c.from },
+              (r) =>
+                `Withdrawn. ${r.cancelled} game${r.cancelled === 1 ? '' : 's'} cancelled.${
+                  r.dutyGames
+                    ? ` They had duty on ${r.dutyGames} remaining game${r.dutyGames === 1 ? '' : 's'}: those need another referee.`
+                    : ''
+                }`,
+            )
+          }
+          onCancel={() => setPending(null)}
+        />
+      )}
+      {pending?.kind === 'reinstate' && (
+        <ConfirmDialog
+          title={`Reinstate ${s.teams.find((t) => t.id === pending.teamId)?.name ?? 'this team'}?`}
+          confirmLabel="Reinstate"
+          busy={busy === 'status'}
+          onConfirm={() =>
+            void seasonAction<SeasonView & { restored: number; cache?: PurgeResult }>(
+              `teams/${pending.teamId}/reinstate`,
+              {},
+              (r) => `Reinstated. ${r.restored} game${r.restored === 1 ? '' : 's'} back on.`,
+            )
+          }
+          onCancel={() => setPending(null)}
+        >
+          <p>The team is back on the ladder, and the games its withdrawal cancelled are back on (if they're still cancelled).</p>
         </ConfirmDialog>
       )}
       {pending?.kind === 'regenerate' && (

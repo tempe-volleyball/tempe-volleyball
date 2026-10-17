@@ -1,11 +1,13 @@
-import { Fragment, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import {
   byesForWeek,
   courtName,
   dayPublishProblem,
   dayResultsState,
   formatLong,
+  isOffStatus,
   isTeam,
+  MATCH_STATUS_LABEL,
   makeResolver,
   outcome,
   refName,
@@ -17,7 +19,7 @@ import {
   type Week,
   type WeekResultsState,
 } from '../../lib/fixtures'
-import type { AdjustmentRow, SeasonView } from '../api'
+import { formatWhen, type AdjustmentRow, type SeasonView } from '../api'
 import { Button, Card, Notice, errorMessage } from '../ui'
 import { ConfirmDialog } from './dialogs'
 import { formFromResult, resultFromForm, type ResultForm } from './results-form'
@@ -36,7 +38,7 @@ export type DayEdit = {
   problems: Record<string, string>
 }
 
-export type GameStatus = 'played' | 'forfeit' | 'cancelled'
+export type GameStatus = 'played' | 'forfeit' | 'cancelled' | 'postponed' | 'tbd'
 
 export type ResultsActions = {
   onResult: (weekId: string, gameId: string, result: Result | undefined, problem: string | null) => void
@@ -48,6 +50,12 @@ export type ResultsActions = {
   onAddAdjustment: (a: { teamId: string; points: number; reason: string }) => Promise<void>
   onUpdateAdjustment: (id: string, a: { points: number; reason: string }) => Promise<void>
   onDeleteAdjustment: (id: string) => Promise<void>
+  /** Admins: postpone or cancel a whole night (opens the dialog). */
+  onNight: (weekId: string) => void
+  /** Admins: undo a night's postpone/cancel, or the push-back that made a week off. */
+  onRestoreNight: (weekId: string) => void
+  onWithdraw: () => void
+  onReinstate: (teamId: string) => void
 }
 
 export function ResultsTab({
@@ -76,6 +84,14 @@ export function ResultsTab({
   // Finals placeholders resolve from published results only.
   const resolve = useMemo(() => makeResolver(s, weeks), [s, weeks])
   const status = (id: string) => view.matches[id]?.status ?? 'scheduled'
+  const note = (id: string) => view.matches[id]?.statusNote ?? ''
+  const canManage = isAdmin && canEnter
+  // Links from the match list land on a match day: /admin/seasons/<id>/results#results-<weekId>. After the page's
+  // own scroll-to-top.
+  useEffect(() => {
+    const target = window.location.hash.startsWith('#results-') ? document.getElementById(window.location.hash.slice(1)) : null
+    if (target) requestAnimationFrame(() => target.scrollIntoView({ block: 'start' }))
+  }, [])
 
   return (
     <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_32rem]">
@@ -87,8 +103,17 @@ export function ResultsTab({
         </p>
         {weeks.map((w) =>
           w.kind === 'skip' ? (
-            <div key={w.id} className="rounded border border-dashed border-black/20 px-4 py-2.5 text-sm text-black/60">
+            <div
+              key={w.id}
+              id={`results-${w.id}`}
+              className={`flex flex-wrap items-center gap-x-2 rounded border border-dashed px-4 py-2.5 text-sm text-black/60 ${w.status ? 'border-accent bg-accent/10' : 'border-black/20'}`}
+            >
               <span className="font-semibold">{formatLong(w.date)}</span> · No games · {w.note || 'Week off'}
+              {w.status && canManage && (
+                <Button variant="link" className="ml-auto text-xs" onClick={() => actions.onRestoreNight(w.id)}>
+                  Undo: move the nights back
+                </Button>
+              )}
             </div>
           ) : (
             <MatchDay
@@ -99,9 +124,11 @@ export function ResultsTab({
               setsPerMatch={view.season.setsPerMatch}
               resolve={resolve}
               status={status}
+              note={note}
               highlight={highlight}
               busy={busyDay === w.id}
               canEnter={canEnter}
+              canManage={canManage}
               resetKey={`${resets.all}:${resets[w.id] ?? 0}`}
               actions={actions}
             />
@@ -118,6 +145,7 @@ export function ResultsTab({
           onToggle={(id) => setHighlight((h) => (h === id ? '' : id))}
         />
         <Adjustments view={view} canEdit={isAdmin && canEnter} actions={actions} />
+        <Withdrawn view={view} canEdit={canManage} actions={actions} />
       </aside>
     </div>
   )
@@ -140,9 +168,11 @@ function MatchDay({
   setsPerMatch,
   resolve,
   status,
+  note,
   highlight,
   busy,
   canEnter,
+  canManage,
   resetKey,
   actions,
 }: {
@@ -154,13 +184,18 @@ function MatchDay({
   setsPerMatch: number
   resolve: (r: Ref | null) => Ref | null
   status: (gameId: string) => string
+  note: (gameId: string) => string
   highlight: string
   busy: boolean
   canEnter: boolean
+  /** Admins on a published season: whole-night actions. */
+  canManage: boolean
   actions: ResultsActions
 }) {
   const w = edit?.week ?? saved
-  const cancelled = new Set(w.games.filter((g) => status(g.id) === 'cancelled').map((g) => g.id))
+  // Cancelled, postponed and TBD games need no result (the lib calls the set 'cancelled').
+  const cancelled = new Set(w.games.filter((g) => isOffStatus(status(g.id))).map((g) => g.id))
+  const night = saved.status
   const savedState = dayResultsState(saved, cancelled)
   const state = dayResultsState(w, cancelled)
   const problems = Object.values(edit?.problems ?? {})
@@ -189,8 +224,29 @@ function MatchDay({
           Match day {w.matchDay}
           {STAGE[w.kind] && <span className="bg-accent ml-2 rounded px-1.5 py-0.5 text-xs">{STAGE[w.kind]}</span>}
         </h3>
-        <span className="text-sm text-black/60">{formatLong(w.date)}</span>
+        <span className="text-sm text-black/60">
+          {formatLong(w.date)}
+          {saved.originalDate && saved.originalDate !== saved.date && <> (moved from {formatLong(saved.originalDate)})</>}
+        </span>
+        {night && (
+          <span className="rounded bg-red-50 px-1.5 py-0.5 text-xs font-semibold text-red-800">
+            Night {night}
+            {saved.note ? `: ${saved.note}` : ''}
+          </span>
+        )}
         <span className="ml-auto flex items-center gap-1.5">
+          {canManage &&
+            (night ? (
+              <Button variant="link" className="text-xs" disabled={busy || unsaved} onClick={() => actions.onRestoreNight(w.id)}>
+                Restore the night
+              </Button>
+            ) : (
+              !wasPublished && (
+                <Button variant="link" className="text-xs" disabled={busy || unsaved} onClick={() => actions.onNight(w.id)}>
+                  Postpone or cancel the night
+                </Button>
+              )
+            ))}
           <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${label.cls}`}>{label.text}</span>
           {canEnter && !editing && (
             <button
@@ -216,6 +272,7 @@ function MatchDay({
             setsPerMatch={setsPerMatch}
             resolve={resolve}
             status={status(g.id)}
+            note={note(g.id)}
             highlight={highlight}
             editing={editing && !busy}
             problem={edit?.problems[g.id]}
@@ -287,6 +344,7 @@ function ResultRow({
   setsPerMatch,
   resolve,
   status,
+  note,
   highlight,
   editing,
   problem,
@@ -299,6 +357,8 @@ function ResultRow({
   setsPerMatch: number
   resolve: (r: Ref | null) => Ref | null
   status: string
+  /** The status's public note (matches.status_note). */
+  note: string
   highlight: string
   editing: boolean
   problem: string | undefined
@@ -308,7 +368,8 @@ function ResultRow({
   const home = resolve(g.home)
   const away = resolve(g.away)
   const ready = isTeam(home) && isTeam(away)
-  const cancelled = status === 'cancelled'
+  // Cancelled, postponed or TBD: no result.
+  const cancelled = isOffStatus(status)
   const [form, setForm] = useState<ResultForm>(() => formFromResult(g.result, setsPerMatch))
   const o = outcome(g.result)
   const pub = g.publishedResult
@@ -374,16 +435,19 @@ function ResultRow({
         <span>{courtName(s, w, g.session, g.court)}</span>
         {g.title && <span className="text-brand font-bold tracking-wider uppercase">{g.title}</span>}
         {status === 'forfeit' && <span className="rounded bg-red-50 px-1.5 font-semibold text-red-800">Forfeit</span>}
-        {cancelled && <span className="rounded bg-black/10 px-1.5 font-semibold text-black/70">Cancelled</span>}
+        {cancelled && <span className="rounded bg-black/10 px-1.5 font-semibold text-black/70">{MATCH_STATUS_LABEL[status]}</span>}
+        {note && <span className="italic">{note}</span>}
         {editing && ready && (
           <select
             aria-label={`Status of ${homeName} v ${awayName}`}
-            value={status === 'forfeit' || status === 'cancelled' ? status : 'played'}
+            value={status === 'forfeit' || cancelled ? status : 'played'}
             onChange={(e) => onStatus(e.target.value as GameStatus)}
             className="ml-auto rounded border border-black/20 bg-white px-1.5 py-1 text-xs"
           >
             <option value="played">Played</option>
             <option value="forfeit">Forfeit</option>
+            <option value="postponed">Postponed</option>
+            <option value="tbd">TBD</option>
             <option value="cancelled">Cancelled</option>
           </select>
         )}
@@ -663,6 +727,44 @@ function AdjustmentForm({
         </Button>
       </div>
     </form>
+  )
+}
+
+/** Teams that have withdrawn, with reinstate; and the way to withdraw one (admins). */
+function Withdrawn({ view, canEdit, actions }: { view: SeasonView; canEdit: boolean; actions: ResultsActions }) {
+  const out = view.competition.settings.teams.filter((t) => t.withdrawn)
+  if (!canEdit && out.length === 0) return null
+  return (
+    <Card
+      title="Withdrawn teams"
+      actions={
+        canEdit && out.length < view.competition.settings.teams.length ? (
+          <Button variant="link" onClick={actions.onWithdraw}>
+            Withdraw a team
+          </Button>
+        ) : undefined
+      }
+    >
+      {out.length === 0 ? (
+        <p className="text-sm text-black/60">None. A team that pulls out mid-season stays in the season, marked withdrawn.</p>
+      ) : (
+        <ul className="space-y-2 text-sm">
+          {out.map((t) => (
+            <li key={t.id} className="flex flex-wrap items-baseline gap-x-2">
+              <span className="font-semibold">{t.name}</span>
+              <span className="text-black/60">
+                {t.withdrawn!.reason} · {formatWhen(t.withdrawn!.at)}
+              </span>
+              {canEdit && (
+                <Button variant="link" className="ml-auto" onClick={() => actions.onReinstate(t.id)}>
+                  Reinstate
+                </Button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
   )
 }
 

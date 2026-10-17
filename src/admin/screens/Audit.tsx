@@ -34,6 +34,13 @@ const ACTIONS: Record<string, string> = {
   'ladder.adjust': 'Adjusted ladder',
   'team.create': 'Created team',
   'team.rename': 'Renamed team',
+  'team.withdraw': 'Withdrew team',
+  'team.reinstate': 'Reinstated team',
+  'match_day.postpone': 'Postponed night',
+  'match_day.cancel': 'Cancelled night',
+  'match_day.restore': 'Restored night',
+  'season.push_back': 'Pushed season back',
+  'fixtures.import': 'Imported fixtures (CSV)',
 }
 
 const describe = (row: AuditRow) => {
@@ -54,6 +61,11 @@ const describe = (row: AuditRow) => {
     const count = (v: unknown) => (Array.isArray(v) ? v.length : '?')
     return `${count(before.teams)} → ${count(after.teamIds)} teams`
   }
+  if (row.action.startsWith('match_day.') || row.action === 'season.push_back')
+    return `${String(after.season ?? before.season ?? '')} match day ${String(after.matchDay ?? before.matchDay ?? '')} (${String(after.date ?? before.date ?? '')})${after.note ? `: ${String(after.note)}` : ''}`
+  if (row.action === 'team.withdraw' || row.action === 'team.reinstate')
+    return `${String(after.team ?? before.team ?? '')}, ${String(after.season ?? before.season ?? '')}${after.reason ? `: ${String(after.reason)}` : ''}`
+  if (row.action === 'fixtures.import') return `${String(after.matchDays ?? 0)} match days, ${String(after.matches ?? 0)} games`
   if (row.action.startsWith('season.')) {
     const name = String(after.name ?? before.name ?? '')
     if (row.action === 'season.update' && Array.isArray(after.changed))
