@@ -69,7 +69,7 @@ covers that.
 | Bot protection      | Turnstile on every public form, verified server-side before any D1 write.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | Time and money      | Store instants as UTC ISO strings; store match dates as `YYYY-MM-DD` and times as `HH:MM` **Sydney wall-clock**. Format with `Australia/Sydney` and `en-AU`, AUD (`src/lib/time.ts`).                                                                                                                                                                                                                                                                                                                                                                                                 |
 | Search engines      | Real URLs, `<title>` and meta description per page, Open Graph, JSON-LD (`SportsOrganization`, `SportsEvent` for upcoming fixtures, `BreadcrumbList`), a sitemap of real pages only (not 480 match stubs), and 301s from every old URL. Non-production environments send `X-Robots-Tag: noindex` and a disallow-all `robots.txt`.                                                                                                                                                                                                                                                     |
-| Analytics           | Cloudflare Web Analytics beacon (no cookies, no banner) and Google Search Console verified by DNS TXT. Phase 6 adds an admin stats page that reads Cloudflare's GraphQL Analytics API with a read-only token.                                                                                                                                                                                                                                                                                                                                                                         |
+| Analytics           | Cloudflare Web Analytics beacon (no cookies, no banner) and Google Search Console verified by DNS TXT. Phase 7 adds an admin stats page that reads Cloudflare's GraphQL Analytics API with a read-only token.                                                                                                                                                                                                                                                                                                                                                                         |
 | Observability       | Workers Logs (`observability.enabled`). Structured `console.info/error` with a request id. Add Sentry's free plan only if this proves too thin.                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 
 ### Code layout
@@ -276,22 +276,42 @@ When it's picked up, the original scope still applies:
 - **Done when:** a test player can register for a training session and pay by Stripe (test mode) and by PayID, and
   capacity is enforced.
 
-### Phase 6: SEO and UX polish, then the redirect map and the DNS cutover
+### Phase 6: Public site UI/UX and SEO
 
-- Meta descriptions, Open Graph, JSON-LD, sitemap (real pages only), one H1 per page, fix the homepage's first line, a
-  real contact form, Turnstile everywhere, accessibility fixes from the baseline (contrast on blue tables, labelled menu
-  button, heading order, descriptive link text).
+The public website only; the admin is Phase 7.
+
+- Meta descriptions, Open Graph, JSON-LD, sitemap (real pages only), one H1 per page, fix the homepage's first line.
+- UX: a real contact form (with Turnstile), the sidebar/footer ladder duplication from the QA review, mobile layout of
+  long fixtures tables, and the small Lighthouse leftovers (responsive hero/logo sizes, render-blocking CSS).
+- Accessibility fixes from the baseline (contrast on blue tables, labelled menu button, heading order, descriptive link
+  text), kept at Lighthouse 100.
 - Remove or redirect stale pages: 2021 Monday leagues, COVID guidelines, "Sample Page", duplicates (two Thursday fixtures
   pages, two Sunday afternoon pages), year-stamped slugs like `/2023-enrolment/`.
+- **Done when:** every public page passes Lighthouse SEO and accessibility (apart from the deliberate noindex outside
+  production) and Michael is happy with how the site looks on desktop and phone.
+
+### Phase 7: Admin upgrade
+
+UI/UX improvements across `/admin`, plus new admin features. The full scope is still being written with Jeremy; so far:
+
+- Admin UI/UX improvements (to be detailed).
+- Admin stats page reading Cloudflare's GraphQL Analytics API with a read-only token.
+- Further features to be added here.
+
+### Phase 8: Migration and cutover
+
+- **Production data**: run the importer against production (it deliberately has no production target yet; add one only
+  with explicit go-ahead), or copy staging's cleaned data, so production starts from the same content Michael has
+  checked on staging. Bootstrap Michael as owner on production.
+- **Email**: Resend's DNS records for `mail.tempevb.com` and `RESEND_API_KEY` on production, so sign-in codes are sent.
 - **Redirect map**: `/team/<slug>/`, `/table/<slug>/`, `/event/<slug>/`, `/calendar/<slug>/`, every old page slug
   (`/fixtures/`, `/ladders/`, `/fnl-ladder/`, `/sal/` …), `/wp-admin` → `/admin`, plus feeds and attachment URLs. All are
   301s generated from `wp_id` mappings and checked by a script against the live sitemap and a crawl of the old site.
-- Admin stats page (Cloudflare GraphQL Analytics API).
 - **Cutover** (only with explicit go-ahead): copy every DNS record from the current host (especially MX, SPF, DKIM, DMARC
   and any verification TXT), add the zone to Cloudflare, check that the records match, switch nameservers at the
-  registrar, attach `www.tempevb.com` and the apex to the production Worker, redirect apex to www, add Resend's DNS
-  records for `mail.tempevb.com`, verify Search Console by TXT, and submit the sitemap. Keep WordPress read-only for 30
-  days as a fallback.
+  registrar, attach `www.tempevb.com` and the apex to the production Worker, redirect apex to www, add the Web Analytics
+  beacon, verify Search Console by TXT, and submit the sitemap. Check edge caching and tag purge on the real domain. Keep
+  WordPress read-only for 30 days as a fallback.
 
 ---
 
@@ -341,9 +361,9 @@ I haven't created or guessed any of these. Everything below is free unless noted
    `npx wrangler login`.
 5. An **API token** for GitHub Actions, from the "Edit Cloudflare Workers" template plus **D1: Edit** and
    **Workers R2 Storage: Edit**, scoped to that one account. Also send the **Account ID**.
-6. Later (Phase 5 forms, or Phase 6's contact form and sign-in, whichever comes first): a **Turnstile** widget (site key + secret) with hostnames `*.workers.dev` for now, and tempevb.com
+6. Later (Phase 6's contact form, or Phase 5's forms if they come first): a **Turnstile** widget (site key + secret) with hostnames `*.workers.dev` for now, and tempevb.com
    at cutover.
-7. Later (Phase 6): a **Web Analytics** site token, and a read-only **Analytics** API token for the admin stats page.
+7. Later: a read-only **Analytics** API token for the admin stats page (Phase 7), and a **Web Analytics** site token at the cutover (Phase 8).
 
 ### GitHub
 
