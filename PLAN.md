@@ -389,8 +389,10 @@ I haven't created or guessed any of these. Everything below is free unless noted
    `npx wrangler login`.
 5. An **API token** for GitHub Actions, from the "Edit Cloudflare Workers" template plus **D1: Edit** and
    **Workers R2 Storage: Edit**, scoped to that one account. Also send the **Account ID**.
-6. Later (Phase 7's contact form, or Phase 5's forms if they come first): a **Turnstile** widget (site key + secret) with hostnames `*.workers.dev` for now, and tempevb.com
-   at cutover.
+6. **Before enrolment opens on production** (Phase 6 enrolment, built): a **Turnstile** widget (site key + secret) with
+   hostnames `*.workers.dev` for now, and tempevb.com at cutover. Secrets `TURNSTILE_SITE_KEY` and
+   `TURNSTILE_SECRET_KEY` for production; staging and development fall back to Cloudflare's test keys. Without them
+   production's enrolment form says it's unavailable (docs/api/enrolment.md).
 7. For the admin Stats page (built in Phase 6, waiting for these): a **Web Analytics** site (manual snippet) for
    `www.tempevb.com`, giving the beacon token and site tag (at the cutover, Phase 8), and an API token with **Account →
    Account Analytics → Read** (secret `CF_ANALYTICS_TOKEN`). Steps in docs/admin.md §2.3.
@@ -432,7 +434,7 @@ I haven't created or guessed any of these. Everything below is free unless noted
 ### Secrets per environment (set with `wrangler secret put <NAME> --env staging|production`)
 
 `BETTER_AUTH_SECRET` (Phase 3), `RESEND_API_KEY` (Phase 3), `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` (Phase 5, parked),
-`TURNSTILE_SECRET_KEY` (Phase 5), `GOOGLE_SERVICE_ACCOUNT_JSON` and `CF_ANALYTICS_TOKEN` (Phase 6 Stats page; optional,
+`TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY` (Phase 6 enrolment; required in production, test keys elsewhere), `GOOGLE_SERVICE_ACCOUNT_JSON` and `CF_ANALYTICS_TOKEN` (Phase 6 Stats page; optional,
 each source shows "not connected yet" without them). None are needed for the Phase 1 deploy.
 
 ### Cron trigger limit

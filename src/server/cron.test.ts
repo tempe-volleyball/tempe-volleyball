@@ -35,7 +35,13 @@ describe('runJobs', () => {
     const logs: string[] = []
     const mailer = createMailer({ db, env: { SITE_ENV: 'development' }, log: (m) => logs.push(m), now: () => NOW })
     const result = await runJobs(db, mailer, NOW)
-    expect(result).toEqual({ invitesExpired: 1, email: { sent: 1, failed: 0, skipped: 0, remaining: 0 }, payloadsScrubbed: 1 })
+    expect(result).toEqual({
+      invitesExpired: 1,
+      email: { sent: 1, failed: 0, skipped: 0, remaining: 0 },
+      payloadsScrubbed: 1,
+      enrolment: 'skipped',
+      rateLimitsPruned: 0,
+    })
     expect((await db.select().from(adminInvites))[0]!.expiredAt).toBe('2026-10-18T00:00:00.000Z')
     expect(logs).toHaveLength(1)
     expect(JSON.stringify(await db.select().from(emailOutbox))).not.toMatch(/123456|tok-q/)
@@ -47,6 +53,20 @@ describe('runJobs', () => {
       drainOutbox: () => Promise.reject(new Error('resend down')),
       scrubSensitivePayloads: () => Promise.resolve(0),
     })
-    expect(result).toEqual({ invitesExpired: 0, email: 'error: Error: resend down', payloadsScrubbed: 0 })
+    expect(result).toEqual({
+      invitesExpired: 0,
+      email: 'error: Error: resend down',
+      payloadsScrubbed: 0,
+      enrolment: 'skipped',
+      rateLimitsPruned: 0,
+    })
+  })
+
+  it('runs the enrolment jobs before draining, so queued offer emails go out in the same run', async () => {
+    const { db } = createTestDb()
+    const logs: string[] = []
+    const mailer = createMailer({ db, env: { SITE_ENV: 'development' }, log: (m) => logs.push(m), now: () => NOW })
+    const result = await runJobs(db, mailer, NOW, { enrolment: { secret: 's', siteUrl: 'https://x' } })
+    expect(result.enrolment).toEqual({ expired: 0, offered: 0, emailsQueued: 0 })
   })
 })

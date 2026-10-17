@@ -29,6 +29,13 @@
       "when": 1792268748530,
       "tag": "0003_phase6_programmes",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1792269890953,
+      "tag": "0004_enrolment_rate_limits",
+      "breakpoints": true
     }
   ]
 }

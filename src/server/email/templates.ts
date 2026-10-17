@@ -8,17 +8,41 @@ export type TemplateData = {
   'auth.magic_link': { url: string }
   /** An invitation to become an admin user. */
   'admin.invite': { url: string; role: string; invitedBy: string; expiresAt: string }
+  /** An enrolment that has a spot. `amount` is formatted AUD ("$120.00"); PayID details when there's a fee. */
+  'enrolment.confirmed': EnrolmentEmail & {
+    teamName?: string | null
+    amount?: string | null
+    payid?: { name: string; payId: string; instructions: string } | null
+    message?: string | null
+  }
+  /** Full: on the waitlist. `position` is 1-based (null if unknown). */
+  'enrolment.waitlisted': EnrolmentEmail & { position: number | null; teamName?: string | null }
+  /** A freed spot, held until expiresAt (UTC ISO). The link accepts or declines it, so it's sensitive. */
+  'enrolment.offer': EnrolmentEmail & { url: string; expiresAt: string; teamName?: string | null }
+  /** Cancelled by the organiser, declined, or an offer that lapsed. */
+  'enrolment.cancelled': EnrolmentEmail & { reason?: string | null; teamName?: string | null }
 }
+
+/** What every enrolment email shows: who, what (programme and session/term/season/event) and the reference. */
+export type EnrolmentEmail = { name: string; programme: string; target: string; reference: string }
 
 export type TemplateName = keyof TemplateData
 
-export const templateNames = ['auth.otp', 'auth.magic_link', 'admin.invite'] as const satisfies readonly TemplateName[]
+export const templateNames = [
+  'auth.otp',
+  'auth.magic_link',
+  'admin.invite',
+  'enrolment.confirmed',
+  'enrolment.waitlisted',
+  'enrolment.offer',
+  'enrolment.cancelled',
+] as const satisfies readonly TemplateName[]
 
 /**
  * Templates whose payload is a secret (codes, sign-in links, invite links). Their payload is kept only while the
  * email can still be sent, cleared on every final state, and never logged in production.
  */
-export const SENSITIVE_TEMPLATES: ReadonlySet<TemplateName> = new Set(['auth.otp', 'auth.magic_link', 'admin.invite'])
+export const SENSITIVE_TEMPLATES: ReadonlySet<TemplateName> = new Set(['auth.otp', 'auth.magic_link', 'admin.invite', 'enrolment.offer'])
 
 /**
  * Sign-in emails. Always send-now-or-never (the code expires in minutes), never stored with their payload, limited
@@ -45,6 +69,86 @@ const button = (url: string, label: string) =>
   `<p><a href="${escapeHtml(url)}" style="display:inline-block;background:#104293;color:#fff;padding:12px 20px;text-decoration:none;font-weight:bold">${escapeHtml(label)}</a></p>`
 
 const IGNORE = "If you didn't ask for this, you can ignore this email."
+
+const sydneyWhen = (iso: string) =>
+  new Intl.DateTimeFormat('en-AU', { timeZone: 'Australia/Sydney', dateStyle: 'full', timeStyle: 'short' }).format(new Date(iso))
+
+/** "TNL Q4 2026" or "Scrim & Coached Training: Tue 21 Oct", without repeating the programme name. */
+const whatText = (d: EnrolmentEmail) => (d.target && d.target !== d.programme ? `${d.programme}: ${d.target}` : d.programme)
+
+const refLine = (d: EnrolmentEmail) => `Your reference is ${d.reference}.`
+const refHtml = (d: EnrolmentEmail) =>
+  `<p>Your reference is <b style="font-size:18px;letter-spacing:1px">${escapeHtml(d.reference)}</b>.</p>`
+const teamPart = (teamName: string | null | undefined) => (teamName ? ` (team ${teamName})` : '')
+const QUESTIONS = 'Questions? Just reply to this email.'
+
+const enrolmentRenderers: { [K in Extract<TemplateName, `enrolment.${string}`>]: (data: TemplateData[K]) => RenderedEmail } = {
+  'enrolment.confirmed': (d) => {
+    const what = whatText(d)
+    const pay =
+      d.amount && d.payid?.payId
+        ? {
+            text: `\nThe fee is ${d.amount}. Pay by PayID to ${d.payid.payId}${d.payid.name ? ` (${d.payid.name})` : ''}. ${d.payid.instructions}\n`,
+            html:
+              `<p>The fee is <b>${escapeHtml(d.amount)}</b>. Pay by PayID to <b>${escapeHtml(d.payid.payId)}</b>` +
+              `${d.payid.name ? ` (${escapeHtml(d.payid.name)})` : ''}. ${escapeHtml(d.payid.instructions)}</p>`,
+          }
+        : d.amount
+          ? {
+              text: `\nThe fee is ${d.amount}. We'll be in touch about payment.\n`,
+              html: `<p>The fee is <b>${escapeHtml(d.amount)}</b>. We'll be in touch about payment.</p>`,
+            }
+          : { text: '', html: '' }
+    const message = d.message
+      ? { text: `\n${d.message}\n`, html: `<p>${escapeHtml(d.message).replaceAll('\n', '<br>')}</p>` }
+      : { text: '', html: '' }
+    return {
+      subject: `You're enrolled: ${what}`,
+      text: `Hi ${d.name},\n\nYou're enrolled in ${what}${teamPart(d.teamName)}. ${refLine(d)}\n${pay.text}${message.text}\n${QUESTIONS}\n`,
+      html: layout(
+        `<p>Hi ${escapeHtml(d.name)},</p><p>You're enrolled in <b>${escapeHtml(what)}</b>${escapeHtml(teamPart(d.teamName))}.</p>${refHtml(d)}` +
+          `${pay.html}${message.html}<p style="color:#555;font-size:13px">${QUESTIONS}</p>`,
+      ),
+    }
+  },
+  'enrolment.waitlisted': (d) => {
+    const what = whatText(d)
+    const pos = d.position ? ` You're number ${d.position} on the list.` : ''
+    const next = "If a spot opens up we'll email you an offer, which you'll need to accept within the time it gives."
+    return {
+      subject: `You're on the waitlist: ${what}`,
+      text: `Hi ${d.name},\n\n${what} is full, so you're on the waitlist${teamPart(d.teamName)}.${pos} ${refLine(d)}\n\n${next}\n\n${QUESTIONS}\n`,
+      html: layout(
+        `<p>Hi ${escapeHtml(d.name)},</p><p><b>${escapeHtml(what)}</b> is full, so you're on the waitlist${escapeHtml(teamPart(d.teamName))}.${escapeHtml(pos)}</p>` +
+          `${refHtml(d)}<p>${next}</p><p style="color:#555;font-size:13px">${QUESTIONS}</p>`,
+      ),
+    }
+  },
+  'enrolment.offer': (d) => {
+    const what = whatText(d)
+    const until = sydneyWhen(d.expiresAt)
+    return {
+      subject: `A spot is free: ${what}`,
+      text: `Hi ${d.name},\n\nA spot has opened up in ${what}${teamPart(d.teamName)} and it's yours if you want it. ${refLine(d)}\n\nAccept or decline here:\n${d.url}\n\nThe offer is held until ${until}; after that it goes to the next person on the waitlist.\n`,
+      html: layout(
+        `<p>Hi ${escapeHtml(d.name)},</p><p>A spot has opened up in <b>${escapeHtml(what)}</b>${escapeHtml(teamPart(d.teamName))} and it's yours if you want it.</p>` +
+          `${refHtml(d)}${button(d.url, 'Accept or decline')}<p>The offer is held until <b>${escapeHtml(until)}</b>; after that it goes to the next person on the waitlist.</p>`,
+      ),
+    }
+  },
+  'enrolment.cancelled': (d) => {
+    const what = whatText(d)
+    const reason = d.reason ? ` ${d.reason}` : ''
+    return {
+      subject: `Enrolment cancelled: ${what}`,
+      text: `Hi ${d.name},\n\nYour enrolment in ${what}${teamPart(d.teamName)} (reference ${d.reference}) has been cancelled.${reason}\n\n${QUESTIONS}\n`,
+      html: layout(
+        `<p>Hi ${escapeHtml(d.name)},</p><p>Your enrolment in <b>${escapeHtml(what)}</b>${escapeHtml(teamPart(d.teamName))} (reference ${escapeHtml(d.reference)}) has been cancelled.${escapeHtml(reason)}</p>` +
+          `<p style="color:#555;font-size:13px">${QUESTIONS}</p>`,
+      ),
+    }
+  },
+}
 
 const renderers: { [K in TemplateName]: (data: TemplateData[K]) => RenderedEmail } = {
   'auth.otp': ({ otp }) => ({
@@ -74,6 +178,7 @@ const renderers: { [K in TemplateName]: (data: TemplateData[K]) => RenderedEmail
       ),
     }
   },
+  ...enrolmentRenderers,
 }
 
 export const isTemplateName = (name: string): name is TemplateName => (templateNames as readonly string[]).includes(name)

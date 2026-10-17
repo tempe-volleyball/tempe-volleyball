@@ -154,3 +154,9 @@ export type { CategoryListItem } from '../server/programmes/categories'
 export type { VenueRow, CourtRow } from '../server/programmes/venues'
 export type { SessionRow, TermRow, EventRow, InstanceProduct } from '../server/programmes/schedule'
 export type { Programme, ProgrammeKind, ProgrammeStatus, OccurrenceStatus } from '../server/db/schema'
+
+// ── Enrolment (docs/api/enrolment.md) ─────────────────────────────────────────
+
+export type { TargetSummary, TargetDetail, RegistrationRow, GroupRow, Counts } from '../server/enrolment/admin'
+export type { FormsList, FormSummary } from '../server/enrolment/forms'
+export type { EnrolmentForm } from '../server/db/schema'

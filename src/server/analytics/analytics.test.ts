@@ -258,7 +258,7 @@ describe('runAnalytics', () => {
       drainOutbox: () => Promise.resolve({ sent: 0, failed: 0, skipped: 0, remaining: 0 }),
       scrubSensitivePayloads: () => Promise.resolve(0),
     }
-    const result = await runJobs(db, mailer, NOW, deps(fakeFetch().fn))
+    const result = await runJobs(db, mailer, NOW, { analytics: deps(fakeFetch().fn) })
     expect(result.analytics).toMatchObject({ status: 'ok', source: 'ga4' })
   })
 })

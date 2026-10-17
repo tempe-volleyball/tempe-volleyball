@@ -2,6 +2,7 @@ import { env } from 'cloudflare:workers'
 import { createAuth, createAuthSenders, type Auth } from './auth/auth'
 import { getDb, type Db } from './db'
 import { createMailer, type Mailer } from './email'
+import { turnstileKeys } from './turnstile'
 
 // The Worker's shared services, built once per isolate on first use (building Better Auth costs ~1 ms of CPU, so
 // it isn't redone per request). Bindings and secrets come from `cloudflare:workers`, so only routes and
@@ -14,6 +15,9 @@ export type Secrets = {
   /** Analytics (docs/admin.md §2): the Google service-account key file (JSON) and a Cloudflare Analytics: Read token. */
   GOOGLE_SERVICE_ACCOUNT_JSON?: string
   CF_ANALYTICS_TOKEN?: string
+  /** Turnstile for public forms; development and staging fall back to the test keys (src/server/turnstile.ts). */
+  TURNSTILE_SITE_KEY?: string
+  TURNSTILE_SECRET_KEY?: string
 }
 
 /** The analytics secrets, for src/server/analytics. */
@@ -30,6 +34,24 @@ let services: Services | undefined
 
 /** The R2 bucket for the media library (media/<id>/…). */
 export const getMediaBucket = (): R2Bucket => env.MEDIA
+
+/** Turnstile keys for this environment, or null in production without them (public forms then refuse). */
+export const getTurnstileKeys = () =>
+  turnstileKeys({
+    SITE_ENV: env.SITE_ENV,
+    TURNSTILE_SITE_KEY: secrets.TURNSTILE_SITE_KEY,
+    TURNSTILE_SECRET_KEY: secrets.TURNSTILE_SECRET_KEY,
+  })
+
+/**
+ * What the enrolment code needs (src/server/enrolment): the db, the mailer, the key that signs waitlist offer links
+ * (derived from BETTER_AUTH_SECRET) and the site URL for those links.
+ */
+export const getEnrolmentDeps = () => {
+  const { db, mailer } = getServices()
+  if (!secrets.BETTER_AUTH_SECRET) throw new Error('BETTER_AUTH_SECRET is not set')
+  return { db, mailer, secret: secrets.BETTER_AUTH_SECRET, siteUrl: env.SITE_URL }
+}
 
 export const getServices = (): Services => {
   if (services) return services

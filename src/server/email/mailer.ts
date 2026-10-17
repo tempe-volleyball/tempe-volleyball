@@ -269,6 +269,26 @@ export function createMailer(deps: MailerDeps) {
     return { id: row.id, status: giveUp ? 'failed' : 'queued' }
   }
 
+  /**
+   * An insert that queues an email, for a caller's own db.batch(), so the email is written in the same transaction
+   * as the change it reports (the enrolment cron). drainOutbox() sends it. Not for sign-in emails.
+   */
+  function queueStatement<K extends TemplateName>(to: string, template: K, data: TemplateData[K], at = now()) {
+    if (isAuthTemplate(template)) throw new Error(`queueStatement: ${template} is send-now-or-never`)
+    const iso = at.toISOString()
+    return db.insert(emailOutbox).values({
+      id: crypto.randomUUID(),
+      to,
+      template,
+      payload: data as Record<string, unknown>,
+      status: 'queued',
+      attempts: 0,
+      sendAfter: iso,
+      createdAt: iso,
+      updatedAt: iso,
+    })
+  }
+
   /** Looks up the invites behind the invite emails among `rows` (by the token's hash, one query), to check they're still pending. */
   async function invitesFor(rows: EmailOutboxRow[]) {
     const hashes = new Map<string, string>()
@@ -322,6 +342,12 @@ export function createMailer(deps: MailerDeps) {
       // Sign-in emails are send-now-or-never; one left queued (e.g. the Worker died mid-send) is stale.
       if (isAuthTemplate(row.template)) {
         updates.push(failedUpdate(row, 'Sign-in email not sent in time', true, { attempted: false }))
+        counts.skipped++
+        continue
+      }
+      // A waitlist offer that lapsed before it could be sent would only confuse (the spot has moved on).
+      if (row.template === 'enrolment.offer' && typeof row.payload.expiresAt === 'string' && row.payload.expiresAt <= at.toISOString()) {
+        updates.push(failedUpdate(row, 'Offer lapsed before it was sent', true, { attempted: false }))
         counts.skipped++
         continue
       }
@@ -390,7 +416,7 @@ export function createMailer(deps: MailerDeps) {
     return (finished as unknown[]).length + (stale as unknown[]).length
   }
 
-  return { mode, sendEmail, drainOutbox, scrubSensitivePayloads }
+  return { mode, sendEmail, queueStatement, drainOutbox, scrubSensitivePayloads }
 }
 
 export type Mailer = ReturnType<typeof createMailer>

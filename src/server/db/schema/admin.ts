@@ -1,4 +1,4 @@
-import { index, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
+import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 import { user } from './auth'
 import { id, SQL_NOW_ISO, timestamps } from './columns'
 import { auditActions, userRoles } from './enums'
@@ -66,6 +66,26 @@ export const auditLog = sqliteTable(
   ],
 )
 
+/**
+ * Fixed-window rate-limit counters for public endpoints (the enrolment form: per IP and per email). One row per key
+ * and window; keys hold only a SHA-256 prefix of the IP or email, never the value. `hit()` in
+ * src/server/ratelimit.ts upserts atomically; the hourly cron deletes rows past `expires_at`.
+ */
+export const rateLimits = sqliteTable(
+  'rate_limits',
+  {
+    /** "<scope>:<hash>", e.g. "enrol:ip:3f2a…". */
+    key: text('key').primaryKey(),
+    /** Requests counted in the current window. */
+    count: integer('count').notNull(),
+    /** UTC ISO: when the current window started and when it ends. */
+    windowStart: text('window_start').notNull(),
+    expiresAt: text('expires_at').notNull(),
+  },
+  (t) => [index('rate_limits_expires_at_idx').on(t.expiresAt)],
+)
+
+export type RateLimit = typeof rateLimits.$inferSelect
 export type SiteSetting = typeof siteSettings.$inferSelect
 export type NewSiteSetting = typeof siteSettings.$inferInsert
 export type AdminInvite = typeof adminInvites.$inferSelect
