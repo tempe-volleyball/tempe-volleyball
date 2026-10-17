@@ -1,11 +1,31 @@
 ---
+// The public page shell: header (hero + nav), main column with an optional right sidebar of ladder widgets, footer.
 import '../styles/global.css'
+import LadderWidget from '../components/LadderWidget.astro'
+import SiteFooter from '../components/SiteFooter.astro'
+import SiteHeader from '../components/SiteHeader.astro'
+import { SITE_NAME } from '../lib/site'
+import { normalisePath } from '../lib/wp-import/routes'
+import type { Site } from '../server/site'
 
-type Props = { title: string; description: string }
-const { title, description } = Astro.props
-const canonical = new URL(Astro.url.pathname, Astro.site)
+type Props = {
+  /** The full <title>, e.g. documentTitle(page.title). */
+  title: string
+  description: string
+  site: Site
+  /** Show the ladder widgets on the right (content pages). League pages use the full width. */
+  sidebar?: boolean
+  /** Path for the canonical URL; defaults to the request path without a trailing slash. */
+  canonicalPath?: string
+  ogImage?: string
+  ogType?: 'website' | 'article'
+}
+const { title, description, site, sidebar = false, canonicalPath, ogImage, ogType = 'website' } = Astro.props
+const canonical = new URL(canonicalPath ?? normalisePath(Astro.url.pathname), Astro.site)
+const image = new URL(ogImage ?? '/images/hero-1500.webp', Astro.site)
 ---
 
+<!doctype html>
 <html lang="en-AU">
   <head>
     <meta charset="utf-8" />
@@ -13,33 +33,57 @@ const canonical = new URL(Astro.url.pathname, Astro.site)
     <title>{title}</title>
     <meta name="description" content={description} />
     <link rel="canonical" href={canonical} />
+    <link rel="preload" href="/fonts/lato-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/noto-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin />
+    <link
+      rel="preload"
+      as="image"
+      href="/images/hero-1500.webp"
+      imagesrcset="/images/hero-800.webp 800w, /images/hero-1500.webp 1500w"
+      imagesizes="100vw"
+      fetchpriority="high"
+    />
+    <meta name="theme-color" content="#104293" />
+    <meta property="og:site_name" content={SITE_NAME} />
+    <meta property="og:type" content={ogType} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={image} />
+    <meta property="og:locale" content="en_AU" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="icon" href="/favicon.ico" />
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   </head>
   <body class="flex min-h-screen flex-col">
-    <header class="border-accent bg-brand border-b-4 text-white">
-      <div class="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4">
-        <a href="/" class="font-display text-2xl font-bold tracking-wide uppercase">
-          Tempe Volleyball
-        </a>
-        <span class="text-sm">New site under construction</span>
-      </div>
-    </header>
-    <main class="mx-auto w-full max-w-6xl flex-1 px-4 py-10">
-      <slot />
-    </main>
-    <footer>
-      <div class="bg-footer px-4 py-8 text-white">
-        <p class="mx-auto max-w-6xl">
-          Contact Michael on 0414 911 544 ·{' '}
-          <a class="text-accent" href="mailto:tempevb@gmail.com">
-            tempevb@gmail.com
-          </a>
-        </p>
-      </div>
-      <div class="bg-accent px-4 py-3 text-xs text-white">
-        <p class="mx-auto max-w-6xl">© {new Date().getFullYear()} Tempe Volleyball League</p>
-      </div>
-    </footer>
+    <a
+      href="#content"
+      class="bg-accent text-ink sr-only z-50 px-4 py-2 font-bold focus:not-sr-only focus:absolute focus:top-2 focus:left-2"
+    >
+      Skip to content
+    </a>
+    <SiteHeader menu={site.menu} pathname={Astro.url.pathname} />
+    <div class="mx-auto w-full max-w-6xl flex-1 px-4 py-10 lg:px-8 lg:py-16">
+      {sidebar ? (
+        <div class="grid gap-12 lg:grid-cols-[minmax(0,1fr)_21rem]">
+          <main id="content" class="min-w-0">
+            <slot />
+          </main>
+          <aside aria-labelledby="sidebar-ladders" class="space-y-8">
+            <h2 id="sidebar-ladders" class="text-3xl">
+              Ladders
+            </h2>
+            {site.current.map((item) => (
+              <LadderWidget item={item} />
+            ))}
+          </aside>
+        </div>
+      ) : (
+        <main id="content" class="min-w-0">
+          <slot />
+        </main>
+      )}
+    </div>
+    <SiteFooter site={site} />
   </body>
 </html>

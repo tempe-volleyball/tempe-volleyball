@@ -1,17 +1,25 @@
 ---
+// Home: the imported home page (pages.path '/', template 'home'), with the ladder widgets alongside.
+import PageBody from '../components/PageBody.astro'
 import BaseLayout from '../layouts/BaseLayout.astro'
+import { documentTitle, metaDescription } from '../lib/content'
+import { SITE_NAME } from '../lib/site'
+import { cachePublic, tags } from '../server/cache'
+import { publicDb } from '../server/public'
+import { loadSite, lookupPath } from '../server/site'
+
+const db = publicDb()
+const [site, found] = await Promise.all([loadSite(db), lookupPath(db, '/')])
+const page = found.page
+cachePublic(Astro.cache, tags.page('/'))
 ---
 
 <BaseLayout
-  title="Tempe Volleyball | Social volleyball leagues in Sydney"
-  description="Social mixed volleyball leagues, training and development programs in Tempe, Burwood and Five Dock, Sydney."
+  title={page ? documentTitle(`${SITE_NAME} | Social volleyball leagues and training in Sydney`) : SITE_NAME}
+  description={metaDescription(page?.metaDescription)}
+  site={site}
+  sidebar
+  canonicalPath="/"
 >
-  <h1 class="border-accent mb-6 border-b-4 pb-3 text-4xl font-bold">Welcome to Tempe Volleyball</h1>
-  <p>
-    This is the skeleton of the new site. The real pages arrive in Phase 2. The current site is at{' '}
-    <a class="text-brand underline" href="https://www.tempevb.com">
-      www.tempevb.com
-    </a>
-    .
-  </p>
+  <PageBody title={page?.title ?? `Welcome to ${SITE_NAME}`} html={page?.body.html ?? ''} titles={found.titles} />
 </BaseLayout>

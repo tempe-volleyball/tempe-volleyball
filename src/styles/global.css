@@ -2,20 +2,68 @@
 
 /*
  * Design tokens taken from the live WordPress site (ThemeBoy "Premier" theme), see docs/reference/.
- * Fonts: the old site loads Lato (headings, nav) and Droid Sans (body) from Google Fonts.
- * Phase 2 self-hosts Lato and Noto Sans (Droid Sans's successor) as static files.
+ * Fonts: Lato (headings, nav) and Noto Sans (body, Droid Sans's successor), self-hosted from public/fonts (latin
+ * subset, copied from @fontsource), with metric-adjusted local fallbacks so the swap barely moves anything.
  */
+@font-face {
+  font-family: 'Lato';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/lato-latin-400-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Lato';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/lato-latin-700-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Noto Sans';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/noto-sans-latin-400-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Noto Sans';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/noto-sans-latin-700-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Lato Fallback';
+  src: local('Arial'), local('Helvetica'), local('Liberation Sans');
+  size-adjust: 97.4%;
+  ascent-override: 101.4%;
+  descent-override: 21.9%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: 'Noto Sans Fallback';
+  src: local('Arial'), local('Helvetica'), local('Liberation Sans');
+  size-adjust: 105.9%;
+  ascent-override: 101%;
+  descent-override: 27.7%;
+  line-gap-override: 0%;
+}
+
 @theme {
-  --font-sans: 'Noto Sans', 'Droid Sans', ui-sans-serif, system-ui, sans-serif;
-  --font-display: 'Lato', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Noto Sans', 'Noto Sans Fallback', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Lato', 'Lato Fallback', ui-sans-serif, system-ui, sans-serif;
 
   --color-brand: #104293; /* nav bar, table bodies */
-  --color-brand-soft: #87a0c9; /* muted text on brand blue (fails contrast on the old site; fix in Phase 6) */
-  --color-accent: #ffa800; /* links, table captions, header rule, copyright bar */
+  --color-brand-dark: #0b3170; /* hover on brand */
+  --color-brand-soft: #87a0c9; /* the old muted numbers; fails contrast on brand, so tables use brand-text */
+  --color-brand-text: #e8eef8; /* near-white text on brand blue (AAA) */
+  --color-accent: #ffa800; /* table captions, header rule, copyright bar, active nav item; dark text on it */
   --color-ink: #222222; /* body text */
   --color-paper: #e4e4e4; /* page background */
   --color-header-row: #555555; /* table header rows */
   --color-footer: #111111; /* footer widgets area */
+  --color-link: #0d3a85; /* links on paper: amber fails contrast there, so links are brand blue + amber underline */
 }
 
 body {
@@ -26,4 +74,152 @@ h1,
 h2,
 h3 {
   @apply font-display;
+}
+
+/* Page H1: big Lato with the 4px amber rule underneath, as on the old site. */
+.page-title {
+  @apply font-display border-accent mb-8 border-b-4 pb-3 text-3xl leading-tight font-bold sm:text-4xl lg:text-5xl;
+}
+
+/* Blue data tables (fixtures, ladders): amber caption, grey header row, near-white text on blue. */
+.data-table {
+  @apply w-full border-collapse text-xs sm:text-sm;
+  font-variant-numeric: tabular-nums;
+}
+.data-table caption {
+  @apply bg-accent font-display text-ink px-3 py-3 text-center text-base font-bold;
+}
+.data-table thead th {
+  @apply bg-header-row px-3 py-2.5 text-left font-bold whitespace-nowrap text-white;
+}
+.data-table tbody {
+  @apply bg-brand text-brand-text;
+}
+.data-table tbody td,
+.data-table tbody th {
+  @apply px-2 py-2 text-left align-top font-normal sm:px-3;
+}
+.data-table thead th {
+  @apply px-2 sm:px-3;
+}
+/* Wide tables scroll sideways on phones; the wrapper is focusable so keyboard users can scroll it. */
+.table-scroll {
+  @apply overflow-x-auto focus-visible:outline-2 focus-visible:outline-offset-2;
+}
+.data-table tbody tr:first-child > * {
+  @apply pt-4;
+}
+.data-table tbody tr:last-child > * {
+  @apply pb-4;
+}
+.data-table .team {
+  @apply text-white uppercase;
+}
+.data-table abbr {
+  @apply no-underline;
+}
+.data-table .num {
+  @apply text-right;
+}
+.data-table a {
+  @apply text-white underline decoration-white/40 underline-offset-2 hover:decoration-white;
+}
+
+/* Ladder widgets (sidebar, footer): tighter cells so Pos to L fits a narrow column. */
+.data-table.compact thead th,
+.data-table.compact tbody td,
+.data-table.compact tbody th {
+  @apply px-2;
+}
+.data-table.compact thead th:first-child,
+.data-table.compact tbody td:first-child {
+  @apply pl-3;
+}
+
+/* Stored page/post HTML. */
+.prose {
+  @apply leading-relaxed;
+}
+.prose > * + * {
+  @apply mt-4;
+}
+.prose h2 {
+  @apply mt-8 text-2xl font-bold;
+}
+.prose h3 {
+  @apply mt-6 text-xl font-bold;
+}
+.prose h4,
+.prose h5,
+.prose h6 {
+  @apply font-display mt-6 text-lg font-bold;
+}
+.prose a {
+  @apply text-link decoration-accent font-semibold underline decoration-2 underline-offset-2 hover:decoration-[3px];
+}
+.prose ul {
+  @apply list-disc pl-6;
+}
+.prose ol {
+  @apply list-decimal pl-6;
+}
+.prose li + li {
+  @apply mt-1;
+}
+.prose img {
+  @apply h-auto max-w-full;
+}
+.prose figure {
+  @apply max-w-full;
+}
+.prose figcaption {
+  @apply mt-1 text-sm text-neutral-600;
+}
+.prose iframe {
+  @apply w-full max-w-full border-0;
+}
+.prose table {
+  @apply w-full border-collapse text-sm;
+}
+.prose td,
+.prose th {
+  @apply border border-neutral-400 px-2 py-1 align-top;
+}
+.prose blockquote {
+  @apply border-accent border-l-4 pl-4 italic;
+}
+.prose .wp-block-image,
+.prose .wp-block-embed {
+  @apply my-6;
+}
+.prose .aligncenter {
+  @apply mx-auto;
+}
+.prose .wp-block-columns {
+  @apply flex flex-col gap-6 md:flex-row;
+}
+.prose .wp-block-column {
+  @apply min-w-0 flex-1;
+}
+.prose .wp-block-button__link {
+  @apply bg-brand inline-block rounded px-4 py-2 text-white no-underline;
+}
+
+/* Nav: the outer <details> is the mobile menu; on wide screens it's always open and the summary is hidden. */
+@media (min-width: 64rem) {
+  .site-menu > summary {
+    display: none;
+  }
+  .site-menu::details-content {
+    content-visibility: visible;
+    display: contents;
+  }
+}
+.site-menu > summary::-webkit-details-marker,
+.nav-group > summary::-webkit-details-marker {
+  display: none;
+}
+.site-menu > summary,
+.nav-group > summary {
+  list-style: none;
 }

@@ -1,0 +1,50 @@
+---
+// A league's current season: ladder (#ladder) and fixtures (#fixtures). The menu's league items link here.
+import NotFound from '../../../components/NotFound.astro'
+import SeasonView from '../../../components/SeasonView.astro'
+import BaseLayout from '../../../layouts/BaseLayout.astro'
+import { DEFAULT_DESCRIPTION, documentTitle } from '../../../lib/content'
+import { leagueRoute, normalisePath } from '../../../lib/wp-import/routes'
+import { cachePublic, tags } from '../../../server/cache'
+import { publicSeasons } from '../../../server/competition/load'
+import { publicDb, redirectFor } from '../../../server/public'
+import { loadSite } from '../../../server/site'
+
+const slug = (Astro.params.league ?? '').toLowerCase()
+const db = publicDb()
+const site = await loadSite(db)
+const view = site.current.find((c) => c.league.slug === slug)
+const league = site.leagues.find((l) => l.slug === slug)
+
+if (!view) {
+  const redirect = await redirectFor(Astro, db, normalisePath(Astro.url.pathname))
+  if (redirect) return redirect
+  Astro.response.status = 404
+} else cachePublic(Astro.cache, tags.league(slug), tags.season(view.summary.slug))
+
+const description = view
+  ? `${view.league.name} ${view.summary.name}: ladder, fixtures and results for Tempe Volleyball's ${view.league.name}.`
+  : DEFAULT_DESCRIPTION
+---
+
+{view ? (
+  <BaseLayout
+    title={documentTitle(`${view.league.name} Ladder, Fixtures and Results`)}
+    description={description}
+    site={site}
+    canonicalPath={leagueRoute(slug)}
+  >
+    <SeasonView view={view} others={publicSeasons(site.seasons, view.league.id)} current />
+  </BaseLayout>
+) : (
+  <BaseLayout title={documentTitle(league ? league.name : 'Page not found')} description={DEFAULT_DESCRIPTION} site={site}>
+    {league ? (
+      <>
+        <h1 class="page-title">{league.name}</h1>
+        <p>No season has been published for this league yet.</p>
+      </>
+    ) : (
+      <NotFound />
+    )}
+  </BaseLayout>
+)}

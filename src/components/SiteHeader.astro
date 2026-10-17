@@ -1,0 +1,137 @@
+---
+// Hero photo with the logo on the left and the two-row blue nav block on the right; on narrow screens the nav
+// collapses into an amber "Menu" bar above the hero. The menu is a <details>, so it works without JavaScript; the
+// small script only closes dropdowns on outside click / Escape and keeps the menu open on wide screens in browsers
+// without ::details-content.
+import { isActive, type MenuItem } from '../lib/menu'
+
+type Props = { menu: MenuItem[]; pathname: string }
+const { menu, pathname } = Astro.props
+
+const itemClass = (active: boolean) =>
+  [
+    'block px-4 py-3 font-display text-base font-bold uppercase lg:px-4 xl:px-5 xl:text-lg',
+    active ? 'bg-accent text-ink' : 'text-white hover:bg-brand-dark focus-visible:bg-brand-dark',
+  ].join(' ')
+const subClass = 'block px-4 py-2.5 font-display text-base font-bold text-white hover:bg-brand-dark focus-visible:bg-brand-dark lg:px-5'
+---
+
+<header class="border-accent relative border-b-4">
+  <details class="site-menu bg-accent lg:absolute lg:top-16 lg:right-4 lg:z-20 lg:max-w-[min(61rem,calc(100%-21rem))] lg:bg-transparent xl:right-8">
+    <summary class="text-ink font-display flex cursor-pointer items-center justify-center gap-2 py-2.5 text-base font-bold tracking-wide uppercase">
+      <svg
+        aria-hidden="true"
+        width="22"
+        height="22"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2.5"
+        stroke-linecap="round"
+      >
+        <path d="M4 6h16M4 12h16M4 18h16"></path>
+      </svg>
+      <span>Menu</span>
+    </summary>
+    <nav aria-label="Main" class="bg-brand">
+      <ul class="flex flex-col lg:flex-row lg:flex-wrap">
+        {menu.map((item) => {
+          const active = isActive(item, pathname)
+          if (item.children.length === 0)
+            return (
+              <li>
+                <a
+                  class={itemClass(active)}
+                  href={item.href ?? '#'}
+                  aria-current={active ? 'page' : undefined}
+                  {...(item.external ? { rel: 'noopener' } : {})}
+                >
+                  {item.label}
+                </a>
+              </li>
+            )
+          return (
+            <li class="lg:relative">
+              <details class="nav-group">
+                <summary class={`${itemClass(active)} flex cursor-pointer items-center justify-between gap-1.5`}>
+                  {item.label}
+                  <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+                    <path d="M1 3.5h10L6 9z" />
+                  </svg>
+                </summary>
+                <ul class="bg-brand border-accent border-l-4 lg:absolute lg:top-full lg:left-0 lg:z-30 lg:min-w-64 lg:border-t-4 lg:border-l-0 lg:shadow-lg">
+                  {item.href && (
+                    <li>
+                      <a class={subClass} href={item.href}>
+                        {item.label}
+                      </a>
+                    </li>
+                  )}
+                  {item.children.map((c) => (
+                    <li>
+                      <a class={subClass} href={c.href ?? '#'} {...(c.external ? { rel: 'noopener' } : {})}>
+                        {c.label}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            </li>
+          )
+        })}
+      </ul>
+    </nav>
+  </details>
+
+  <div class="relative h-60 overflow-hidden sm:h-72 lg:h-[325px]">
+    <img
+      src="/images/hero-1500.webp"
+      srcset="/images/hero-800.webp 800w, /images/hero-1500.webp 1500w"
+      sizes="100vw"
+      width="1500"
+      height="541"
+      alt=""
+      fetchpriority="high"
+      decoding="async"
+      class="absolute inset-0 h-full w-full object-cover object-[center_30%]"
+    />
+    <div class="relative mx-auto flex h-full max-w-6xl items-center justify-center px-4 lg:justify-start lg:px-8 xl:px-[3.25rem]">
+      <a href="/" class="block">
+        <img
+          src="/images/logo-200.webp"
+          srcset="/images/logo-200.webp 200w, /images/logo-400.webp 400w"
+          sizes="(min-width: 64rem) 180px, 150px"
+          width="200"
+          height="252"
+          alt="Tempe Volleyball: the one and only since 2005, with Sydney Uni Volleyball Club"
+          class="h-auto w-[150px] drop-shadow-lg lg:w-[180px]"
+        />
+      </a>
+    </div>
+  </div>
+</header>
+
+<script is:inline>
+  ;(() => {
+    const menu = document.querySelector('.site-menu')
+    if (!menu) return
+    const wide = matchMedia('(min-width: 64rem)')
+    const sync = () => (menu.open = wide.matches)
+    sync()
+    wide.addEventListener('change', sync)
+    const groups = () => document.querySelectorAll('.nav-group[open]')
+    document.addEventListener('click', (e) => groups().forEach((g) => g.contains(e.target) || (g.open = false)))
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return
+      groups().forEach((g) => {
+        g.open = false
+        g.querySelector('summary')?.focus()
+      })
+    })
+    document.querySelectorAll('.nav-group').forEach((g) =>
+      g.addEventListener('toggle', () => {
+        if (g.open) groups().forEach((o) => o === g || (o.open = false))
+      }),
+    )
+  })()
+</script>

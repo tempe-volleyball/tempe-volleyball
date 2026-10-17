@@ -1,0 +1,86 @@
+---
+import type { LadderRow } from '../server/competition/adapter'
+
+// The ladder: full (Pos, Team, Pts, P, W, D, L, S+, S-, P+, P-, Ratio) or compact for widgets (to L, top N).
+type Props = { rows: LadderRow[]; caption?: string; compact?: boolean; limit?: number }
+const { rows, caption, compact = false, limit } = Astro.props
+const shown = limit ? rows.slice(0, limit) : rows
+---
+
+<div class="table-scroll" {...(compact ? {} : { tabindex: 0, role: 'region', 'aria-label': caption ?? 'Ladder' })}>
+  <table class:list={['data-table', { compact }]}>
+    {caption && <caption>{caption}</caption>}
+    <thead>
+      <tr>
+        <th scope="col" class="w-10">
+          Pos
+        </th>
+        <th scope="col">Team</th>
+        <th scope="col" class="num">
+          <abbr title="Ladder points">Pts</abbr>
+        </th>
+        <th scope="col" class="num">
+          <abbr title="Played">P</abbr>
+        </th>
+        <th scope="col" class="num">
+          <abbr title="Won">W</abbr>
+        </th>
+        <th scope="col" class="num">
+          <abbr title="Drawn">D</abbr>
+        </th>
+        <th scope="col" class="num">
+          <abbr title="Lost">L</abbr>
+        </th>
+        {!compact && (
+          <>
+            <th scope="col" class="num">
+              <abbr title="Sets won">S+</abbr>
+            </th>
+            <th scope="col" class="num">
+              <abbr title="Sets lost">S-</abbr>
+            </th>
+            <th scope="col" class="num">
+              <abbr title="Points for">P+</abbr>
+            </th>
+            <th scope="col" class="num">
+              <abbr title="Points against">P-</abbr>
+            </th>
+            <th scope="col" class="num">
+              <abbr title="Points for ÷ all points">Ratio</abbr>
+            </th>
+          </>
+        )}
+      </tr>
+    </thead>
+    <tbody>
+      {shown.length === 0 ? (
+        <tr>
+          <td colspan={compact ? 7 : 12}>No teams yet.</td>
+        </tr>
+      ) : (
+        shown.map((r) => (
+          <tr>
+            <td>{r.pos}</td>
+            <th scope="row" class="team">
+              {r.name}
+            </th>
+            <td class="num font-bold text-white">{r.points}</td>
+            <td class="num">{r.played}</td>
+            <td class="num">{r.won}</td>
+            <td class="num">{r.drawn}</td>
+            <td class="num">{r.lost}</td>
+            {!compact && (
+              <>
+                <td class="num">{r.setsFor}</td>
+                <td class="num">{r.setsAgainst}</td>
+                <td class="num">{r.pointsFor}</td>
+                <td class="num">{r.pointsAgainst}</td>
+                <td class="num">{r.ratio}</td>
+              </>
+            )}
+          </tr>
+        ))
+      )}
+    </tbody>
+  </table>
+</div>

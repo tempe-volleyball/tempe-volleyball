@@ -1,0 +1,8 @@
+# Static asset caching (Workers static assets). Astro's hashed bundles under /_astro/ never change; fonts and the
+# header images are versioned by filename, so rename them when they change.
+/_astro/*
+  Cache-Control: public, max-age=31536000, immutable
+/fonts/*
+  Cache-Control: public, max-age=31536000, immutable
+/images/*
+  Cache-Control: public, max-age=2592000
