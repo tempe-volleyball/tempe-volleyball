@@ -1,3 +1,4 @@
+import type { Issue } from '../lib/fixtures'
 import type { UserRole } from '../lib/roles'
 
 // fetch() for our /api/admin and /api/invites JSON endpoints. Errors arrive as { error, message }.
@@ -12,12 +13,22 @@ export type Me = {
 export class ApiError extends Error {
   readonly status: number
   readonly code: string
-  constructor(status: number, code: string, message: string) {
+  /** Extra fields in the error body, e.g. `issues` on 422 invalid_draw and some not_ready errors. */
+  readonly details: Record<string, unknown>
+  constructor(status: number, code: string, message: string, details: Record<string, unknown> = {}) {
     super(message)
     this.status = status
     this.code = code
+    this.details = details
+  }
+  /** The draw's problems, when the server sent them (the lib's Issue type). */
+  get issues(): Issue[] {
+    return Array.isArray(this.details.issues) ? (this.details.issues as Issue[]) : []
   }
 }
+
+/** Someone else saved first (a stale baseUpdatedAt). */
+export const isConflict = (e: unknown) => e instanceof ApiError && e.status === 409 && e.code === 'conflict'
 
 export async function api<T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
   const res = await fetch(path, {
@@ -26,12 +37,15 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
     body: init.body === undefined ? undefined : JSON.stringify(init.body),
     credentials: 'same-origin',
   })
-  const data = (await res.json().catch(() => ({}))) as { error?: string; message?: string }
+  const data = (await res.json().catch(() => ({}))) as { error?: string; message?: string } & Record<string, unknown>
   if (res.status === 401) {
     // Session ended (expired, or removed by an admin): back to sign-in.
     window.location.assign(`/admin/sign-in?next=${encodeURIComponent(window.location.pathname)}`)
   }
-  if (!res.ok) throw new ApiError(res.status, data.error ?? 'error', data.message ?? data.error ?? `Request failed (${res.status})`)
+  if (!res.ok) {
+    const { error, message, ...details } = data
+    throw new ApiError(res.status, error ?? 'error', message ?? error ?? `Request failed (${res.status})`, details)
+  }
   return data as T
 }
 
@@ -109,3 +123,12 @@ export const formatBytes = (n: number) =>
 /** "18/10/2026, 2:05 pm" in Sydney time. */
 export const formatWhen = (iso: string) =>
   new Intl.DateTimeFormat('en-AU', { timeZone: 'Australia/Sydney', dateStyle: 'short', timeStyle: 'short' }).format(new Date(iso))
+
+// ── Seasons (docs/api/seasons.md) ─────────────────────────────────────────────
+// Type-only imports: nothing from src/server ends up in the browser bundle.
+
+export type { SeasonView, SeasonMeta, CourtOption, LeagueListItem, SeasonListItem, SaveDrawResult } from '../server/competition/seasons'
+export type { TeamListItem } from '../server/competition/teams'
+export type { ClashDraws } from '../server/competition/clashes'
+export type { MatchDayState } from '../server/competition/results'
+export type { AdjustmentRow } from '../server/competition/adjustments'

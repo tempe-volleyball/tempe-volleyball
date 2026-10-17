@@ -1,5 +1,5 @@
 import { and, eq, inArray } from 'drizzle-orm'
-import { publishProblem, setScoresProblem, type Game, type Ref, type Week } from '../../lib/fixtures'
+import { dayPublishProblem, setScoresProblem, type Game, type Ref, type Week } from '../../lib/fixtures'
 import { tags, type PurgeTargets } from '../cache'
 import { runBatch, type AppDb } from '../db'
 import {
@@ -27,7 +27,10 @@ import { archived } from './seasons'
 //    ladder's "Updated" line), marks the games played and purges the league's pages.
 //  - undoResults throws away unpublished edits (draft := published).
 // Editors can do all three. The season must be published (draws are locked by then); archived seasons are read-only.
-// Concurrency: match_days.updated_at, which all three bump.
+// Concurrency: match_days.updated_at, which all three bump (and so does setMatchStatus).
+//
+// Cancelled games (matches.status = 'cancelled') take no result: saving one is refused, and publishing skips them
+// and drops any result they had. A forfeit is an ordinary result with a label.
 
 export type MatchDayState = { id: string; updatedAt: string; resultsPublishedAt: string | null }
 
@@ -110,6 +113,8 @@ function asWeek(l: Loaded): Week {
   }
 }
 
+const cancelledIn = (l: Loaded) => new Set(l.matches.filter((m) => m.status === 'cancelled').map((m) => m.id))
+
 const copyRows = (rows: MatchResult[], kind: MatchResult['kind'], actorId: string, at: string) =>
   rows.map((r) =>
     compact({
@@ -146,6 +151,7 @@ export async function saveResults(
   const l = await loadDay(db, seasonId, dayId)
   assertResultsOpen(l, base)
   const inDay = new Set(l.matches.map((m) => m.id))
+  const cancelled = cancelledIn(l)
   const entries = Object.entries(input.results as Record<string, unknown>)
   if (entries.length > inDay.size) throw invalid('More results than games on this match day.')
   const values: (ResultValues & { matchId: string })[] = []
@@ -153,6 +159,7 @@ export async function saveResults(
   for (const [matchId, v] of entries) {
     id(matchId, 'Match')
     if (!inDay.has(matchId)) throw invalid('One of those games isn’t on this match day.')
+    if (v !== null && cancelled.has(matchId)) throw invalid('That game was cancelled, so it can’t have a result. Mark it played first.')
     touched.push(matchId)
     const r = parseResult(v, l.season.setsPerMatch)
     if (r) values.push({ matchId, ...r })
@@ -185,13 +192,20 @@ export async function publishResults(
   assertResultsOpen(l, base)
   const week = asWeek(l)
   if (week.games.length === 0) throw invalid('This match day has no games.')
+  const cancelled = cancelledIn(l)
   const problem =
-    publishProblem(week) ?? week.games.map((g) => setScoresProblem(g.result?.sets, l.season.setsPerMatch)).find((p) => p !== null) ?? null
+    dayPublishProblem(week, cancelled) ??
+    week.games
+      .filter((g) => !cancelled.has(g.id))
+      .map((g) => setScoresProblem(g.result?.sets, l.season.setsPerMatch))
+      .find((p) => p !== null) ??
+    null
   if (problem) throw new HttpError(422, 'not_ready', problem)
 
   const at = now.toISOString()
   const ids = l.matches.map((m) => m.id)
-  const drafts = l.results.filter((r) => r.kind === 'draft')
+  // Cancelled games publish without a result, so one they had before leaves the ladder.
+  const drafts = l.results.filter((r) => r.kind === 'draft' && !cancelled.has(r.matchId))
   const before = l.results.filter((r) => r.kind === 'published').length
   await runBatch(db, [
     db.delete(matchResults).where(and(eq(matchResults.kind, 'published'), inArray(matchResults.matchId, ids))),
@@ -228,11 +242,67 @@ export async function undoResults(
   assertResultsOpen(l, base)
   const at = now.toISOString()
   const ids = l.matches.map((m) => m.id)
-  const published = l.results.filter((r) => r.kind === 'published')
+  const cancelled = cancelledIn(l)
+  const published = l.results.filter((r) => r.kind === 'published' && !cancelled.has(r.matchId))
   await runBatch(db, [
     db.delete(matchResults).where(and(eq(matchResults.kind, 'draft'), inArray(matchResults.matchId, ids))),
     ...chunkByParams(copyRows(published, 'draft', actor.id, at)).map((chunk) => db.insert(matchResults).values(chunk)),
     db.update(matchDays).set({ updatedAt: at, updatedBy: actor.id }).where(eq(matchDays.id, dayId)),
   ])
   return dayState(l.day, at)
+}
+
+/**
+ * What the admin can set a game to. 'played' means "neither cancelled nor a forfeit": it's stored as played once the
+ * game has a published result, and as scheduled before that.
+ */
+export const settableStatuses = ['played', 'forfeit', 'cancelled'] as const
+export type SettableStatus = (typeof settableStatuses)[number]
+
+export type SetMatchStatusInput = { baseUpdatedAt?: unknown; status?: unknown }
+
+/**
+ * Marks one game cancelled or a forfeit, or back to played. Cancelling throws away its draft result; a published one
+ * stays on the ladder until the match day is published again. Bumps the match day's token. The public fixtures show
+ * "Cancelled" and "(forfeit)" straight away, so this purges the league's pages. Audited as match.status.
+ */
+export async function setMatchStatus(
+  db: AppDb,
+  actor: Editor,
+  seasonId: string,
+  dayId: string,
+  matchId: string,
+  input: SetMatchStatusInput,
+  now = new Date(),
+): Promise<Changed<{ matchDay: MatchDayState; match: { id: string; status: Match['status'] } }>> {
+  const base = baseUpdatedAt(input.baseUpdatedAt)
+  const wanted = input.status
+  if (typeof wanted !== 'string' || !(settableStatuses as readonly string[]).includes(wanted))
+    throw invalid('status must be played, forfeit or cancelled.')
+  id(matchId, 'Match')
+  const l = await loadDay(db, seasonId, dayId)
+  assertResultsOpen(l, base)
+  const match = l.matches.find((m) => m.id === matchId)
+  if (!match) throw notFound('game')
+  const hasPublished = l.results.some((r) => r.matchId === matchId && r.kind === 'published')
+  const status: Match['status'] = wanted === 'played' ? (hasPublished ? 'played' : 'scheduled') : (wanted as SettableStatus)
+  if (status === match.status) return { result: { matchDay: dayState(l.day, l.day.updatedAt), match: { id: matchId, status } }, purge: {} }
+  const at = now.toISOString()
+  await runBatch(db, [
+    db.update(matches).set({ status, updatedAt: at, updatedBy: actor.id }).where(eq(matches.id, matchId)),
+    ...(status === 'cancelled'
+      ? [db.delete(matchResults).where(and(eq(matchResults.kind, 'draft'), eq(matchResults.matchId, matchId)))]
+      : []),
+    db.update(matchDays).set({ updatedAt: at, updatedBy: actor.id }).where(eq(matchDays.id, dayId)),
+    audit(
+      db,
+      actor,
+      'match.status',
+      { type: 'match', id: matchId },
+      { season: l.season.name, date: l.day.date, status: match.status },
+      { season: l.season.name, date: l.day.date, status },
+      at,
+    ),
+  ])
+  return { result: { matchDay: dayState(l.day, at), match: { id: matchId, status } }, purge: purgeFor(l) }
 }
