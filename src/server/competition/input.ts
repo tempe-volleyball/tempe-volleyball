@@ -9,7 +9,7 @@ import {
   type SetScore,
   type Week,
 } from '../../lib/fixtures'
-import { matchDayKinds, type MatchDayKind } from '../db/schema'
+import { matchDayKinds, tieBreakRules, type MatchDayKind, type TieBreakRule, type WithdrawnPolicy } from '../db/schema'
 import { HttpError } from '../http'
 
 // Parsing the admin's JSON into the fixtures library's shapes. Nothing here trusts the browser: every field is
@@ -112,6 +112,10 @@ export type SettingsPatch = {
   setsPerMatch?: number
   /** Only checked: teams change through PUT /teams. */
   teams?: string[]
+  /** Ladder order after points (tieBreakRules); `name` is added last if missing. Allowed on published seasons. */
+  tieBreaks?: TieBreakRule[]
+  /** How withdrawn teams show. Allowed on published seasons. */
+  withdrawn?: WithdrawnPolicy
 }
 
 export function parseSettingsPatch(input: unknown): SettingsPatch {
@@ -154,6 +158,27 @@ export function parseSettingsPatch(input: unknown): SettingsPatch {
     out.teams = array(o.teams, 'Teams', LIMITS.teams).map((t, i) =>
       id(t && typeof t === 'object' ? (t as { id?: unknown }).id : t, `Team ${i + 1}`),
     )
+  if (o.tieBreaks !== undefined) {
+    const rules = array(o.tieBreaks, 'Tie-break order', tieBreakRules.length).map((r, i) => {
+      if (typeof r !== 'string' || !(tieBreakRules as readonly string[]).includes(r))
+        throw invalid(`Tie-break ${i + 1} must be one of ${tieBreakRules.join(', ')}.`)
+      return r as TieBreakRule
+    })
+    if (new Set(rules).size !== rules.length) throw invalid('A tie-break is listed twice.')
+    out.tieBreaks = [...rules.filter((r) => r !== 'name'), 'name']
+  }
+  if (o.withdrawn !== undefined) {
+    const w = record(o.withdrawn, 'Withdrawn teams')
+    const pick = <T extends string>(v: unknown, allowed: readonly T[], label: string): T => {
+      if (typeof v !== 'string' || !(allowed as readonly string[]).includes(v)) throw invalid(`${label} must be ${allowed.join(' or ')}.`)
+      return v as T
+    }
+    out.withdrawn = {
+      ladder: pick(w.ladder, ['mark', 'hide'] as const, 'Withdrawn teams on the ladder'),
+      results: pick(w.results, ['keep', 'void'] as const, 'Withdrawn teams’ results'),
+      fixtures: w.fixtures === undefined ? 'cancelled' : pick(w.fixtures, ['bye', 'cancelled'] as const, 'Withdrawn teams’ fixtures'),
+    }
+  }
   return out
 }
 

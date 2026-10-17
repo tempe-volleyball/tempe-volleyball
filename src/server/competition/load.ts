@@ -14,7 +14,7 @@ import {
   type League,
   type Season,
 } from '../db/schema'
-import type { SeasonData } from './adapter'
+import { seasonTeamRow, type SeasonData } from './adapter'
 
 // Loading seasons for the public site: a fixed number of queries per call, whatever the number of seasons or matches,
 // always inside one db.batch() round trip. Only published results are read.
@@ -38,7 +38,12 @@ export function seasonQueries(db: AppDb, f: SeasonFilter) {
       .from(seasons)
       .where('ids' in f ? inArray(seasons.id, f.ids.length > 0 ? f.ids : ['']) : eq(seasons.status, f.status)),
     db
-      .select({ seasonId: seasonTeams.seasonId, team: teams })
+      .select({
+        seasonId: seasonTeams.seasonId,
+        team: teams,
+        withdrawnAt: seasonTeams.withdrawnAt,
+        withdrawnReason: seasonTeams.withdrawnReason,
+      })
       .from(seasonTeams)
       .innerJoin(teams, eq(teams.id, seasonTeams.teamId))
       .where(where(seasonTeams.seasonId, f, db))
@@ -107,7 +112,7 @@ export function assembleSeasons(
     out.set(season.id, {
       season,
       league,
-      teams: (teamsBy.get(season.id) ?? []).map((r) => r.team),
+      teams: (teamsBy.get(season.id) ?? []).map(seasonTeamRow),
       matchDays: daysBy.get(season.id) ?? [],
       matches: matchesBy.get(season.id) ?? [],
       results: resultsBy.get(season.id) ?? [],

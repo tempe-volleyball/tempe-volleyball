@@ -1,6 +1,18 @@
 import { sydneyDateTime } from '../time'
 import { formatAU } from './dates'
-import { DEFAULT_POINTS, MAX_SETS, isTeam, type Ref, type Result, type SetScore, type Settings, type Week } from './types'
+import { DEFAULT_TIE_BREAKS, tieBreakRules, type TieBreakRule } from '../../server/db/schema/enums'
+import {
+  DEFAULT_POINTS,
+  MAX_SETS,
+  isTeam,
+  withdrawnPolicy,
+  type Points,
+  type Ref,
+  type Result,
+  type SetScore,
+  type Settings,
+  type Week,
+} from './types'
 
 export type CompleteResult = { home: number; away: number; homePoints: number; awayPoints: number }
 
@@ -66,7 +78,6 @@ export function setScoresProblem(sets: SetScore[] | undefined, maxSets = MAX_SET
 
 /** "25-21, 19-25", or '' without set scores. */
 export const setScoresText = (r: Result | undefined) => (r?.sets ?? []).map(([h, a]) => `${h}-${a}`).join(', ')
-
 export type Standing = {
   teamId: string
   played: number
@@ -77,27 +88,69 @@ export type Standing = {
   setsAgainst: number
   pointsFor: number
   pointsAgainst: number
-  /** Ladder points. */
+  /** Ladder points (including any adjustments passed in). */
   points: number
+  /** The team has withdrawn (only on ladders that mark withdrawn teams; they're sorted last). */
+  withdrawn?: boolean
 }
 
+export type StandingsOptions = {
+  /** Ladder points to add per team id (ladder_adjustments), before sorting. */
+  adjustments?: ReadonlyMap<string, number>
+}
+
+/** The tie-break rules a season can order (seasons.settings.tieBreaks). */
+export const TIE_BREAK_RULES = tieBreakRules
+
+/** How each rule reads in the admin. */
+export const TIE_BREAK_LABEL: Record<TieBreakRule, string> = {
+  setDiff: 'Set difference (S+ − S−)',
+  setRatio: 'Set ratio (S+ ÷ all sets)',
+  setsFor: 'Sets won (S+)',
+  pointDiff: 'Points difference (P+ − P−)',
+  pointRatio: 'Points ratio (P+ ÷ all points)',
+  pointsFor: 'Points won (P+)',
+  wins: 'Wins',
+  headToHead: 'Head to head (ladder points in games between the tied teams)',
+  name: 'Team name (A–Z)',
+}
+
+/** The season's tie-break order, cleaned up: known rules, once each, with `name` last. Missing = DEFAULT_TIE_BREAKS. */
+export function tieBreakOrder(s: Pick<Settings, 'tieBreaks'>): TieBreakRule[] {
+  const known = new Set<string>(tieBreakRules)
+  const rules = [...new Set((s.tieBreaks ?? DEFAULT_TIE_BREAKS).filter((r) => known.has(r) && r !== 'name'))]
+  return [...rules, 'name']
+}
+
+const share = (a: number, b: number) => (a + b > 0 ? a / (a + b) : 0)
+
+type Counted = { home: string; away: string; r: CompleteResult }
+type RankContext = { names: Map<string, string>; counted: Counted[]; pts: Points }
+
 /**
- * The ladder from published round-robin results. Ties go to set difference,
- * then points difference, then wins, then name, so the order is always stable.
+ * The ladder from published round-robin results, sorted by ladder points and then the season's tie-break order
+ * (tieBreakOrder: by default set difference, points difference, wins, then name), so the order is always stable.
+ * Withdrawn teams follow the season's policy (withdrawnPolicy): marked and sorted last, or hidden; their games
+ * counted or voided.
  */
-export function standings(s: Settings, weeks: Week[]): Standing[] {
+export function standings(s: Settings, weeks: Week[], opts: StandingsOptions = {}): Standing[] {
   const pts = s.points ?? DEFAULT_POINTS
+  const policy = withdrawnPolicy(s)
+  const withdrawn = new Set(s.teams.filter((t) => t.withdrawn).map((t) => t.id))
   const rows = new Map<string, Standing>(
     s.teams.map((t) => [
       t.id,
       { teamId: t.id, played: 0, won: 0, drawn: 0, lost: 0, setsFor: 0, setsAgainst: 0, pointsFor: 0, pointsAgainst: 0, points: 0 },
     ]),
   )
+  const counted: Counted[] = []
   for (const w of weeks) {
     if (w.kind !== 'regular') continue
     for (const g of w.games) {
       const r = completeResult(g.publishedResult)
       if (!r || !isTeam(g.home) || !isTeam(g.away)) continue
+      if (policy.results === 'void' && (withdrawn.has(g.home.team) || withdrawn.has(g.away.team))) continue
+      counted.push({ home: g.home.team, away: g.away.team, r })
       const sides = [
         [rows.get(g.home.team), r.home, r.away, r.homePoints, r.awayPoints],
         [rows.get(g.away.team), r.away, r.home, r.awayPoints, r.homePoints],
@@ -122,15 +175,93 @@ export function standings(s: Settings, weeks: Week[]): Standing[] {
       }
     }
   }
-  const name = (id: string) => s.teams.find((t) => t.id === id)?.name ?? ''
-  return [...rows.values()].sort(
-    (a, b) =>
-      b.points - a.points ||
-      b.setsFor - b.setsAgainst - (a.setsFor - a.setsAgainst) ||
-      b.pointsFor - b.pointsAgainst - (a.pointsFor - a.pointsAgainst) ||
-      b.won - a.won ||
-      name(a.teamId).localeCompare(name(b.teamId)),
-  )
+  for (const [teamId, extra] of opts.adjustments ?? []) {
+    const row = rows.get(teamId)
+    if (row) row.points += extra
+  }
+  const list = [...rows.values()].filter((r) => !(policy.ladder === 'hide' && withdrawn.has(r.teamId)))
+  for (const r of list) if (withdrawn.has(r.teamId)) r.withdrawn = true
+  const ctx: RankContext = { names: new Map(s.teams.map((t) => [t.id, t.name])), counted, pts }
+  const rules = tieBreakOrder(s)
+  return [
+    ...rankGroup(
+      list.filter((r) => !r.withdrawn),
+      rules,
+      ctx,
+    ),
+    ...rankGroup(
+      list.filter((r) => r.withdrawn),
+      rules,
+      ctx,
+    ),
+  ]
+}
+
+/** Ladder points earned in the games between the teams of `group`: a mini-ladder for head to head. */
+function headToHead(group: Standing[], ctx: RankContext): Map<string, number> {
+  const out = new Map(group.map((r) => [r.teamId, 0]))
+  for (const { home, away, r } of ctx.counted) {
+    if (!out.has(home) || !out.has(away)) continue
+    const [h, a] =
+      r.home > r.away ? [ctx.pts.win, ctx.pts.loss] : r.home < r.away ? [ctx.pts.loss, ctx.pts.win] : [ctx.pts.draw, ctx.pts.draw]
+    out.set(home, out.get(home)! + h)
+    out.set(away, out.get(away)! + a)
+  }
+  return out
+}
+
+type Key = (r: Standing) => number
+
+/** Higher is better for every rule except the name. */
+function ruleKey(rule: Exclude<TieBreakRule, 'name' | 'headToHead'>): Key {
+  switch (rule) {
+    case 'setDiff':
+      return (r) => r.setsFor - r.setsAgainst
+    case 'setRatio':
+      return (r) => share(r.setsFor, r.setsAgainst)
+    case 'setsFor':
+      return (r) => r.setsFor
+    case 'pointDiff':
+      return (r) => r.pointsFor - r.pointsAgainst
+    case 'pointRatio':
+      return (r) => share(r.pointsFor, r.pointsAgainst)
+    case 'pointsFor':
+      return (r) => r.pointsFor
+    case 'wins':
+      return (r) => r.won
+  }
+}
+
+/**
+ * Sorts by ladder points, then splits each tie by the next rule in turn. Head to head is worked out among the teams
+ * still tied at that point, which a pairwise comparator can't do.
+ */
+function rankGroup(group: Standing[], rules: TieBreakRule[], ctx: RankContext): Standing[] {
+  const byKey = (rows: Standing[], key: Key, rest: TieBreakRule[]): Standing[] => {
+    const sorted = rows.toSorted((a, b) => key(b) - key(a))
+    const out: Standing[] = []
+    for (let i = 0; i < sorted.length;) {
+      let j = i + 1
+      while (j < sorted.length && key(sorted[j]!) === key(sorted[i]!)) j++
+      const tied = sorted.slice(i, j)
+      out.push(...(tied.length > 1 ? next(tied, rest) : tied))
+      i = j
+    }
+    return out
+  }
+  const next = (rows: Standing[], [rule, ...rest]: TieBreakRule[]): Standing[] => {
+    if (!rule) return rows
+    if (rule === 'name') {
+      const name = (r: Standing) => ctx.names.get(r.teamId) ?? ''
+      return rows.toSorted((a, b) => name(a).localeCompare(name(b)))
+    }
+    if (rule === 'headToHead') {
+      const h2h = headToHead(rows, ctx)
+      return byKey(rows, (r) => h2h.get(r.teamId) ?? 0, rest)
+    }
+    return byKey(rows, ruleKey(rule), rest)
+  }
+  return byKey(group, (r) => r.points, rules)
 }
 
 /** The ladder's Ratio column: P+ ÷ (P+ + P−), as on tempevb.com. null before any points. */
@@ -145,7 +276,11 @@ export const formatRatio = (r: number | null) => (r === null ? '' : r.toFixed(3)
 /** Published results so far. */
 export function progress(weeks: Week[]) {
   const count = (kinds: Week['kind'][]) => {
-    const games = weeks.filter((w) => kinds.includes(w.kind)).flatMap((w) => w.games)
+    // A cancelled game is never played, so it doesn't hold up "every result is in" (finals seeding, final standings).
+    const games = weeks
+      .filter((w) => kinds.includes(w.kind))
+      .flatMap((w) => w.games)
+      .filter((g) => g.status !== 'cancelled')
     return { done: games.filter((g) => isComplete(g.publishedResult)).length, total: games.length }
   }
   return { regular: count(['regular']), finals: count(['semi', 'final']) }
@@ -153,7 +288,7 @@ export function progress(weeks: Week[]) {
 
 /** Every match day's results are published. */
 export function isFinished(weeks: Week[]): boolean {
-  const games = weeks.flatMap((w) => w.games)
+  const games = weeks.flatMap((w) => w.games).filter((g) => g.status !== 'cancelled')
   return games.length > 0 && games.every((g) => isComplete(g.publishedResult))
 }
 
@@ -190,7 +325,10 @@ export function ladderWeekLabel(weeks: Week[]): string | null {
  */
 export function ladderTitle(weeks: Week[]): 'Final standings' | 'Ladder' {
   if (isFinished(weeks)) return 'Final standings'
-  const games = weeks.filter((w) => w.kind === 'regular').flatMap((w) => w.games)
+  const games = weeks
+    .filter((w) => w.kind === 'regular')
+    .flatMap((w) => w.games)
+    .filter((g) => g.status !== 'cancelled')
   return games.length > 0 && games.every((g) => isComplete(g.publishedResult)) ? 'Final standings' : 'Ladder'
 }
 

@@ -1,5 +1,15 @@
 import { and, asc, desc, eq, inArray } from 'drizzle-orm'
-import { isStale, settingsErrors, validate, type Competition, type Issue, type Settings, type Week } from '../../lib/fixtures'
+import {
+  isStale,
+  settingsErrors,
+  tieBreakOrder,
+  validate,
+  withdrawnPolicy,
+  type Competition,
+  type Issue,
+  type Settings,
+  type Week,
+} from '../../lib/fixtures'
 import { tags, type PurgeTargets } from '../cache'
 import { runBatch, type AppDb } from '../db'
 import {
@@ -28,7 +38,7 @@ import {
 } from '../db/schema'
 import { HttpError } from '../http'
 import { audit, isUniqueFailure, notFound, type Changed, type Editor } from '../content/common'
-import { toCompetition, type SeasonData } from './adapter'
+import { seasonTeamRow, toCompetition, type SeasonData } from './adapter'
 import {
   chunkByParams,
   courtResolver,
@@ -76,7 +86,7 @@ export async function loadSeason(db: AppDb, seasonId: string, opts: { draw?: boo
     db.select().from(seasons).where(eq(seasons.id, seasonId)),
     db.select().from(leagues).where(inArray(leagues.id, leagueOf)),
     db
-      .select({ team: teams })
+      .select({ team: teams, withdrawnAt: seasonTeams.withdrawnAt, withdrawnReason: seasonTeams.withdrawnReason })
       .from(seasonTeams)
       .innerJoin(teams, eq(teams.id, seasonTeams.teamId))
       .where(eq(seasonTeams.seasonId, seasonId))
@@ -95,7 +105,7 @@ export async function loadSeason(db: AppDb, seasonId: string, opts: { draw?: boo
   const res = (await runBatch(db, queries)) as unknown as [
     Season[],
     League[],
-    { team: Team }[],
+    { team: Team; withdrawnAt: string | null; withdrawnReason: string | null }[],
     Court[],
     LadderAdjustment[],
     Venue[],
@@ -111,7 +121,7 @@ export async function loadSeason(db: AppDb, seasonId: string, opts: { draw?: boo
     season,
     league,
     venue: venueRows.find((v) => v.id === league.defaultVenueId) ?? null,
-    teams: teamRows.map((r) => r.team),
+    teams: teamRows.map(seasonTeamRow),
     matchDays: dayRows,
     matches: matchRows,
     results: resultRows,
@@ -176,7 +186,7 @@ export type SeasonView = {
   /** Per match day (by week id): its updatedAt, the concurrency token for results saves. */
   matchDays: Record<string, { updatedAt: string; resultsPublishedAt: string | null }>
   /** Per match (by game id): what the lib's Game doesn't carry. */
-  matches: Record<string, { status: Match['status']; startTime: string | null; courtId: string | null }>
+  matches: Record<string, { status: Match['status']; statusNote: string | null; startTime: string | null; courtId: string | null }>
   adjustments: Pick<LadderAdjustment, 'id' | 'teamId' | 'points' | 'reason' | 'createdAt' | 'updatedAt'>[]
 }
 
@@ -217,7 +227,9 @@ export function seasonView(d: LoadedSeason): SeasonView {
       updatedAt: Date.parse(s.updatedAt),
     },
     matchDays: Object.fromEntries(d.matchDays.map((m) => [m.id, { updatedAt: m.updatedAt, resultsPublishedAt: m.resultsPublishedAt }])),
-    matches: Object.fromEntries(d.matches.map((m) => [m.id, { status: m.status, startTime: m.startTime, courtId: m.courtId }])),
+    matches: Object.fromEntries(
+      d.matches.map((m) => [m.id, { status: m.status, statusNote: m.statusNote, startTime: m.startTime, courtId: m.courtId }]),
+    ),
     adjustments: d.adjustments.map((a) => ({
       id: a.id,
       teamId: a.teamId,
@@ -384,6 +396,9 @@ export async function createSeason(db: AppDb, actor: Editor, input: CreateSeason
           seed: randomSeed(),
           skipDates: [],
           defaultCourtIds: source.season.settings.defaultCourtIds ?? [],
+          // The ladder rules carry over with the format.
+          ...(source.season.settings.tieBreaks ? { tieBreaks: source.season.settings.tieBreaks } : {}),
+          ...(source.season.settings.withdrawn ? { withdrawn: source.season.settings.withdrawn } : {}),
         } satisfies SeasonSettings,
         pointsWin: source.season.pointsWin,
         pointsDraw: source.season.pointsDraw,
@@ -471,6 +486,8 @@ export function mergeSettings(d: LoadedSeason, current: Settings, patch: Setting
     ...(patch.seed !== undefined ? { seed: patch.seed } : {}),
     ...(patch.points !== undefined ? { points: patch.points } : {}),
     ...(patch.duty !== undefined ? { duty: patch.duty } : {}),
+    ...(patch.tieBreaks !== undefined ? { tieBreaks: patch.tieBreaks } : {}),
+    ...(patch.withdrawn !== undefined ? { withdrawn: patch.withdrawn } : {}),
     courts: defaultCourtIds.map((cid, i) => (cid ? resolver.name(cid) || (patch.courts?.[i] ?? '') : '')),
   }
   const setsPerMatch = patch.setsPerMatch ?? s.setsPerMatch
@@ -491,6 +508,8 @@ export function mergeSettings(d: LoadedSeason, current: Settings, patch: Setting
   diff('duty', current.duty !== false, settings.duty !== false)
   diff('courts', currentIds, defaultCourtIds)
   diff('setsPerMatch', s.setsPerMatch, setsPerMatch)
+  diff('tieBreaks', tieBreakOrder(current), tieBreakOrder(settings))
+  diff('withdrawn', withdrawnPolicy(current), withdrawnPolicy(settings))
 
   if (s.status !== 'draft') {
     const locked = changed.filter((k) =>
@@ -509,6 +528,9 @@ export function mergeSettings(d: LoadedSeason, current: Settings, patch: Setting
     seed: settings.seed,
     skipDates: settings.skipDates,
     defaultCourtIds,
+    // Ladder policies: missing keys keep today's behaviour, so only store them once set.
+    ...(settings.tieBreaks ? { tieBreaks: settings.tieBreaks } : {}),
+    ...(settings.withdrawn ? { withdrawn: settings.withdrawn } : {}),
   }
   return {
     settings,
@@ -619,6 +641,8 @@ export type SaveDrawInput = {
   edited?: unknown
   /** Optional settings saved in the same batch (e.g. a new start date with the re-laid weeks). */
   settings?: unknown
+  /** 'csv' when the weeks came from a CSV import (audited as fixtures.import). Drafts only. */
+  source?: unknown
 }
 
 export type SaveDrawResult = { season: SeasonMeta; issues: Issue[]; matchDays: SeasonView['matchDays'] }
@@ -641,9 +665,13 @@ export async function saveDraw(
   if (input.generatedFrom !== undefined && input.generatedFrom !== null && typeof input.generatedFrom !== 'string')
     throw invalid('generatedFrom must be text.')
   if (input.edited !== undefined && typeof input.edited !== 'boolean') throw invalid('edited must be true or false.')
+  if (input.source !== undefined && input.source !== null && input.source !== 'csv') throw invalid('source must be "csv" or left out.')
+  const imported = input.source === 'csv'
 
   const d = await loadSeason(db, seasonId, { results: false })
   assertWritable(d, base)
+  if (imported && (d.season.status !== 'draft' || !weeks))
+    throw new HttpError(409, 'draw_locked', 'A CSV import replaces the whole draw, so it only works on a draft season.')
   const resolver = resolverFor(d)
   const stored = toCompetition(d)
   const merged = mergeSettings(d, stored.settings, patch, resolver)
@@ -702,7 +730,7 @@ export async function saveDraw(
       audit(
         db,
         actor,
-        'season.draw_save',
+        imported ? 'fixtures.import' : 'season.draw_save',
         { type: 'season', id: seasonId },
         { matchDays: d.matchDays.length, matches: d.matches.length },
         {

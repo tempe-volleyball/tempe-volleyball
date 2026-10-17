@@ -19,6 +19,8 @@ import { ApiError, api, type SeasonView, type TeamListItem } from '../api'
 import { Button, Card, Dialog, Notice, errorMessage } from '../ui'
 import { ConfirmDialog } from './dialogs'
 import type { Draft } from './draft'
+import { ImportCsvButton } from './ImportCsv'
+import { LadderRulesCard } from './LadderRules'
 
 // Season setup: name, dates, format, game night (sessions x courts), teams, weeks off and ladder points. Ported from
 // the demo's SetupTab. Changes stay in the working copy until Save. A published season keeps its draw, so only
@@ -193,6 +195,8 @@ export function SetupTab({
           </div>
         </Card>
 
+        <LadderRulesCard settings={s} set={set} />
+
         <Card title="Game night">
           <p className="-mt-2 mb-4 text-sm text-black/60">Session times × courts = the game slots each night.</p>
           <div className="grid gap-6 sm:grid-cols-2">
@@ -255,7 +259,7 @@ export function SetupTab({
       </fieldset>
 
       <aside className="min-w-0 lg:sticky lg:top-4 lg:self-start">
-        <Summary view={view} draft={draft} readOnly={readOnly} generating={generating} onGenerate={onGenerate} />
+        <Summary view={view} draft={draft} readOnly={readOnly} generating={generating} onGenerate={onGenerate} onChange={onChange} />
       </aside>
     </div>
   )
@@ -665,12 +669,14 @@ function Summary({
   readOnly,
   generating,
   onGenerate,
+  onChange,
 }: {
   view: SeasonView
   draft: Draft
   readOnly: boolean
   generating: boolean
   onGenerate: () => void
+  onChange: (d: Draft) => void
 }) {
   const c = draft.competition
   const s = c.settings
@@ -745,6 +751,7 @@ function Summary({
             <p className="mt-2 text-xs text-black/60">
               The draw is worked out in your browser. The same teams, settings and seed always give the same draw.
             </p>
+            <ImportCsvButton view={view} draft={draft} onChange={onChange} className="mt-3 w-full" />
             {c.weeks && !stale && (
               <Link href={`${base}/fixtures`} className="text-brand mt-3 block text-center text-sm font-semibold hover:underline">
                 View the current draw →

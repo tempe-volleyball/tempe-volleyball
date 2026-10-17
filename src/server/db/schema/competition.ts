@@ -49,9 +49,11 @@ export type SeasonSettings = {
 
 /**
  * `ladder`: `mark` keeps the row, flagged "Withdrawn" and sorted last; `hide` drops it. `results`: `keep` counts the
- * games they played; `void` drops every game involving them from the ladder (both sides).
+ * games they played; `void` drops every game involving them from the ladder (both sides). `fixtures` (added with the
+ * fixtures-parity work, JSON only): how their cancelled games show publicly, `bye` for the opponent or `cancelled`
+ * (missing = cancelled).
  */
-export type WithdrawnPolicy = { ladder: 'mark' | 'hide'; results: 'keep' | 'void' }
+export type WithdrawnPolicy = { ladder: 'mark' | 'hide'; results: 'keep' | 'void'; fixtures?: 'bye' | 'cancelled' }
 
 /** Court overrides for one match day, keyed by slotKey() `"<session>:<position>"`, value courts.id. */
 export type CourtOverrides = Record<string, string>

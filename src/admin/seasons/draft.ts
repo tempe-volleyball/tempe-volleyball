@@ -3,8 +3,11 @@ import { DEFAULT_POINTS, dutyEnabled, type Competition, type Settings } from '..
 // Pure helpers for the season editor: what an unsaved working copy is, and which API calls saving it takes
 // (docs/api/seasons.md). No DOM, no fetch, so they're unit-tested in Node.
 
-/** The organiser's working copy of a season: the lib's Competition, plus the sets per match the lib doesn't carry. */
-export type Draft = { competition: Competition; setsPerMatch: number }
+/**
+ * The organiser's working copy of a season: the lib's Competition, plus the sets per match the lib doesn't carry.
+ * `source: 'csv'` marks a draw that came from a CSV import, so its save is audited as fixtures.import.
+ */
+export type Draft = { competition: Competition; setsPerMatch: number; source?: 'csv' }
 
 /** The body for PATCH /seasons/:id (and the `settings` of PUT /draw): every setting except the team list. */
 export function settingsBody(s: Settings, setsPerMatch: number) {
@@ -21,6 +24,9 @@ export function settingsBody(s: Settings, setsPerMatch: number) {
     points: s.points ?? DEFAULT_POINTS,
     duty: dutyEnabled(s),
     setsPerMatch,
+    // Ladder rules: only sent once set, so seasons that never chose keep today's defaults.
+    ...(s.tieBreaks ? { tieBreaks: s.tieBreaks } : {}),
+    ...(s.withdrawn ? { withdrawn: s.withdrawn } : {}),
   }
 }
 export type SettingsBody = ReturnType<typeof settingsBody>

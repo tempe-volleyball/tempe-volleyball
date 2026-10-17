@@ -39,6 +39,7 @@ import { api, type ClashDraws, type SeasonView } from '../api'
 import { Button } from '../ui'
 import { CourtDialog } from './dialogs'
 import type { Draft } from './draft'
+import { ImportCsvButton } from './ImportCsv'
 
 // The draw editor, ported from the demo's FixturesTab: drag games between slots (dropping on a game swaps them, even
 // across weeks), change courts per slot, change teams and refs, flip home and away. validate() runs live, and the
@@ -144,6 +145,7 @@ export function FixturesTab({
                 >
                   ↻ Shuffle again
                 </Button>
+                <ImportCsvButton view={view} draft={draft} onChange={onChange} />
                 <Link href={`/seasons/${view.season.id}/publish`} className="bg-brand rounded px-4 py-2 text-sm font-semibold text-white">
                   Publish →
                 </Link>

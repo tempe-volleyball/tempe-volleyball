@@ -1,5 +1,5 @@
 import { publishProblem, weekResultsState, type WeekResultsState } from './results'
-import type { Week } from './types'
+import type { Game, Week } from './types'
 
 // Cancelled games. The lib's Game doesn't carry a status (matches.status does: scheduled, played, forfeit,
 // cancelled), so these take the ids of the day's cancelled games. A cancelled game needs no result to publish its
@@ -24,4 +24,33 @@ export function dayResultsState(w: Week, cancelled: ReadonlySet<string>): WeekRe
 export const dayPublishProblem = (w: Week, cancelled: ReadonlySet<string>): string | null => {
   const playing = withoutCancelled(w, cancelled)
   return playing.games.length === 0 ? null : publishProblem(playing)
+}
+
+/**
+ * Games that aren't being played as scheduled: cancelled (never played), postponed (to be replayed) and tbd (date
+ * or time to be decided). They take no result and don't hold up publishing their match day, like cancelled games.
+ */
+export const OFF_STATUSES = ['cancelled', 'postponed', 'tbd'] as const
+export type OffStatus = (typeof OFF_STATUSES)[number]
+
+export const isOffStatus = (status: string | null | undefined): status is OffStatus =>
+  !!status && (OFF_STATUSES as readonly string[]).includes(status)
+
+/** The game's own status (Game.status) is off. */
+export const isOff = (g: Pick<Game, 'status'>) => isOffStatus(g.status)
+
+/** Ids of a week's off games, for withoutCancelled / dayResultsState / dayPublishProblem. */
+export const offGameIds = (
+  w: Week,
+  statusOf: (gameId: string) => string | null | undefined = (id) => w.games.find((g) => g.id === id)?.status,
+) => new Set(w.games.filter((g) => isOffStatus(statusOf(g.id))).map((g) => g.id))
+
+/** How a status reads in the admin and on the public fixtures. */
+export const MATCH_STATUS_LABEL: Record<string, string> = {
+  scheduled: 'Scheduled',
+  played: 'Played',
+  forfeit: 'Forfeit',
+  cancelled: 'Cancelled',
+  postponed: 'Postponed',
+  tbd: 'TBD',
 }

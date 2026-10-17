@@ -63,6 +63,7 @@ const shown = limit ? rows.slice(0, limit) : rows
             <td>{r.pos}</td>
             <th scope="row" class="team">
               {r.name}
+              {r.withdrawn && <span class="text-xs font-normal"> (withdrawn)</span>}
             </th>
             <td class="num font-bold text-white">{r.points}</td>
             <td class="num">{r.played}</td>

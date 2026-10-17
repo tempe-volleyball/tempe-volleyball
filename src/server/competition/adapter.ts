@@ -8,6 +8,7 @@ import {
   ratio,
   slotKey,
   standings,
+  withdrawnPolicy,
   type Game,
   type Ref,
   type Result,
@@ -24,8 +25,8 @@ import type { Court, LadderAdjustment, League, Match, MatchDay, MatchResult, Sea
 export type SeasonData = {
   season: Season
   league: League
-  /** In season_teams.sort order. */
-  teams: Team[]
+  /** In season_teams.sort order, with the season_teams withdrawal (null = still in). */
+  teams: SeasonTeamRow[]
   matchDays: MatchDay[]
   matches: Match[]
   /** Draft and published rows; only published ones reach the public site. */
@@ -34,6 +35,15 @@ export type SeasonData = {
   /** All courts (a handful), for court names. */
   courts: Court[]
 }
+
+export type SeasonTeamRow = Team & { withdrawnAt?: string | null; withdrawnReason?: string | null }
+
+/** A season_teams + teams join row as SeasonTeamRow (what the loaders select). */
+export const seasonTeamRow = (r: { team: Team; withdrawnAt: string | null; withdrawnReason: string | null }): SeasonTeamRow => ({
+  ...r.team,
+  withdrawnAt: r.withdrawnAt,
+  withdrawnReason: r.withdrawnReason,
+})
 
 export type SeasonCompetition = { settings: Settings; weeks: Week[] }
 
@@ -62,12 +72,18 @@ export function toCompetition(d: SeasonData): SeasonCompetition {
     courts: (s.settings.defaultCourtIds ?? []).map((id) => courtNames.get(id) ?? ''),
     sessions: s.settings.sessions ?? [],
     sessionMinutes: s.settings.sessionMinutes ?? 60,
-    teams: d.teams.map((t) => ({ id: t.id, name: t.name })),
+    teams: d.teams.map((t) => ({
+      id: t.id,
+      name: t.name,
+      ...(t.withdrawnAt ? { withdrawn: { at: t.withdrawnAt, reason: t.withdrawnReason ?? '' } } : {}),
+    })),
     meetings: s.settings.meetings ?? 1,
     includeFinals: s.settings.includeFinals ?? false,
     points: { win: s.pointsWin, draw: s.pointsDraw, loss: s.pointsLoss },
     duty: s.dutyEnabled,
     seed: s.settings.seed ?? 0,
+    ...(s.settings.tieBreaks ? { tieBreaks: s.settings.tieBreaks } : {}),
+    ...(s.settings.withdrawn ? { withdrawn: s.settings.withdrawn } : {}),
   }
 
   const results = new Map(d.results.map((r) => [`${r.matchId}:${r.kind}`, r]))
@@ -107,9 +123,13 @@ export function toCompetition(d: SeasonData): SeasonCompetition {
           ...(m.stageTitle ? { title: m.stageTitle } : {}),
           result: toResult(results.get(`${m.id}:draft`)),
           publishedResult: toResult(results.get(`${m.id}:published`)),
+          ...(m.status !== 'scheduled' ? { status: m.status } : {}),
+          ...(m.statusNote ? { statusNote: m.statusNote } : {}),
         })),
       }
       if (day.note) week.note = day.note
+      if (day.status && day.status !== 'scheduled') week.status = day.status
+      if (day.originalDate) week.originalDate = day.originalDate
       if (Object.keys(overrides).length > 0) week.courtOverrides = overrides
       if (day.resultsPublishedAt) week.resultsPublishedAt = day.resultsPublishedAt
       return week
@@ -121,24 +141,19 @@ export type LadderRow = Standing & { pos: number; name: string; ratio: string }
 
 /**
  * The public ladder: the library's standings from published results, plus ladder_adjustments (penalties and the
- * importer's reconciliation with old SportsPress tables), re-sorted with the library's tie-breaks.
+ * importer's reconciliation with old SportsPress tables), sorted by the season's tie-break order. Withdrawn teams
+ * follow the season's policy (marked and last, or hidden).
  */
 export function ladderRows(c: SeasonCompetition, adjustments: Pick<LadderAdjustment, 'teamId' | 'points'>[]): LadderRow[] {
   const extra = new Map<string, number>()
   for (const a of adjustments) extra.set(a.teamId, (extra.get(a.teamId) ?? 0) + a.points)
   const names = new Map(c.settings.teams.map((t) => [t.id, t.name]))
-  const name = (id: string) => names.get(id) ?? ''
-  return standings(c.settings, c.weeks)
-    .map((row) => ({ ...row, points: row.points + (extra.get(row.teamId) ?? 0) }))
-    .toSorted(
-      (a, b) =>
-        b.points - a.points ||
-        b.setsFor - b.setsAgainst - (a.setsFor - a.setsAgainst) ||
-        b.pointsFor - b.pointsAgainst - (a.pointsFor - a.pointsAgainst) ||
-        b.won - a.won ||
-        name(a.teamId).localeCompare(name(b.teamId)),
-    )
-    .map((row, i) => ({ ...row, pos: i + 1, name: name(row.teamId), ratio: formatRatio(ratio(row)) }))
+  return standings(c.settings, c.weeks, { adjustments: extra }).map((row, i) => ({
+    ...row,
+    pos: i + 1,
+    name: names.get(row.teamId) ?? '',
+    ratio: formatRatio(ratio(row)),
+  }))
 }
 
 export type FixtureRow = {
@@ -148,7 +163,7 @@ export type FixtureRow = {
   time: string
   /** "HOME vs AWAY", "SEMI FINAL 1 - (2ND) vs (3RD)", "BYE - TEAM" or a skipped week's note. */
   match: string
-  /** "2 - 0" once published, '-' for byes, '' before. */
+  /** "2 - 0" once published, "Cancelled" / "Postponed" / "TBD" for games that are off, '-' for byes, '' before. */
   result: string
   /** Set scores, "25-21, 19-25", when recorded. */
   sets: string
@@ -156,43 +171,64 @@ export type FixtureRow = {
   duty: string
   kind: 'game' | 'bye' | 'skip'
   forfeit: boolean
+  /** matches.status for games ('scheduled' for byes and weeks off). */
+  status: Match['status']
+  /** A public reason for the status ("Venue unavailable"), or ''. */
+  note: string
+  /** The date the night was first scheduled for, when it has moved; ''. */
+  movedFrom: string
 }
 
 const label = (r: Ref, names: Map<string, string>) => (isTeam(r) ? (names.get(r.team) ?? 'Unknown team') : `(${r.label.toUpperCase()})`)
 
+const OFF_RESULT: Partial<Record<Match['status'], string>> = { cancelled: 'Cancelled', postponed: 'Postponed', tbd: 'TBD' }
+
 /**
  * Rows for the fixtures table, in the old site's shape: Date, Match, Time, Results, Court, Match Day, Duty. Finals
- * placeholders are resolved to teams as results allow. Byes are listed after each night's games.
+ * placeholders are resolved to teams as results allow. Byes are listed after each night's games. A withdrawn team's
+ * cancelled games show as byes for the opponent when the season's policy says so (withdrawn.fixtures = 'bye').
  */
 export function fixtureRows(c: SeasonCompetition, matches: Pick<Match, 'id' | 'startTime' | 'status'>[] = []): FixtureRow[] {
   const { settings: s, weeks } = c
   const names = new Map(s.teams.map((t) => [t.id, t.name]))
+  const withdrawn = new Set(s.teams.filter((t) => t.withdrawn).map((t) => t.id))
+  const byeForWithdrawn = withdrawnPolicy(s).fixtures === 'bye'
   const byId = new Map(matches.map((m) => [m.id, m]))
   const resolve = makeResolver(s, weeks)
   const name = (r: Ref | null) => (r ? label(resolve(r) ?? r, names) : '')
   const rows: FixtureRow[] = []
+  const base = { sets: '', court: '', duty: '', forfeit: false, status: 'scheduled' as const, note: '' }
   for (const w of weeks) {
+    const movedFrom = w.originalDate && w.originalDate !== w.date ? w.originalDate : ''
     if (w.kind === 'skip') {
       rows.push({
+        ...base,
         key: w.id,
         date: w.date,
         matchDay: 0,
         time: '',
         match: w.note ?? 'No games',
         result: '',
-        sets: '',
-        court: '',
-        duty: '',
         kind: 'skip',
-        forfeit: false,
+        movedFrom,
       })
       continue
     }
     const games = w.games
       .map((g) => ({ g, time: byId.get(g.id)?.startTime ?? s.sessions[g.session] ?? '' }))
       .toSorted((a, b) => a.time.localeCompare(b.time) || a.g.session - b.g.session || a.g.court - b.g.court)
+    const byes: { teamId: string; note: string }[] = byesForWeek(s, w).map((teamId) => ({ teamId, note: '' }))
     for (const { g, time } of games) {
+      const status = g.status ?? byId.get(g.id)?.status ?? 'scheduled'
+      const out = [g.home, g.away].filter(isTeam).find((r) => withdrawn.has(r.team))
       const r = completeResult(g.publishedResult)
+      if (byeForWithdrawn && out && status === 'cancelled' && !r && w.kind === 'regular') {
+        // The withdrawn team's game becomes a bye for the team it would have played.
+        for (const side of [g.home, g.away])
+          if (isTeam(side) && side.team !== out.team)
+            byes.push({ teamId: side.team, note: `${names.get(out.team) ?? 'Opponent'} withdrew` })
+        continue
+      }
       const vs = `${name(g.home).toUpperCase()} vs ${name(g.away).toUpperCase()}`
       rows.push({
         key: g.id,
@@ -200,27 +236,30 @@ export function fixtureRows(c: SeasonCompetition, matches: Pick<Match, 'id' | 's
         matchDay: w.matchDay,
         time,
         match: g.title ? `${g.title.toUpperCase()} - ${vs}` : vs,
-        result: r ? `${r.home} - ${r.away}` : byId.get(g.id)?.status === 'cancelled' ? 'Cancelled' : '',
+        result: r ? `${r.home} - ${r.away}` : (OFF_RESULT[status] ?? ''),
         sets: (g.publishedResult?.sets ?? []).map(([h, a]) => `${h}-${a}`).join(', '),
         court: courtName(s, w, g.session, g.court),
         duty: name(g.duty),
         kind: 'game',
-        forfeit: byId.get(g.id)?.status === 'forfeit',
+        forfeit: status === 'forfeit',
+        status,
+        note: g.statusNote ?? '',
+        movedFrom,
       })
     }
-    for (const t of byesForWeek(s, w))
+    for (const { teamId, note } of byes)
       rows.push({
-        key: `${w.id}:bye:${t}`,
+        ...base,
+        key: `${w.id}:bye:${teamId}`,
         date: w.date,
         matchDay: w.matchDay,
         time: 'Bye',
-        match: `BYE - ${(names.get(t) ?? '').toUpperCase()}`,
+        match: `BYE - ${(names.get(teamId) ?? '').toUpperCase()}`,
         result: '-',
-        sets: '',
-        court: '',
         duty: '-',
         kind: 'bye',
-        forfeit: false,
+        note,
+        movedFrom,
       })
   }
   return rows

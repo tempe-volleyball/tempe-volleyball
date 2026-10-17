@@ -736,13 +736,13 @@ describe('results', () => {
     ).updatedAt
     token = (await publishResults(db, admin, v.season.id, day.id, { baseUpdatedAt: token }, at(6))).result.updatedAt
 
-    await rejects(setMatchStatus(db, admin, v.season.id, day.id, g1!.id, { baseUpdatedAt: token, status: 'postponed' }), 400)
+    await rejects(setMatchStatus(db, admin, v.season.id, day.id, g1!.id, { baseUpdatedAt: token, status: 'abandoned' }), 400)
     await rejects(setMatchStatus(db, admin, v.season.id, day.id, g1!.id, { baseUpdatedAt: 'stale', status: 'cancelled' }), 409, 'conflict')
     await rejects(setMatchStatus(db, admin, v.season.id, day.id, 'nope', { baseUpdatedAt: token, status: 'cancelled' }), 404)
 
     // Cancel g1: its draft result goes, its published one stays until the day is republished.
     const cancel = await setMatchStatus(db, admin, v.season.id, day.id, g1!.id, { baseUpdatedAt: token, status: 'cancelled' }, at(7))
-    expect(cancel.result.match).toEqual({ id: g1!.id, status: 'cancelled' })
+    expect(cancel.result.match).toEqual({ id: g1!.id, status: 'cancelled', statusNote: null })
     expect(cancel.purge.tags).toEqual([tags.season('tnl-q1-2027'), tags.league('tnl'), tags.site])
     token = cancel.result.matchDay.updatedAt
     expect(token).toBe(at(7).toISOString())

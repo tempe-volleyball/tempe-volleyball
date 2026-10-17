@@ -132,6 +132,8 @@ export type { TeamListItem } from '../server/competition/teams'
 export type { ClashDraws } from '../server/competition/clashes'
 export type { MatchDayState } from '../server/competition/results'
 export type { AdjustmentRow } from '../server/competition/adjustments'
+export type { MatchList, MatchListRow } from '../server/competition/match-list'
+export type { WithdrawResult, ReinstateResult } from '../server/competition/withdraw'
 
 // ── Stats (docs/api/stats.md) ─────────────────────────────────────────────────
 
