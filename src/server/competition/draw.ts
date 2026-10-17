@@ -120,6 +120,8 @@ export function drawRows(
         number: w.kind === 'skip' ? 0 : w.matchDay,
         note: w.note || undefined,
         courtOverrides: overrides,
+        // Set even though it's the default (see matches below). A saved draw is a fresh draw: nights start scheduled.
+        status: 'scheduled' as const,
         updatedAt: at,
         updatedBy: actorId,
       }),

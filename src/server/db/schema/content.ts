@@ -1,45 +1,13 @@
-import { index, integer, sqliteTable, text, uniqueIndex, type AnySQLiteColumn } from 'drizzle-orm/sqlite-core'
+import { index, integer, primaryKey, sqliteTable, text, uniqueIndex, type AnySQLiteColumn } from 'drizzle-orm/sqlite-core'
 import { user } from './auth'
-import { id, SQL_NOW_ISO, timestamps, updatedBy, wpId } from './columns'
-import { leagues } from './competition'
-import { contentStatuses, menuItemKinds, pageTemplates, redirectSources } from './enums'
+import { id, SQL_NOW_ISO, timestamps, updatedBy, wpId, type ContentBody } from './columns'
+import { categories, leagues } from './competition'
+import { media } from './media'
+import { contentStatuses, menuItemKinds, menuPlacements, pageDataRefKinds, pageTemplates, redirectSources } from './enums'
 
-// Content: pages, revisions, news posts, the menu, media and redirects. See PLAN.md "Content".
+// Content: pages, revisions, news posts, the menu, page data refs and redirects (media is in media.ts). See PLAN.md "Content".
 
-/**
- * A page or post body: the editor's JSON blocks plus the sanitised HTML rendered from them (what the public site
- * serves). `blocks` is opaque to the database; the editor module owns its shape.
- */
-export type ContentBody = { blocks: unknown[]; html: string }
-
-export const media = sqliteTable(
-  'media',
-  {
-    id: id(),
-    /** R2 key prefix; files live at `<key_base>/<width>.webp` plus the original. Usually `media/<id>`. */
-    keyBase: text('key_base').notNull(),
-    filename: text('filename').notNull(),
-    alt: text('alt').notNull().default(''),
-    mime: text('mime').notNull(),
-    width: integer('width'),
-    height: integer('height'),
-    /** Widths available as WebP variants, e.g. [400, 800, 1600]. */
-    variants: text('variants', { mode: 'json' }).$type<number[]>().notNull().default([]),
-    /** Size of the original in bytes. */
-    bytes: integer('bytes').notNull(),
-    uploadedBy: text('uploaded_by').references(() => user.id, { onDelete: 'set null' }),
-    wpId: wpId(),
-    /** The WordPress URL of the original, so the importer can rewrite old image links in bodies. */
-    wpUrl: text('wp_url'),
-    ...timestamps(),
-    updatedBy: updatedBy(),
-  },
-  (t) => [
-    index('media_uploaded_by_idx').on(t.uploadedBy),
-    uniqueIndex('media_wp_id_unique').on(t.wpId),
-    index('media_wp_url_idx').on(t.wpUrl),
-  ],
-)
+export type { ContentBody } from './columns'
 
 /** Editable pages. Ladder and fixture pages are routes driven by league data, not pages. */
 export const pages = sqliteTable(
@@ -110,6 +78,9 @@ export const posts = sqliteTable(
 /**
  * The site menu, two levels (parent_id null = top level). By kind: `page` uses page_id, `url` uses url,
  * `league_ladder` / `league_fixtures` use league_id and always point at that league's current season.
+ * Phase 6: `category` uses category_id and expands on its own into the landing page plus one link per active,
+ * menu-visible programme in it; its hand-made children sit `before` or `after` those automatic links (placement).
+ * `programme` uses league_id (any kind) and links that programme's page.
  */
 export const menuItems = sqliteTable(
   'menu_items',
@@ -124,12 +95,38 @@ export const menuItems = sqliteTable(
     sort: integer('sort').notNull().default(0),
     ...timestamps(),
     updatedBy: updatedBy(),
+    // ── Phase 6 ──
+    categoryId: text('category_id').references(() => categories.id, { onDelete: 'cascade' }),
+    /** Children of a `category` item: before or after the automatic programme links. Null = after. */
+    placement: text('placement', { enum: menuPlacements }),
+    /** Kept in the admin but not shown on the site. */
+    hidden: integer('hidden', { mode: 'boolean' }).notNull().default(false),
   },
   (t) => [
     index('menu_items_parent_id_sort_idx').on(t.parentId, t.sort),
     index('menu_items_page_id_idx').on(t.pageId),
     index('menu_items_league_id_idx').on(t.leagueId),
+    index('menu_items_category_id_idx').on(t.categoryId),
   ],
+)
+
+/**
+ * Which data each page's blocks read (src/lib/content/blocks.ts), rewritten whenever a page is saved, so a data change
+ * purges exactly the pages that show it. `programme_list` rows have ref_id '' (any programme change purges them);
+ * `ladder` / `fixtures` rows have the league id.
+ */
+export const pageDataRefs = sqliteTable(
+  'page_data_refs',
+  {
+    pageId: text('page_id')
+      .notNull()
+      .references(() => pages.id, { onDelete: 'cascade' }),
+    kind: text('kind', { enum: pageDataRefKinds }).notNull(),
+    /** leagues.id for ladder/fixtures; '' for programme lists. */
+    refId: text('ref_id').notNull().default(''),
+    createdAt: text('created_at').notNull().default(SQL_NOW_ISO),
+  },
+  (t) => [primaryKey({ columns: [t.pageId, t.kind, t.refId] }), index('page_data_refs_kind_ref_id_idx').on(t.kind, t.refId)],
 )
 
 /** Old URLs to new. Checked only when no route matches. */
@@ -150,8 +147,6 @@ export const redirects = sqliteTable(
   (t) => [uniqueIndex('redirects_from_path_unique').on(t.fromPath)],
 )
 
-export type Media = typeof media.$inferSelect
-export type NewMedia = typeof media.$inferInsert
 export type Page = typeof pages.$inferSelect
 export type NewPage = typeof pages.$inferInsert
 export type PageRevision = typeof pageRevisions.$inferSelect
@@ -160,5 +155,7 @@ export type Post = typeof posts.$inferSelect
 export type NewPost = typeof posts.$inferInsert
 export type MenuItem = typeof menuItems.$inferSelect
 export type NewMenuItem = typeof menuItems.$inferInsert
+export type PageDataRef = typeof pageDataRefs.$inferSelect
+export type NewPageDataRef = typeof pageDataRefs.$inferInsert
 export type Redirect = typeof redirects.$inferSelect
 export type NewRedirect = typeof redirects.$inferInsert

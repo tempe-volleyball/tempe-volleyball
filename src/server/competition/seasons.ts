@@ -257,7 +257,7 @@ export type LeagueListItem = League & {
 /** Every league with its venue, the venue's courts and its seasons (newest first). One round trip. */
 export async function listLeagues(db: AppDb): Promise<LeagueListItem[]> {
   const [leagueRows, venueRows, courtRows, seasonRows] = (await runBatch(db, [
-    db.select().from(leagues).orderBy(asc(leagues.sort), asc(leagues.code)),
+    db.select().from(leagues).where(eq(leagues.kind, 'league')).orderBy(asc(leagues.sort), asc(leagues.code)),
     db.select().from(venues).orderBy(asc(venues.sort)),
     db.select().from(courts).orderBy(asc(courts.sort), asc(courts.name)),
     db
@@ -341,7 +341,11 @@ export async function createSeason(db: AppDb, actor: Editor, input: CreateSeason
   if (copyFrom !== null && copyFrom !== 'latest' && !isId(copyFrom)) throw invalid('copyFrom must be "latest", null or a season id.')
 
   const [leagueRows, courtRows, leagueSeasons, taken] = (await runBatch(db, [
-    db.select().from(leagues).where(eq(leagues.id, leagueId)),
+    // Only leagues have seasons; other programme kinds 404 here.
+    db
+      .select()
+      .from(leagues)
+      .where(and(eq(leagues.id, leagueId), eq(leagues.kind, 'league'))),
     db.select().from(courts).orderBy(asc(courts.sort), asc(courts.name)),
     db
       .select({ id: seasons.id, year: seasons.year, quarter: seasons.quarter })

@@ -16,7 +16,8 @@ type Choices = {
 }
 type Item = { key: string; id?: string; label: string; kind: MenuItemKind; pageId: string; leagueId: string; url: string; children: Item[] }
 
-const KINDS: Record<MenuItemKind, string> = {
+// `category` and `programme` items (Phase 6 schema) aren't editable here yet; checkMenu refuses them until they are.
+const KINDS: Partial<Record<MenuItemKind, string>> = {
   page: 'Page',
   url: 'Link or heading',
   league_ladder: 'League ladder',

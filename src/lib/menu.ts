@@ -1,3 +1,4 @@
+import type { MenuItemKind } from '../server/db/schema/enums'
 import { leagueFixturesRoute, leagueLadderRoute } from './wp-import/routes'
 
 // The site menu: menu_items rows (joined with their page path / league slug) -> a two-level tree with hrefs, plus
@@ -7,7 +8,7 @@ export type MenuRow = {
   id: string
   parentId: string | null
   label: string
-  kind: 'page' | 'url' | 'league_ladder' | 'league_fixtures'
+  kind: MenuItemKind
   url: string | null
   sort: number
   /** pages.path when the item's page is published, else null. */
@@ -28,6 +29,10 @@ export function itemHref(r: MenuRow): string | null {
       return r.leagueSlug ? leagueLadderRoute(r.leagueSlug) : null
     case 'league_fixtures':
       return r.leagueSlug ? leagueFixturesRoute(r.leagueSlug) : null
+    // Phase 6 kinds (docs/data-model-phase6.md "Menu"); not rendered until the menu work lands, so they're dropped.
+    case 'category':
+    case 'programme':
+      return null
   }
 }
 

@@ -118,9 +118,12 @@ export function assembleSeasons(
   return out
 }
 
-/** Leagues and courts: small tables every competition page needs. */
+/** Leagues (programmes of kind 'league') and courts: small tables every competition page needs. */
 export const baseQueries = (db: AppDb) =>
-  [db.select().from(leagues).orderBy(asc(leagues.sort), asc(leagues.code)), db.select().from(courts).orderBy(asc(courts.sort))] as const
+  [
+    db.select().from(leagues).where(eq(leagues.kind, 'league')).orderBy(asc(leagues.sort), asc(leagues.code)),
+    db.select().from(courts).orderBy(asc(courts.sort)),
+  ] as const
 
 /** Season summaries (no draw), for archive lists and to find each league's current season. */
 export const seasonListQuery = (db: AppDb) =>

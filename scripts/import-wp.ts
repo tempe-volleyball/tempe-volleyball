@@ -237,6 +237,9 @@ async function main() {
     ...up('venues', comp.venues),
     ...up('courts', comp.courts),
     ...up('leagues', comp.leagues),
+    // Categories are seeded by migration 0003; put leagues imported after it into theirs, never overriding an edit.
+    `UPDATE "leagues" SET "category_id" = 'cat_mixed_leagues' WHERE "code" IN ('TNL', 'FNL', 'SNL', 'SAL') AND "category_id" IS NULL;`,
+    `UPDATE "leagues" SET "category_id" = 'cat_super_league' WHERE "code" = 'TVSL' AND "category_id" IS NULL;`,
     ...up('teams', comp.teams),
     ...up(
       'media',

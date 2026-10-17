@@ -125,6 +125,21 @@ D1 (SQLite) through Drizzle. Conventions:
 - Imported rows keep `wp_id` so the importer can re-run idempotently and build redirects.
 - Every table has `created_at` and `updated_at`. Content tables also have `updated_by` (the user id).
 
+**Phase 6 additions** (migration `0003_phase6_programmes`, documented column by column in
+[docs/data-model-phase6.md](docs/data-model-phase6.md)):
+
+- `leagues` becomes the **programmes** table (exported as `programmes` too), with `kind` (league, training,
+  development, event), `category_id`, `status` (draft, active, retired), schedule, description, summary line, menu
+  visibility and enrolment defaults (switch, window, form, team and player caps, price, waitlist).
+- New tables: `categories` (seeded with the four), `development_terms`, `programme_sessions`, `events`,
+  `enrolment_forms`, `page_data_refs`, `analytics_daily`, `analytics_fetches` and `analytics_state`.
+- Enrolment reuses `products` (one per season, session, term or event, carrying that instance's caps and overrides),
+  `registrations` (waitlist, offers, free agents, manual paid) and `groups` (team entries with status and waitlist).
+- Fixtures parity: postponed and TBD matches, whole-night status and `original_date` on `match_days`, outcome
+  overrides, withdrawn teams, and tie-break order and withdrawn policy in `seasons.settings`.
+- `menu_items` gains `category` items (automatic dropdowns), placement before or after the automatic links, and
+  `hidden`.
+
 ### Competition
 
 | Table                | Key columns                                                                                                                                                                                                                                                                                                                                                                                     | Notes                                                                                                                                                                                                       |
