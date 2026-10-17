@@ -6,7 +6,7 @@ import { getServices } from '../../../../server/services'
 /** Admin users and pending invites. Admins and owners only. */
 export const GET: APIRoute = ({ locals, request }) =>
   handle(async () => {
-    requireRole(locals.user, 'admin', request)
+    await requireRole(locals.user, 'admin', request, getServices().db)
     const { db } = getServices()
     const [users, invites] = await Promise.all([listAdminUsers(db), listPendingInvites(db)])
     return json({ users, invites })

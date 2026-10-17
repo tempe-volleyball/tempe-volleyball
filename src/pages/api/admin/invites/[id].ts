@@ -6,7 +6,7 @@ import { getServices } from '../../../../server/services'
 /** Revoke a pending invite. */
 export const DELETE: APIRoute = ({ locals, request, params }) =>
   handle(async () => {
-    const actor = requireRole(locals.user, 'admin', request)
+    const actor = await requireRole(locals.user, 'admin', request, getServices().db)
     await revokeInvite(getServices().db, actor, params.id!)
     return json({ ok: true })
   })

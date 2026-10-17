@@ -1,4 +1,5 @@
-import { RoleError, atLeast, type Actor } from './auth/roles'
+import { RoleError, atLeast, loadActorRole, type Actor } from './auth/roles'
+import type { AppDb } from './db'
 import type { UserRole } from './db/schema'
 
 // Small helpers for the JSON API routes. Errors come back as { error: code, message } with a matching status.
@@ -44,10 +45,25 @@ export const clientIp = (request: Request) => request.headers.get('cf-connecting
 
 type LocalsUser = { id: string; role: UserRole } | null
 
-/** The signed-in user, who must have at least `min`. The middleware already 401s missing sessions. */
-export function requireRole(user: LocalsUser, min: UserRole, request: Request): Actor & { role: UserRole } {
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
+
+const forbidden = (min: UserRole) =>
+  new HttpError(403, 'forbidden', `You need to be ${min === 'admin' ? 'an admin' : `an ${min}`} for this.`)
+
+/**
+ * The signed-in user, who must have at least `min`. The middleware already 401s missing sessions.
+ *
+ * locals.user comes from Better Auth's session cookie cache, which can be up to 5 minutes stale. That's fine for
+ * reads, but a removed or demoted admin mustn't keep changing things, so for unsafe methods (POST, PUT, PATCH,
+ * DELETE) the role is re-read from D1 (one indexed query) and that's the one checked and returned.
+ */
+export async function requireRole(user: LocalsUser, min: UserRole, request: Request, db: AppDb): Promise<Actor & { role: UserRole }> {
   if (!user) throw new HttpError(401, 'unauthenticated', 'Sign in first.')
-  if (!atLeast(user.role, min))
-    throw new HttpError(403, 'forbidden', `You need to be ${min === 'admin' ? 'an admin' : `an ${min}`} for this.`)
-  return { id: user.id, role: user.role, ip: clientIp(request) }
+  if (!atLeast(user.role, min)) throw forbidden(min)
+  let role = user.role
+  if (!SAFE_METHODS.has(request.method.toUpperCase())) {
+    role = await loadActorRole(db, user)
+    if (!atLeast(role, min)) throw forbidden(min)
+  }
+  return { id: user.id, role, ip: clientIp(request) }
 }

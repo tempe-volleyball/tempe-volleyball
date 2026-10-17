@@ -6,7 +6,7 @@ import { getServices } from '../../../server/services'
 /** The audit log, newest first: ?limit=50&before=<at of the last entry>. Admins and owners only. */
 export const GET: APIRoute = ({ locals, request, url }) =>
   handle(async () => {
-    requireRole(locals.user, 'admin', request)
+    await requireRole(locals.user, 'admin', request, getServices().db)
     const limit = Number(url.searchParams.get('limit') ?? 50) || 50
     const before = url.searchParams.get('before') ?? undefined
     const entries = await listAudit(getServices().db, { limit, before })

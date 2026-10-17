@@ -20,7 +20,8 @@ export async function sendInviteEmail(
       invitedBy: invite.invitedBy,
       expiresAt: invite.expiresAt,
     })
-    return res.status
+    // Only sign-in emails are rate limited per recipient, so 'limited' can't happen here.
+    return res.status === 'limited' ? 'failed' : res.status
   } catch (e) {
     if (e instanceof EmailNotConfiguredError) return 'not_configured'
     console.error('[invite] email failed', e)

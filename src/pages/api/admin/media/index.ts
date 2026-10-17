@@ -6,7 +6,7 @@ import { getMediaBucket, getServices } from '../../../../server/services'
 /** The media library, newest first: ?q=&offset=&limit=&images=1. */
 export const GET: APIRoute = ({ locals, request, url }) =>
   handle(async () => {
-    requireRole(locals.user, 'editor', request)
+    await requireRole(locals.user, 'editor', request, getServices().db)
     const p = url.searchParams
     return json(
       await listMedia(getServices().db, {
@@ -21,6 +21,6 @@ export const GET: APIRoute = ({ locals, request, url }) =>
 /** Records an upload once its files are in R2 (see src/server/content/media.ts for the protocol). */
 export const POST: APIRoute = ({ locals, request }) =>
   handle(async () => {
-    const actor = requireRole(locals.user, 'editor', request)
+    const actor = await requireRole(locals.user, 'editor', request, getServices().db)
     return json({ media: await createMedia(getServices().db, getMediaBucket(), actor, await readJson(request)) }, 201)
   })

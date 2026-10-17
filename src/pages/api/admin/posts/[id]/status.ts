@@ -7,7 +7,7 @@ import { getServices } from '../../../../../server/services'
 /** Publish, unpublish or archive: { status }. Audited; purges the news pages. */
 export const POST: APIRoute = ({ locals, request, params, cache }) =>
   handle(async () => {
-    const actor = requireRole(locals.user, 'editor', request)
+    const actor = await requireRole(locals.user, 'editor', request, getServices().db)
     const { status } = await readJson<{ status: 'published' | 'draft' | 'archived' }>(request)
     const { result, purge: targets } = await setPostStatus(getServices().db, actor, params.id!, status!)
     return json({ post: result, cache: await purge(cache, targets) })

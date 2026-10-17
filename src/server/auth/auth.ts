@@ -1,6 +1,5 @@
 import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
-import { APIError } from 'better-auth/api'
 import { eq } from 'drizzle-orm'
 import type { AppDb } from '../db'
 import * as authSchema from '../db/schema/auth'
@@ -32,17 +31,22 @@ export const authSecret = (env: AuthEnv) => {
   throw new Error('BETTER_AUTH_SECRET is not set')
 }
 
-/** Email senders for the emailOTP and magicLink plugins, through the outbox (sendEmail). */
+/**
+ * Email senders for the emailOTP and magicLink plugins, through the outbox (sendEmail). They never fail the
+ * request: a known address whose email couldn't be sent (email not set up, daily limit, per-recipient limit,
+ * provider error) answers exactly like an unknown address, so the endpoints don't reveal who is an admin. The
+ * failure is logged without the code or link.
+ */
 export function createAuthSenders(db: AppDb, mailer: Mailer): AuthSenders {
   const send = async (...args: Parameters<Mailer['sendEmail']>) => {
+    const template = args[1]
     try {
       const res = await mailer.sendEmail(...args)
-      if (res.status === 'failed' || res.status === 'queued')
-        throw new APIError('SERVICE_UNAVAILABLE', { message: "We couldn't send the email. Try again later." })
+      if (res.status === 'failed' || res.status === 'queued' || res.status === 'limited')
+        console.warn(`[auth] ${template} email not sent (${res.status})`)
     } catch (e) {
-      if (e instanceof EmailNotConfiguredError)
-        throw new APIError('SERVICE_UNAVAILABLE', { message: 'Email is not set up on this site yet.' })
-      throw e
+      const reason = e instanceof EmailNotConfiguredError ? 'email is not configured' : e instanceof Error ? e.name : 'error'
+      console.warn(`[auth] ${template} email not sent: ${reason}`)
     }
   }
   return {

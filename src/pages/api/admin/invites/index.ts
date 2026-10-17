@@ -11,7 +11,7 @@ import { getServices } from '../../../../server/services'
  */
 export const POST: APIRoute = ({ locals, request }) =>
   handle(async () => {
-    const actor = requireRole(locals.user, 'admin', request)
+    const actor = await requireRole(locals.user, 'admin', request, getServices().db)
     const { email, role } = await readJson<{ email: string; role: string }>(request)
     if (typeof email !== 'string' || !isRole(role)) throw new HttpError(400, 'invalid_input', 'Give an email and a role.')
     const { db, mailer } = getServices()

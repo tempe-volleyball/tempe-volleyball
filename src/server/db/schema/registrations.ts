@@ -167,12 +167,16 @@ export const emailOutbox = sqliteTable(
     error: text('error'),
     ...timestamps(),
   },
-  (t) => [index('email_outbox_status_send_after_idx').on(t.status, t.sendAfter)],
+  (t) => [
+    index('email_outbox_status_send_after_idx').on(t.status, t.sendAfter),
+    // Per-recipient limits on sign-in emails (mailer.ts) count recent rows by address and template.
+    index('email_outbox_to_template_created_at_idx').on(t.to, t.template, t.createdAt),
+  ],
 )
 
 /** Emails sent per Sydney calendar day, to stay under Resend's 100/day. */
 export const emailDailyCount = sqliteTable('email_daily_count', {
-  /** YYYY-MM-DD Sydney local. */
+  /** YYYY-MM-DD Sydney local for general mail, "YYYY-MM-DD:auth" for sign-in emails (mailer.ts poolKey). */
   day: text('day').primaryKey(),
   sent: integer('sent').notNull().default(0),
   ...timestamps(),
