@@ -22,17 +22,27 @@ export const migrationStatements = (sql: string) =>
     .map((s) => s.trim())
     .filter(Boolean)
 
-export const createMigratedSqlite = () => {
+/** Runs one migration file's statements against a database. */
+export const applyMigration = (sqlite: DatabaseSync, file: string) => {
+  for (const statement of migrationStatements(readFileSync(join(MIGRATIONS_DIR, file), 'utf8'))) {
+    try {
+      sqlite.exec(statement)
+    } catch (e) {
+      throw new Error(`${file}: ${(e as Error).message}\n${statement}`, { cause: e })
+    }
+  }
+}
+
+/**
+ * An in-memory SQLite with the migrations applied in order. `before` stops ahead of that migration file (e.g.
+ * '0003_phase6_programmes.sql'), so a test can insert old-shape rows and then apply the rest with applyMigration.
+ */
+export const createMigratedSqlite = (opts: { before?: string } = {}) => {
   const sqlite = new DatabaseSync(':memory:')
   sqlite.exec('PRAGMA foreign_keys = ON')
   for (const file of migrationFiles()) {
-    for (const statement of migrationStatements(readFileSync(join(MIGRATIONS_DIR, file), 'utf8'))) {
-      try {
-        sqlite.exec(statement)
-      } catch (e) {
-        throw new Error(`${file}: ${(e as Error).message}\n${statement}`, { cause: e })
-      }
-    }
+    if (opts.before && file >= opts.before) break
+    applyMigration(sqlite, file)
   }
   return sqlite
 }

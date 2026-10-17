@@ -62,6 +62,8 @@ export function checkMenu(
         const kind = item.kind
         if (typeof kind !== 'string' || !(menuItemKinds as readonly string[]).includes(kind))
           throw new Error(`${where} has an unknown kind.`)
+        // Phase 6 kinds exist in the schema but aren't handled here yet (category_id, placement).
+        if (kind === 'category' || kind === 'programme') throw new Error(`${where}: that kind of menu item isn't supported yet.`)
         let id = typeof item.id === 'string' && UUID_RE.test(item.id) ? item.id.toLowerCase() : newId()
         if (ids.has(id)) id = newId()
         ids.add(id)

@@ -41,6 +41,16 @@ const EXPECTED_TABLES = [
   'stripe_events',
   'email_outbox',
   'email_daily_count',
+  // Phase 6 (0003)
+  'categories',
+  'development_terms',
+  'programme_sessions',
+  'events',
+  'enrolment_forms',
+  'page_data_refs',
+  'analytics_daily',
+  'analytics_fetches',
+  'analytics_state',
 ]
 
 /** Drizzle wraps driver errors ("Failed query: …"); the SQLite message is on `cause`. */

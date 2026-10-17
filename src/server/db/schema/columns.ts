@@ -27,3 +27,13 @@ export const wpId = () => integer('wp_id')
 
 /** The admin user who last changed a row. Becomes null if that user is deleted. */
 export const updatedBy = () => text('updated_by').references(() => user.id, { onDelete: 'set null' })
+
+/**
+ * A page or post body: the editor's JSON blocks plus the sanitised HTML rendered from them (what the public site
+ * serves). `blocks` is opaque to the database; the editor module owns its shape (data blocks: src/lib/content/blocks.ts).
+ * Also used for category intros and programme descriptions.
+ */
+export type ContentBody = { blocks: unknown[]; html: string }
+
+/** The empty body, as a column default. */
+export const EMPTY_BODY: ContentBody = { blocks: [], html: '' }

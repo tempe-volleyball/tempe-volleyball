@@ -1,6 +1,20 @@
 import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
-import { id, timestamps, updatedBy, wpId } from './columns'
-import { leagueCodes, leagueFormats, matchDayKinds, matchResultKinds, matchStatuses, seasonStatuses } from './enums'
+import { EMPTY_BODY, id, timestamps, updatedBy, wpId, type ContentBody } from './columns'
+import {
+  categoryStatuses,
+  leagueFormats,
+  matchDayKinds,
+  matchDayStatuses,
+  matchOutcomes,
+  matchResultKinds,
+  matchStatuses,
+  programmeKinds,
+  programmeStatuses,
+  seasonStatuses,
+  type TieBreakRule,
+} from './enums'
+import { enrolmentForms } from './forms'
+import { media } from './media'
 
 // Competition: places, courts, leagues, seasons, teams, the draw and results. See PLAN.md "Competition".
 // Dates are YYYY-MM-DD and times HH:MM, both Sydney local; instants are UTC ISO text.
@@ -24,7 +38,20 @@ export type SeasonSettings = {
   skipDates: SkipDate[]
   /** Default court for each slot position (index = position), as courts.id. */
   defaultCourtIds: string[]
+  /**
+   * Ladder order after ladder points, first rule first; `name` is appended if missing. Missing = DEFAULT_TIE_BREAKS
+   * (set difference, points difference, wins, name), which is what seasons saved before Phase 6 use.
+   */
+  tieBreaks?: TieBreakRule[]
+  /** How withdrawn teams (season_teams.withdrawn_at) show. Missing = { ladder: 'mark', results: 'keep' }. */
+  withdrawn?: WithdrawnPolicy
 }
+
+/**
+ * `ladder`: `mark` keeps the row, flagged "Withdrawn" and sorted last; `hide` drops it. `results`: `keep` counts the
+ * games they played; `void` drops every game involving them from the ladder (both sides).
+ */
+export type WithdrawnPolicy = { ladder: 'mark' | 'hide'; results: 'keep' | 'void' }
 
 /** Court overrides for one match day, keyed by slotKey() `"<session>:<position>"`, value courts.id. */
 export type CourtOverrides = Record<string, string>
@@ -72,31 +99,126 @@ export const courts = sqliteTable(
   ],
 )
 
+/**
+ * Programme categories (docs/admin.md §3.2): Mixed Leagues, Super League, Juniors, Adult Training. Each has a landing
+ * page at `/<slug>` and can be a `category` menu item. The four are seeded by migration 0003 (ids `cat_<slug>`).
+ */
+export const categories = sqliteTable(
+  'categories',
+  {
+    id: id(),
+    name: text('name').notNull(),
+    /** The landing page URL without the slash: "mixed-leagues" → /mixed-leagues. Unique. */
+    slug: text('slug').notNull(),
+    /** Editable intro shown above the programme list on the landing page. */
+    intro: text('intro', { mode: 'json' }).$type<ContentBody>().notNull().default(EMPTY_BODY),
+    sort: integer('sort').notNull().default(0),
+    status: text('status', { enum: categoryStatuses }).notNull().default('active'),
+    /** Null = the name, and a description generated from the intro. */
+    seoTitle: text('seo_title'),
+    seoDescription: text('seo_description'),
+    ogImageId: text('og_image_id').references(() => media.id, { onDelete: 'set null' }),
+    ...timestamps(),
+    updatedBy: updatedBy(),
+  },
+  (t) => [
+    uniqueIndex('categories_slug_unique').on(t.slug),
+    index('categories_og_image_id_idx').on(t.ogImageId),
+    index('categories_status_sort_idx').on(t.status, t.sort),
+  ],
+)
+
+/**
+ * Programmes: leagues, training, development programmes and events (docs/admin.md §3.1). The SQL table is still
+ * `leagues` (a rename can come in a later release); new code should use the `programmes` alias and filter by `kind`.
+ * Code that means "competition leagues" (seasons, ladders, league menu items) must filter `kind = 'league'`.
+ */
 export const leagues = sqliteTable(
   'leagues',
   {
     id: id(),
-    code: text('code', { enum: leagueCodes }).notNull(),
+    /** Short upper-case code, unique across all programmes: TNL, TVSL, ADP, JDP (PROGRAMME_CODE_PATTERN). */
+    code: text('code').notNull(),
     name: text('name').notNull(),
+    /** URL slug, unique across all programmes. Page: /leagues/<slug>, /training/<slug>, /programs/<slug> or /events/<slug> by kind. */
     slug: text('slug').notNull(),
-    /** Game night, 0 = Sunday … 6 = Saturday (as Date#getDay in Sydney time). */
+    /**
+     * The usual day, 0 = Sunday … 6 = Saturday (as Date#getDay in Sydney time). NOT NULL since 0001: for leagues it's
+     * the game night; for programmes without a regular day (events) store the first date's weekday.
+     */
     weekday: integer('weekday').notNull(),
     defaultVenueId: text('default_venue_id').references(() => venues.id, { onDelete: 'set null' }),
+    /** Leagues only. */
     format: text('format', { enum: leagueFormats }).notNull().default('social'),
     sort: integer('sort').notNull().default(0),
+    /** Superseded by `status`. Writers keep active = (status = 'active') until a later release drops it. */
     active: integer('active', { mode: 'boolean' }).notNull().default(true),
     /** The SportsPress league term id. */
     wpId: wpId(),
     ...timestamps(),
     updatedBy: updatedBy(),
+    // ── Phase 6: programme basics ──
+    kind: text('kind', { enum: programmeKinds }).notNull().default('league'),
+    /** Every programme should have one (the admin requires it); nullable only because SQLite can't add a NOT NULL FK. */
+    categoryId: text('category_id').references(() => categories.id, { onDelete: 'restrict' }),
+    status: text('status', { enum: programmeStatuses }).notNull().default('active'),
+    /** UTC ISO, set when retired, cleared on reactivation. */
+    retiredAt: text('retired_at'),
+    /** HH:MM Sydney local: the usual start and finish. Null = not shown (leagues can fall back to their season's sessions). */
+    startTime: text('start_time'),
+    endTime: text('end_time'),
+    /** Hand-written "day and times" text ("Thursdays, 6:30–10pm"). Null = generated from weekday/start/end. */
+    scheduleLabel: text('schedule_label'),
+    description: text('description', { mode: 'json' }).$type<ContentBody>().notNull().default(EMPTY_BODY),
+    /** The one-line description used wherever the programme is listed. Null = generated (docs/admin.md §3.1). */
+    summaryLine: text('summary_line'),
+    /** "More info" link: internal path or https URL. */
+    moreInfoUrl: text('more_info_url'),
+    /** False hides it from automatic menu dropdowns without retiring it. */
+    menuVisible: integer('menu_visible', { mode: 'boolean' }).notNull().default(true),
+    /** Optional age limits in years (juniors), checked against the form's birth_year. */
+    ageMin: integer('age_min'),
+    ageMax: integer('age_max'),
+    seoTitle: text('seo_title'),
+    seoDescription: text('seo_description'),
+    imageId: text('image_id').references(() => media.id, { onDelete: 'set null' }),
+    // ── Phase 6: enrolment defaults (each instance's product can override) ──
+    /** The switch. Open = enrolment_open AND now within [opens_at, closes_at) where those are set. */
+    enrolmentOpen: integer('enrolment_open', { mode: 'boolean' }).notNull().default(false),
+    /** UTC ISO; null = no limit on that side. */
+    enrolmentOpensAt: text('enrolment_opens_at'),
+    enrolmentClosesAt: text('enrolment_closes_at'),
+    /** Manual "Next season starts …" override. Text wins over date; both null = from the next season/session/term/event. */
+    nextStartsOn: text('next_starts_on'),
+    nextStartsText: text('next_starts_text'),
+    enrolmentFormId: text('enrolment_form_id').references(() => enrolmentForms.id, { onDelete: 'set null' }),
+    /** Default caps for each instance; null = unlimited. Leagues may cap teams, players or both. */
+    capTeams: integer('cap_teams'),
+    capPlayers: integer('cap_players'),
+    /** Default price per player (AUD cents), shown on enrolment and owed until marked paid. Null = no fee shown. */
+    priceCents: integer('price_cents'),
+    /** Leagues and events: whether whole teams can enter, and whether individuals can enter as free agents. */
+    allowTeamEntries: integer('allow_team_entries', { mode: 'boolean' }).notNull().default(true),
+    allowFreeAgents: integer('allow_free_agents', { mode: 'boolean' }).notNull().default(true),
+    /** When full, new enrolments join a waitlist (otherwise they're refused). */
+    waitlistEnabled: integer('waitlist_enabled', { mode: 'boolean' }).notNull().default(true),
+    /** How long a waitlist offer stays open before it passes to the next person. */
+    waitlistOfferHours: integer('waitlist_offer_hours').notNull().default(48),
   },
   (t) => [
     uniqueIndex('leagues_code_unique').on(t.code),
     uniqueIndex('leagues_slug_unique').on(t.slug),
     index('leagues_default_venue_id_idx').on(t.defaultVenueId),
     uniqueIndex('leagues_wp_id_unique').on(t.wpId),
+    index('leagues_category_id_idx').on(t.categoryId),
+    index('leagues_kind_status_idx').on(t.kind, t.status),
+    index('leagues_image_id_idx').on(t.imageId),
+    index('leagues_enrolment_form_id_idx').on(t.enrolmentFormId),
   ],
 )
+
+/** Programmes are the `leagues` table (see above). Prefer this name in new code. */
+export const programmes = leagues
 
 /** One row per league per quarter, e.g. "TNL Q4 2026". */
 export const seasons = sqliteTable(
@@ -165,6 +287,9 @@ export const seasonTeams = sqliteTable(
       .references(() => teams.id, { onDelete: 'restrict' }),
     sort: integer('sort').notNull().default(0),
     ...timestamps(),
+    /** UTC ISO when the team withdrew; null = still in. How it shows is seasons.settings.withdrawn. */
+    withdrawnAt: text('withdrawn_at'),
+    withdrawnReason: text('withdrawn_reason'),
   },
   (t) => [primaryKey({ columns: [t.seasonId, t.teamId] }), index('season_teams_team_id_idx').on(t.teamId)],
 )
@@ -189,6 +314,10 @@ export const matchDays = sqliteTable(
     resultsPublishedAt: text('results_published_at'),
     ...timestamps(),
     updatedBy: updatedBy(),
+    /** The whole night. The public reason goes in `note`. */
+    status: text('status', { enum: matchDayStatuses }).notNull().default('scheduled'),
+    /** YYYY-MM-DD the night was first scheduled for, once it has been moved ("push the season back a week"). */
+    originalDate: text('original_date'),
   },
   (t) => [uniqueIndex('match_days_season_id_date_unique').on(t.seasonId, t.date)],
 )
@@ -229,9 +358,16 @@ export const matches = sqliteTable(
     wpId: wpId(),
     ...timestamps(),
     updatedBy: updatedBy(),
+    /** Public reason for postponed / cancelled / tbd ("Venue unavailable"). */
+    statusNote: text('status_note'),
+    /** When a postponed game is replayed on another night: the match day it was first scheduled on. */
+    originalMatchDayId: text('original_match_day_id').references(() => matchDays.id, { onDelete: 'set null' }),
+    /** Referee name(s), e.g. the Volleyball NSW referee for TVSL. */
+    referee: text('referee'),
   },
   (t) => [
     index('matches_season_id_idx').on(t.seasonId),
+    index('matches_original_match_day_id_idx').on(t.originalMatchDayId),
     index('matches_match_day_id_session_position_idx').on(t.matchDayId, t.session, t.position),
     index('matches_court_id_idx').on(t.courtId),
     index('matches_home_team_id_idx').on(t.homeTeamId),
@@ -258,6 +394,10 @@ export const matchResults = sqliteTable(
     awayPoints: integer('away_points'),
     ...timestamps(),
     updatedBy: updatedBy(),
+    /** Manual outcome override (forfeit, walkover): who won regardless of the scores. Null = from the sets. */
+    outcome: text('outcome', { enum: matchOutcomes }),
+    /** Why the outcome was overridden, shown with the result. */
+    note: text('note'),
   },
   (t) => [primaryKey({ columns: [t.matchId, t.kind] })],
 )
@@ -286,8 +426,12 @@ export type Venue = typeof venues.$inferSelect
 export type NewVenue = typeof venues.$inferInsert
 export type Court = typeof courts.$inferSelect
 export type NewCourt = typeof courts.$inferInsert
+export type Category = typeof categories.$inferSelect
+export type NewCategory = typeof categories.$inferInsert
 export type League = typeof leagues.$inferSelect
 export type NewLeague = typeof leagues.$inferInsert
+export type Programme = League
+export type NewProgramme = NewLeague
 export type Season = typeof seasons.$inferSelect
 export type NewSeason = typeof seasons.$inferInsert
 export type Team = typeof teams.$inferSelect

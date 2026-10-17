@@ -6,12 +6,16 @@
 // every table and updated_by on content tables. Better Auth's own tables (auth.ts) keep its integer-ms timestamps.
 
 export * from './schema/enums'
-export { nowIso } from './schema/columns'
+export { nowIso, EMPTY_BODY } from './schema/columns'
 export * from './schema/auth'
+export * from './schema/media'
+export * from './schema/forms'
 export * from './schema/competition'
+export * from './schema/programmes'
 export * from './schema/content'
 export * from './schema/admin'
 export * from './schema/registrations'
+export * from './schema/analytics'
 export * from './schema/relations'
 
 import type { account, session, twoFactor, user, verification } from './schema/auth'

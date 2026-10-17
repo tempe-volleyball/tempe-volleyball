@@ -1,3 +1,4 @@
+import { eq } from 'drizzle-orm'
 import { tags } from '../cache'
 import { runBatch, type AppDb } from '../db'
 import { leagues, menuItems, pages } from '../db/schema'
@@ -25,7 +26,12 @@ export type MenuChoices = {
 async function choices(db: AppDb): Promise<MenuChoices> {
   const [p, l] = await Promise.all([
     db.select({ id: pages.id, title: pages.title, path: pages.path, status: pages.status }).from(pages).orderBy(pages.path).all(),
-    db.select({ id: leagues.id, code: leagues.code, name: leagues.name, slug: leagues.slug }).from(leagues).orderBy(leagues.sort).all(),
+    db
+      .select({ id: leagues.id, code: leagues.code, name: leagues.name, slug: leagues.slug })
+      .from(leagues)
+      .where(eq(leagues.kind, 'league'))
+      .orderBy(leagues.sort)
+      .all(),
   ])
   return { pages: p, leagues: l }
 }
@@ -50,7 +56,7 @@ export async function saveMenu(db: AppDb, actor: Editor, input: unknown, now = n
   const [existing, p, l] = await Promise.all([
     db.select(rowColumns).from(menuItems).all(),
     db.select({ id: pages.id }).from(pages).all(),
-    db.select({ id: leagues.id }).from(leagues).all(),
+    db.select({ id: leagues.id }).from(leagues).where(eq(leagues.kind, 'league')).all(),
   ])
   const checked = checkMenu(input, { pageIds: new Set(p.map((x) => x.id)), leagueIds: new Set(l.map((x) => x.id)) })
   if (!checked.ok) throw invalid(checked.message)

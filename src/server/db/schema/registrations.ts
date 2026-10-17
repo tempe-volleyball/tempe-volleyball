@@ -1,14 +1,34 @@
+import { sql } from 'drizzle-orm'
 import { index, integer, sqliteTable, text, uniqueIndex, type AnySQLiteColumn } from 'drizzle-orm/sqlite-core'
 import { user } from './auth'
 import { id, SQL_NOW_ISO, timestamps, updatedBy, wpId } from './columns'
-import { seasons } from './competition'
-import { emailStatuses, groupKinds, paymentProviders, paymentStatuses, productKinds, registrationStatuses } from './enums'
+import { leagues, seasons, teams } from './competition'
+import {
+  emailStatuses,
+  groupKinds,
+  groupStatuses,
+  paymentProviders,
+  paymentStatuses,
+  productKinds,
+  registrationSources,
+  registrationStatuses,
+} from './enums'
 import type { PaymentProviderId } from './enums'
+import { enrolmentForms } from './forms'
+import { developmentTerms, events, programmeSessions } from './programmes'
 
-// Registrations, payments and the email outbox. See PLAN.md "Registrations and payments".
-// Money is integer cents (AUD). One payment covers one player and one product; there are no team fees.
+// Registrations, payments and the email outbox. See PLAN.md "Registrations and payments" and, for Phase 6 enrolment,
+// docs/data-model-phase6.md. Money is integer cents (AUD). One payment covers one player and one product; there are
+// no team fees.
 
-/** Something a player can register and pay for: a season entry, a training session, an ADP or JDP term. */
+/** Live = not cancelled, expired or refunded (closedRegistrationStatuses). Used by the partial unique indexes. */
+const LIVE_REGISTRATION = sql`status NOT IN ('cancelled', 'expired', 'refunded')`
+
+/**
+ * Something a player can enrol in. Phase 6: exactly one product per enrolment target, so it's where that instance's
+ * enrolment settings live: one of season_id / session_id / term_id / event_id is set (unique), plus programme_id.
+ * Null caps, prices, forms and windows fall back to the programme (leagues.cap_* etc.).
+ */
 export const products = sqliteTable(
   'products',
   {
@@ -18,7 +38,7 @@ export const products = sqliteTable(
     slug: text('slug').notNull(),
     description: text('description'),
     priceCents: integer('price_cents').notNull(),
-    /** Max paid + held registrations; null = unlimited. Training sessions are 40. */
+    /** Player cap: max registrations holding a spot (spotHoldingStatuses). Null = the programme's cap_players (null there = unlimited). */
     capacity: integer('capacity'),
     /** YYYY-MM-DD Sydney local: when the thing itself runs. */
     startsOn: text('starts_on'),
@@ -28,15 +48,38 @@ export const products = sqliteTable(
     closesAt: text('closes_at'),
     seasonId: text('season_id').references(() => seasons.id, { onDelete: 'set null' }),
     paymentMethods: text('payment_methods', { mode: 'json' }).$type<PaymentProviderId[]>().notNull().default(['stripe', 'payid']),
+    /** False stops new enrolments for this instance even while the programme is open. */
     active: integer('active', { mode: 'boolean' }).notNull().default(true),
     wpId: wpId(),
     ...timestamps(),
     updatedBy: updatedBy(),
+    // ── Phase 6: enrolment targets and per-instance overrides ──
+    programmeId: text('programme_id').references(() => leagues.id, { onDelete: 'restrict' }),
+    /** Deleting the session/term/event deletes its product, unless registrations reference it (then the delete fails). */
+    sessionId: text('session_id').references(() => programmeSessions.id, { onDelete: 'cascade' }),
+    termId: text('term_id').references(() => developmentTerms.id, { onDelete: 'cascade' }),
+    eventId: text('event_id').references(() => events.id, { onDelete: 'cascade' }),
+    /** Team cap: max team entries (groups) holding a spot. Null = the programme's cap_teams (null there = unlimited). */
+    capacityTeams: integer('capacity_teams'),
+    /** Overrides the programme's enrolment form. */
+    formId: text('form_id').references(() => enrolmentForms.id, { onDelete: 'set null' }),
+    /** Null = the programme's waitlist_enabled / waitlist_offer_hours / allow_* settings. */
+    waitlistEnabled: integer('waitlist_enabled', { mode: 'boolean' }),
+    waitlistOfferHours: integer('waitlist_offer_hours'),
+    allowTeamEntries: integer('allow_team_entries', { mode: 'boolean' }),
+    allowFreeAgents: integer('allow_free_agents', { mode: 'boolean' }),
   },
   (t) => [
     uniqueIndex('products_slug_unique').on(t.slug),
     index('products_season_id_idx').on(t.seasonId),
     index('products_kind_active_idx').on(t.kind, t.active),
+    index('products_programme_id_idx').on(t.programmeId),
+    // One product per target. (SQLite unique indexes allow many NULLs.)
+    uniqueIndex('products_season_id_unique').on(t.seasonId),
+    uniqueIndex('products_session_id_unique').on(t.sessionId),
+    uniqueIndex('products_term_id_unique').on(t.termId),
+    uniqueIndex('products_event_id_unique').on(t.eventId),
+    index('products_form_id_idx').on(t.formId),
   ],
 )
 
@@ -63,7 +106,10 @@ export const players = sqliteTable(
   (t) => [index('players_email_idx').on(t.email)],
 )
 
-/** A team or group signing up together. Each member still registers and pays individually (registrations.group_id). */
+/**
+ * A team or group signing up together. Each member still registers and pays individually (registrations.group_id).
+ * Phase 6: a league/event team entry is a `team` group with a status; the team cap counts groups holding a spot.
+ */
 export const groups = sqliteTable(
   'groups',
   {
@@ -76,8 +122,31 @@ export const groups = sqliteTable(
       .references(() => products.id, { onDelete: 'restrict' }),
     ...timestamps(),
     updatedBy: updatedBy(),
+    // ── Phase 6 ──
+    status: text('status', { enum: groupStatuses }).notNull().default('confirmed'),
+    /** 1-based place in the waitlist while status = 'waitlist' (gaps allowed; order by it). */
+    waitlistPosition: integer('waitlist_position'),
+    offeredAt: text('offered_at'),
+    offerExpiresAt: text('offer_expires_at'),
+    /** The competition team this entry is (or became), for season_teams. */
+    teamId: text('team_id').references(() => teams.id, { onDelete: 'set null' }),
+    /** Team-level form answers (preferred division …). */
+    answers: text('answers', { mode: 'json' }).$type<RegistrationAnswers>().notNull().default({}),
+    cancelledAt: text('cancelled_at'),
+    notes: text('notes'),
   },
-  (t) => [index('groups_captain_player_id_idx').on(t.captainPlayerId), index('groups_product_id_idx').on(t.productId)],
+  (t) => [
+    index('groups_captain_player_id_idx').on(t.captainPlayerId),
+    index('groups_product_id_idx').on(t.productId),
+    index('groups_product_id_status_idx').on(t.productId, t.status),
+    index('groups_product_id_waitlist_position_idx').on(t.productId, t.waitlistPosition),
+    index('groups_team_id_idx').on(t.teamId),
+    index('groups_status_offer_expires_at_idx').on(t.status, t.offerExpiresAt),
+    // Team names are unique per product among live entries (the app trims and compares case-insensitively first).
+    uniqueIndex('groups_product_id_name_live_unique')
+      .on(t.productId, t.name)
+      .where(sql`status <> 'cancelled'`),
+  ],
 )
 
 /** Answers on the registration form (skill level, preferred division …). Shape is per product kind. */
@@ -104,6 +173,27 @@ export const registrations = sqliteTable(
     vnswConfirmed: integer('vnsw_confirmed', { mode: 'boolean' }).notNull().default(false),
     ...timestamps(),
     updatedBy: updatedBy(),
+    // ── Phase 6: manual enrolment ──
+    /** A league/event entry by an individual without a team; the organiser places them into a group later. */
+    freeAgent: integer('free_agent', { mode: 'boolean' }).notNull().default(false),
+    /** 1-based place in the waitlist while status = 'waitlist' (gaps allowed; order by it, then created_at). */
+    waitlistPosition: integer('waitlist_position'),
+    /** When a freed spot was offered (status 'offered') and when the offer lapses (the cron passes it on). */
+    offeredAt: text('offered_at'),
+    offerExpiresAt: text('offer_expires_at'),
+    /** What they owe (AUD cents), copied from the product/programme price at enrolment. Null = no fee. */
+    amountCents: integer('amount_cents'),
+    /** UTC ISO; null = unpaid. Set by "mark paid" (manual, PayID/cash) or by a Stripe payment later. */
+    paidAt: text('paid_at'),
+    paidMarkedBy: text('paid_marked_by').references(() => user.id, { onDelete: 'set null' }),
+    /** e.g. "PayID 12/10", "cash". */
+    paymentNote: text('payment_note'),
+    /** The form and version that was answered. */
+    formId: text('form_id').references(() => enrolmentForms.id, { onDelete: 'set null' }),
+    formVersion: integer('form_version'),
+    source: text('source', { enum: registrationSources }).notNull().default('public'),
+    cancelledAt: text('cancelled_at'),
+    cancelReason: text('cancel_reason'),
   },
   (t) => [
     uniqueIndex('registrations_reference_unique').on(t.reference),
@@ -111,6 +201,12 @@ export const registrations = sqliteTable(
     index('registrations_player_id_idx').on(t.playerId),
     index('registrations_group_id_idx').on(t.groupId),
     index('registrations_status_hold_expires_at_idx').on(t.status, t.holdExpiresAt),
+    index('registrations_product_id_waitlist_position_idx').on(t.productId, t.waitlistPosition),
+    index('registrations_status_offer_expires_at_idx').on(t.status, t.offerExpiresAt),
+    index('registrations_paid_marked_by_idx').on(t.paidMarkedBy),
+    index('registrations_form_id_idx').on(t.formId),
+    // One live registration per player per product: a double-submitted form can't take two spots.
+    uniqueIndex('registrations_product_id_player_id_live_unique').on(t.productId, t.playerId).where(LIVE_REGISTRATION),
   ],
 )
 
