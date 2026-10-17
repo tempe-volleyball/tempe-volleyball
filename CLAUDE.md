@@ -136,7 +136,7 @@ docs/reference/      Screenshots of the old site, the design to match.  docs/bas
 - **D1 batch gotcha:** inside `runBatch`, use query builders, not ``db.run(sql`…${param}`)``: drizzle's D1 batch can't bind
   a raw statement's parameters (it crashes with "reading 'bind'"), and the node:sqlite test DB doesn't catch it.
   D1 also caps bound parameters at 100 per statement, so chunk multi-row inserts.
-- **Don't touch the tempevb.com domain or DNS** until the cutover in Phase 6 is explicitly approved.
+- **Don't touch the tempevb.com domain or DNS** until the cutover in Phase 8 is explicitly approved.
 
 ## Domain rules
 
