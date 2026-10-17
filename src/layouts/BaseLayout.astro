@@ -4,6 +4,7 @@ import '../styles/global.css'
 import LadderWidget from '../components/LadderWidget.astro'
 import SiteFooter from '../components/SiteFooter.astro'
 import SiteHeader from '../components/SiteHeader.astro'
+import { announcementActive } from '../lib/content/settings'
 import { SITE_NAME } from '../lib/site'
 import { normalisePath } from '../lib/wp-import/routes'
 import type { Site } from '../server/site'
@@ -23,6 +24,9 @@ type Props = {
 const { title, description, site, sidebar = false, canonicalPath, ogImage, ogType = 'website' } = Astro.props
 const canonical = new URL(canonicalPath ?? normalisePath(Astro.url.pathname), Astro.site)
 const image = new URL(ogImage ?? '/images/hero-1500.webp', Astro.site)
+// Edited in the admin (Site settings); changing it purges every cached page (tag `site`).
+const banner = site.settings.announcement
+const showBanner = announcementActive(banner, new Date())
 ---
 
 <!doctype html>
@@ -62,6 +66,22 @@ const image = new URL(ogImage ?? '/images/hero-1500.webp', Astro.site)
     >
       Skip to content
     </a>
+    {showBanner && (
+      <div
+        role="status"
+        class={`px-4 py-2 text-center text-sm font-semibold ${banner.tone === 'warning' ? 'bg-accent text-ink' : 'bg-brand text-white'}`}
+      >
+        {banner.text}
+        {banner.linkUrl && (
+          <>
+            {' '}
+            <a href={banner.linkUrl} class="underline underline-offset-2">
+              {banner.linkLabel || 'More'}
+            </a>
+          </>
+        )}
+      </div>
+    )}
     <SiteHeader menu={site.menu} pathname={Astro.url.pathname} />
     <div class="mx-auto w-full max-w-6xl flex-1 px-4 py-10 lg:px-8 lg:py-16">
       {sidebar ? (

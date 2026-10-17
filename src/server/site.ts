@@ -1,7 +1,20 @@
 import { and, asc, desc, eq, sql } from 'drizzle-orm'
 import { buildMenu, type MenuItem } from '../lib/menu'
 import { runBatch, type AppDb } from './db'
-import { leagues, menuItems, pages, posts, redirects, venues, type League, type Page, type Post, type Venue } from './db/schema'
+import {
+  leagues,
+  menuItems,
+  pages,
+  posts,
+  redirects,
+  siteSettings,
+  venues,
+  type League,
+  type Page,
+  type Post,
+  type Venue,
+} from './db/schema'
+import { readSettings, type SiteSettings } from '../lib/content/settings'
 import { ladderRows, toCompetition, type LadderRow, type SeasonCompetition, type SeasonData } from './competition/adapter'
 import {
   assembleSeasons,
@@ -31,6 +44,8 @@ export type Site = {
   venues: Venue[]
   /** Each active league's current season, in league order. */
   current: LeagueSeason[]
+  /** Contact details, social links, the announcement banner … (site_settings, edited in the admin). */
+  settings: SiteSettings
 }
 
 const menuQuery = (db: AppDb) =>
@@ -63,14 +78,16 @@ export async function loadSite(db: AppDb): Promise<Site> {
     courtQ,
     seasonListQuery(db),
     db.select().from(venues).orderBy(asc(venues.sort)),
+    db.select({ key: siteSettings.key, value: siteSettings.value }).from(siteSettings),
     ...sq,
   ])
-  const [menuRows, leagueRows, courtRows, seasonList, venueRows, ...seasonRows] = res as unknown as [
+  const [menuRows, leagueRows, courtRows, seasonList, venueRows, settingRows, ...seasonRows] = res as unknown as [
     Awaited<ReturnType<typeof menuQuery>>,
     League[],
     Awaited<typeof courtQ>,
     SeasonSummary[],
     Venue[],
+    { key: string; value: unknown }[],
     ...SeasonRows,
   ]
   const byId = assembleSeasons(seasonRows as unknown as SeasonRows, leagueRows, courtRows)
@@ -81,7 +98,14 @@ export async function loadSite(db: AppDb): Promise<Site> {
     const data = summary && byId.get(summary.id)
     if (summary && data) current.push(seasonView(data, summary))
   }
-  return { menu: buildMenu(menuRows), leagues: leagueRows, seasons: seasonList, venues: venueRows, current }
+  return {
+    menu: buildMenu(menuRows),
+    leagues: leagueRows,
+    seasons: seasonList,
+    venues: venueRows,
+    current,
+    settings: readSettings(settingRows),
+  }
 }
 
 /** One (usually archived) season's full data. */

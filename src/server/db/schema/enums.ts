@@ -57,6 +57,13 @@ export const auditActions = [
   'results.publish',
   'season.publish',
   'page.publish',
+  'page.unpublish',
+  'page.delete',
+  'post.publish',
+  'post.unpublish',
+  'post.delete',
+  'media.delete',
+  'menu.update',
   'settings.update',
 ] as const
 export type AuditAction = (typeof auditActions)[number]

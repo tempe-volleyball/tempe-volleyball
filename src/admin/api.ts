@@ -50,6 +50,62 @@ export type AuditRow = {
   ip: string | null
 }
 
+// ── Content ───────────────────────────────────────────────────────────────────
+
+export type ContentStatus = 'draft' | 'published' | 'archived'
+export type ContentBody = { blocks: unknown[]; html: string }
+/** What a save did to the edge cache (src/server/cache.ts). */
+export type PurgeResult = 'purged' | 'disabled' | 'failed' | 'nothing'
+
+export type PageTemplate = 'content' | 'home' | 'contact'
+export type PageSummary = {
+  id: string
+  path: string
+  title: string
+  status: ContentStatus
+  template: PageTemplate
+  updatedAt: string
+  publishedAt: string | null
+}
+export type PageRow = PageSummary & {
+  metaDescription: string | null
+  ogImageId: string | null
+  body: ContentBody
+  updatedBy: string | null
+}
+export type RevisionRow = { id: string; title: string; createdAt: string; createdBy: string | null }
+
+export type PostSummary = {
+  id: string
+  slug: string
+  title: string
+  status: ContentStatus
+  category: string | null
+  updatedAt: string
+  publishedAt: string | null
+}
+export type PostRow = PostSummary & { excerpt: string | null; coverMediaId: string | null; body: ContentBody }
+
+export type MediaItem = {
+  id: string
+  filename: string
+  alt: string
+  mime: string
+  width: number | null
+  height: number | null
+  variants: number[]
+  bytes: number
+  createdAt: string
+  uploadedByEmail: string | null
+  urls: { src: string; srcset: string | null; thumb: string | null; original: string }
+}
+export type MediaUse = { type: 'page' | 'post'; id: string; title: string; where: string }
+
+export const statusLabel: Record<ContentStatus, string> = { draft: 'Draft', published: 'Published', archived: 'Archived' }
+
+export const formatBytes = (n: number) =>
+  n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`
+
 /** "18/10/2026, 2:05 pm" in Sydney time. */
 export const formatWhen = (iso: string) =>
   new Intl.DateTimeFormat('en-AU', { timeZone: 'Australia/Sydney', dateStyle: 'short', timeStyle: 'short' }).format(new Date(iso))

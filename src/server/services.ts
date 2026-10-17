@@ -16,6 +16,9 @@ export type Services = { db: Db; mailer: Mailer; auth: Auth }
 
 let services: Services | undefined
 
+/** The R2 bucket for the media library (media/<id>/…). */
+export const getMediaBucket = (): R2Bucket => env.MEDIA
+
 export const getServices = (): Services => {
   if (services) return services
   const db = getDb(env.DB)

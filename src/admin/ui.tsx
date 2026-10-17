@@ -1,4 +1,12 @@
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from 'react'
+import {
+  useEffect,
+  useRef,
+  type ButtonHTMLAttributes,
+  type InputHTMLAttributes,
+  type ReactNode,
+  type SelectHTMLAttributes,
+  type TextareaHTMLAttributes,
+} from 'react'
 
 // Small building blocks for the admin, styled with the site tokens (src/styles/global.css).
 
@@ -70,3 +78,72 @@ export function RoleBadge({ role }: { role: string }) {
 }
 
 export const errorMessage = (e: unknown) => (e instanceof Error ? e.message : 'Something went wrong.')
+
+export function TextArea({ label, hint, ...input }: TextareaHTMLAttributes<HTMLTextAreaElement> & { label: string; hint?: string }) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-sm font-semibold">{label}</span>
+      <textarea
+        className="focus:border-brand focus:ring-brand/30 w-full rounded border border-black/20 px-3 py-2 outline-none focus:ring-2"
+        {...input}
+      />
+      {hint && <span className="mt-1 block text-xs text-black/60">{hint}</span>}
+    </label>
+  )
+}
+
+export function Select({ label, hint, children, ...input }: SelectHTMLAttributes<HTMLSelectElement> & { label: string; hint?: string }) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-sm font-semibold">{label}</span>
+      <select className="w-full rounded border border-black/20 bg-white px-3 py-2" {...input}>
+        {children}
+      </select>
+      {hint && <span className="mt-1 block text-xs text-black/60">{hint}</span>}
+    </label>
+  )
+}
+
+export function StatusBadge({ status }: { status: string }) {
+  const styles: Record<string, string> = {
+    published: 'bg-green-100 text-green-900',
+    draft: 'bg-accent/30 text-ink',
+    archived: 'bg-black/10 text-black/70',
+  }
+  return <span className={`inline-block rounded px-2 py-0.5 text-xs font-bold uppercase ${styles[status] ?? ''}`}>{status}</span>
+}
+
+/**
+ * A native <dialog>, shown modally while mounted. The parent unmounts it to close; `onCancel` runs on Escape or
+ * the close button. (A dialog's `close` event can fire after React has unmounted it, so parents clear their state
+ * in their own handlers, never in a close listener.)
+ */
+export function Dialog({ title, onCancel, children, wide }: { title: string; onCancel: () => void; children: ReactNode; wide?: boolean }) {
+  const ref = useRef<HTMLDialogElement>(null)
+  useEffect(() => {
+    const d = ref.current
+    if (d && !d.open) d.showModal()
+  }, [])
+  return (
+    <dialog
+      ref={ref}
+      className={`m-auto w-[calc(100%-2rem)] rounded bg-white p-0 shadow-xl backdrop:bg-black/50 ${wide ? 'max-w-4xl' : 'max-w-lg'}`}
+      onCancel={(e) => {
+        e.preventDefault()
+        onCancel()
+      }}
+    >
+      <div className="flex items-center justify-between border-b border-black/10 px-5 py-3">
+        <h2 className="text-brand text-lg font-bold">{title}</h2>
+        <button type="button" className="px-2 text-2xl leading-none text-black/60 hover:text-black" aria-label="Close" onClick={onCancel}>
+          ×
+        </button>
+      </div>
+      <div className="max-h-[75vh] overflow-y-auto p-5">{children}</div>
+    </dialog>
+  )
+}
+
+/** Extra words for a save message when the live site's cache couldn't be cleared. */
+export const purgeNote = (cache: string | undefined) =>
+  cache === 'failed' ? ' The live site may show the old version for a few minutes.' : ''
