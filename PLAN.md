@@ -4,8 +4,10 @@ Replace www.tempevb.com (WordPress 7.1.2 + SportsPress 2.7.31, "Premier" theme) 
 public site, the admin at `/admin`, and the API at `/api`. It must cost $0 to run, apart from Stripe's per-payment fee and
 the existing domain renewal.
 
-Status: **Phase 1 (skeleton) deployed** to `https://tempe-volleyball-staging.tempevb.workers.dev` and
-`https://tempe-volleyball-production.tempevb.workers.dev` (Cloudflare account `6a3ae071f30ac4126317d2920b7ce299`). GitHub setup is still to do.
+Status (2026-10-18): Phases 1–3 are deployed to `https://tempe-volleyball-staging.tempevb.workers.dev` and
+`https://tempe-volleyball-production.tempevb.workers.dev` (Cloudflare account `6a3ae071f30ac4126317d2920b7ce299`); staging
+holds the imported WordPress data. Phase 4's library is ported; its admin screens are next. **Payments are parked** (see
+Phase 5).
 
 ## Contents
 
@@ -249,7 +251,20 @@ Each phase ends with something deployed to staging and production.
 - **Done when:** Michael creates a real next-quarter season for each league, publishes it, and enters a week's results
   that appear on the site.
 
-### Phase 5: Registration and payments
+### Phase 5: Registration and payments (parked, 2026-10-18)
+
+Michael says payments are his smallest pain point today and he'd rather revisit them later. **Nothing in this phase is
+being built now**, but the groundwork stays so it can be picked up without a migration:
+
+- **Kept:** the `products`, `players`, `groups`, `registrations`, `payments`, `stripe_events` tables (in
+  `0001_full_schema`), the PayID and Revolutionise URL site settings, the outbox email path and the `PaymentProvider`
+  design in Key decisions. Don't drop these tables or settings, and keep new code compatible with them.
+- **Not built yet:** the `src/server/payments/` providers, Stripe Checkout and `/api/stripe/webhook`, products and
+  registrations admin screens, the public sign-up forms (the three Google Forms stay in use until then), Turnstile on those
+  forms, holds, waitlist and the hold-expiry cron job.
+- No Stripe account or Stripe secrets are needed until this is picked up again.
+
+When it's picked up, the original scope still applies:
 
 - Products admin (price, capacity, dates, payment methods). Built-in forms replace the three Google Forms (new player, new
   team or group, training sessions), protected by Turnstile.
@@ -284,10 +299,10 @@ Each phase ends with something deployed to staging and production.
 
 These don't block Phase 1 or 2.
 
-1. **Payment provider:** Stripe only, PayID only, or both? Does Michael have an ABN? (Stripe Australia can onboard an
+1. _(Parked with Phase 5.)_ **Payment provider:** Stripe only, PayID only, or both? Does Michael have an ABN? (Stripe Australia can onboard an
    individual or sole trader without one, but an ABN affects GST on fees and how payouts are reported.)
-2. **Refunds and cancellations:** what are the rules? Are training sessions paid per session, per term, or both?
-3. **Season entry:** what exactly does it include, and what does each product cost?
+2. _(Parked with Phase 5.)_ **Refunds and cancellations:** what are the rules? Are training sessions paid per session, per term, or both?
+3. _(Parked with Phase 5.)_ **Season entry:** what exactly does it include, and what does each product cost?
 4. **Analytics:** which numbers does Michael actually look at today (Jetpack Stats, Site Kit)? Jetpack history probably
    can't be moved over.
 5. **News:** keep posting, or treat the 23 posts as an archive?
@@ -326,7 +341,7 @@ I haven't created or guessed any of these. Everything below is free unless noted
    `npx wrangler login`.
 5. An **API token** for GitHub Actions, from the "Edit Cloudflare Workers" template plus **D1: Edit** and
    **Workers R2 Storage: Edit**, scoped to that one account. Also send the **Account ID**.
-6. Later (Phase 5): a **Turnstile** widget (site key + secret) with hostnames `*.workers.dev` for now, and tempevb.com
+6. Later (Phase 5 forms, or Phase 6's contact form and sign-in, whichever comes first): a **Turnstile** widget (site key + secret) with hostnames `*.workers.dev` for now, and tempevb.com
    at cutover.
 7. Later (Phase 6): a **Web Analytics** site token, and a read-only **Analytics** API token for the admin stats page.
 
@@ -349,7 +364,7 @@ I haven't created or guessed any of these. Everything below is free unless noted
 2. An **API key** with "Sending access" only. It goes in with `wrangler secret put RESEND_API_KEY --env <env>`. Don't send
    it to me in chat; run the command yourself, or put it in your local `.dev.vars`.
 
-### Stripe (Phase 5)
+### Stripe (Phase 5, parked: not needed for now)
 
 1. A **Stripe account** in Michael's name (the money goes to him personally), activated for Australia, with his bank
    account for payouts. **Test-mode** keys are enough until launch.
@@ -359,7 +374,7 @@ I haven't created or guessed any of these. Everything below is free unless noted
 
 ### Secrets per environment (set with `wrangler secret put <NAME> --env staging|production`)
 
-`BETTER_AUTH_SECRET` (Phase 3), `RESEND_API_KEY` (Phase 3), `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` (Phase 5),
+`BETTER_AUTH_SECRET` (Phase 3), `RESEND_API_KEY` (Phase 3), `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` (Phase 5, parked),
 `TURNSTILE_SECRET_KEY` (Phase 5). None are needed for the Phase 1 deploy.
 
 ### Cron trigger limit

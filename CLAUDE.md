@@ -160,6 +160,8 @@ docs/reference/      Screenshots of the old site, the design to match.  docs/bas
 - **Payments:** one payment covers **one player and one product** (a season entry, a training session, or an ADP or JDP
   term). There are no team fees. Products have a price, a capacity (training is capped at **40 per session**) and dates.
   The money goes to Michael personally, by Stripe Checkout or by PayID (manual; an admin marks it paid).
+  **Parked (2026-10-18):** payments and sign-up forms aren't being built yet (PLAN.md Phase 5). Keep the tables,
+  settings and `PaymentProvider` design; don't remove them.
 - **Admin roles:** owner > admin > editor. You can only grant or remove roles below your own, the last owner can't be
   removed or demoted, invites expire, every role change is audited, and TOTP is required for owners. Owners manage
   everyone, other owners included. The rules are in `src/lib/roles.ts` (pure) and enforced in
