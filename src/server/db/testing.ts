@@ -37,25 +37,42 @@ export const createMigratedSqlite = () => {
   return sqlite
 }
 
+type Method = 'run' | 'all' | 'values' | 'get'
+
 /** A migrated in-memory database and a Drizzle client (sqlite-proxy driver) with the full schema. */
 export const createTestDb = () => {
   const sqlite = createMigratedSqlite()
+  const exec = (sql: string, params: unknown[], method: Method) => {
+    const stmt = sqlite.prepare(sql)
+    const args = params as SQLInputValue[]
+    if (method === 'run') {
+      stmt.run(...args)
+      return { rows: [] }
+    }
+    stmt.setReturnArrays(true)
+    if (method === 'get') {
+      const row = stmt.get(...args)
+      return { rows: (row ?? undefined) as unknown as unknown[] }
+    }
+    return { rows: stmt.all(...args) as unknown as unknown[][] }
+  }
   const db = drizzle(
-    async (sql, params, method) => {
-      const stmt = sqlite.prepare(sql)
-      const args = params as SQLInputValue[]
-      if (method === 'run') {
-        stmt.run(...args)
-        return { rows: [] }
+    async (sql, params, method) => exec(sql, params, method),
+    // db.batch(): like D1, all statements run in one transaction and a failure rolls back the whole batch.
+    async (queries) => {
+      sqlite.exec('BEGIN')
+      try {
+        const results = queries.map((q) => exec(q.sql, q.params, q.method))
+        sqlite.exec('COMMIT')
+        return results
+      } catch (e) {
+        sqlite.exec('ROLLBACK')
+        throw e
       }
-      stmt.setReturnArrays(true)
-      if (method === 'get') {
-        const row = stmt.get(...args)
-        return { rows: (row ?? undefined) as unknown as unknown[] }
-      }
-      return { rows: stmt.all(...args) as unknown as unknown[][] }
     },
     { schema },
   )
   return { sqlite, db }
 }
+
+export type TestDb = ReturnType<typeof createTestDb>['db']

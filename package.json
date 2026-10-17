@@ -20,6 +20,7 @@
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "db:migrate:staging": "wrangler d1 migrations apply DB --env staging --remote",
     "db:migrate:production": "wrangler d1 migrations apply DB --env production --remote",
+    "admin:bootstrap": "node scripts/admin-bootstrap.ts",
     "check": "npm run lint && npm run format:check && npm run typecheck && npm test && npm run build",
     "astro": "astro"
   },
@@ -30,7 +31,9 @@
     "better-auth": "^1.7.10",
     "drizzle-orm": "^0.45.4",
     "react": "^19.3.1",
-    "react-dom": "^19.3.1"
+    "react-dom": "^19.3.1",
+    "uqr": "^0.1.3",
+    "wouter": "^3.13.0"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.10",

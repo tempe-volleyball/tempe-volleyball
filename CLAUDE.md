@@ -27,7 +27,11 @@ npm run check                     # everything CI runs, in order
 
 npm run db:generate -- --name <what>   # drizzle-kit: schema.ts changes -> migrations/NNNN_<what>.sql
 npm run db:migrate:local               # apply migrations to the local D1
+npm run admin:bootstrap -- --email <email> --env local|staging|production   # create/promote an owner
 ```
+
+Local admin sign-in: `npm run db:migrate:local`, bootstrap an owner, `npm run dev`, then open `/admin`. With no
+`RESEND_API_KEY`, development and staging print every email (codes included) to the console / Workers Logs.
 
 Prettier uses `--no-semi --single-quote --print-width 140` (in `.prettierrc.json`, plus the Astro plugin).
 
@@ -38,7 +42,10 @@ To test the cron handler locally: `npx wrangler dev --test-scheduled`, then
 
 ```
 src/worker.ts        Worker entry: Astro's fetch handler + scheduled() (crons). wrangler.jsonc "main" points here.
-src/middleware.ts    Runs on every SSR request (noindex unless production on www.tempevb.com; auth guard later).
+src/middleware.ts    Runs on every SSR request: admin guard (server/auth/guard.ts) for /admin/* and /api/admin/*,
+                     noindex unless production on www.tempevb.com.
+src/admin/           The admin React app (one client:only island at /admin/*, wouter router with base /admin):
+                     sign-in, TOTP enrolment, admin users, audit log. src/pages/admin/[...path].astro mounts it.
 src/pages/           Routes. api/health.ts is the deploy smoke test. robots.txt.ts disallows all outside production.
 src/layouts/         Page shells for public pages.
 src/lib/             Pure logic with tests. No bindings, no `cloudflare:*` imports, no DOM. time.ts, indexing.ts.
@@ -46,8 +53,13 @@ src/lib/fixtures/    The demo's fixtures logic, ported (Phase 4): types, schedul
                      analysis (validate, teamStats), results (ladder, ratio, set scores, finals resolver, ladder
                      heading), edit, competition, export, clashes (court clashes across leagues), demo (sample
                      season). index.ts re-exports the public API. No storage: DB adapters live in src/server/.
-src/server/          Code that touches bindings: db/schema.ts + db/index.ts (Drizzle), cron.ts, health.ts; later
-                     auth/, email/, payments/. db/schema.ts re-exports the tables in db/schema/ (one file per
+src/server/          Code that touches bindings: db/schema.ts + db/index.ts (Drizzle; AppDb + runBatch work for D1
+                     and the test DB), cron.ts, health.ts, http.ts (JSON route helpers), services.ts (per-isolate
+                     db/mailer/auth from `cloudflare:workers`; only routes/middleware import it), later payments/.
+                     auth/: auth.ts (Better Auth runtime config), options.ts (schema-shaping plugins),
+                     passwordless-2fa.ts (TOTP challenge after email-code/magic-link sign-in, which Better Auth's
+                     twoFactor doesn't do itself), roles.ts (all role/invite/audit rules), guard.ts, bootstrap.ts.
+                     email/: createMailer().sendEmail(to, template, data) via email_outbox + 95/day cap + Resend. db/schema.ts re-exports the tables in db/schema/ (one file per
                      area; enums.ts holds the `as const` value lists). db/testing.ts gives tests an in-memory
                      SQLite (node:sqlite) with every migration applied: `const { db } = createTestDb()`.
 migrations/          Generated SQL (+ drizzle meta/). Never edit an applied migration; add a new one.
@@ -112,7 +124,10 @@ docs/reference/      Screenshots of the old site, the design to match.  docs/bas
   term). There are no team fees. Products have a price, a capacity (training is capped at **40 per session**) and dates.
   The money goes to Michael personally, by Stripe Checkout or by PayID (manual; an admin marks it paid).
 - **Admin roles:** owner > admin > editor. You can only grant or remove roles below your own, the last owner can't be
-  removed or demoted, invites expire, every role change is audited, and TOTP is required for owners.
+  removed or demoted, invites expire, every role change is audited, and TOTP is required for owners. Owners manage
+  everyone, other owners included. The rules are in `src/lib/roles.ts` (pure) and enforced in
+  `src/server/auth/roles.ts`, which re-reads the actor's role from D1 (the session cookie cache can be 5 minutes stale).
+  Sign-up is disabled: users come only from invites or `admin:bootstrap`.
 
 ### Fixtures rules (agreed with the organiser in the demo; keep them)
 

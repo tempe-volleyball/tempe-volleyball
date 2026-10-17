@@ -1,0 +1,46 @@
+---
+// Every /admin/* URL renders this shell; the React app's router (src/admin/App.tsx) picks the screen. The
+// middleware has already checked the session and redirected if needed, so locals.user is trustworthy here.
+import '../../styles/global.css'
+import App from '../../admin/App'
+import type { Me } from '../../admin/api'
+import { assignableRoles, canManageUsers } from '../../lib/roles'
+import { mustEnrolTotp } from '../../server/auth/guard'
+
+const u = Astro.locals.user
+const me: Me | null = u
+  ? {
+      user: { id: u.id, name: u.name, email: u.email, role: u.role, twoFactorEnabled: !!u.twoFactorEnabled },
+      totpRequired: mustEnrolTotp(u),
+      canManageUsers: canManageUsers(u.role),
+      assignableRoles: assignableRoles(u.role),
+    }
+  : null
+---
+
+<html lang="en-AU">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Admin · Tempe Volleyball</title>
+    <meta name="description" content="Tempe Volleyball site admin." />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" href="/favicon.ico" />
+  </head>
+  <body class="flex min-h-screen flex-col">
+    <header class="border-accent bg-brand border-b-4 text-white">
+      <div class="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3">
+        <a href="/admin" class="font-display text-xl font-bold tracking-wide uppercase">
+          Tempe Volleyball <span class="text-accent">Admin</span>
+        </a>
+      </div>
+    </header>
+    <main class="flex-1">
+      <App client:only="react" me={me} />
+      <noscript>
+        <p class="p-4">The admin needs JavaScript.</p>
+      </noscript>
+    </main>
+  </body>
+</html>
