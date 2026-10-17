@@ -184,6 +184,16 @@ export function ladderWeekLabel(weeks: Week[]): string | null {
   return lw && lw.week > 0 ? `Week ${lw.week} of ${lw.of}` : null
 }
 
+/**
+ * The ladder's heading word: "Final standings" once the season is over (every match day's results published, or at
+ * least every round-robin one, since the ladder counts only those), otherwise "Ladder".
+ */
+export function ladderTitle(weeks: Week[]): 'Final standings' | 'Ladder' {
+  if (isFinished(weeks)) return 'Final standings'
+  const games = weeks.filter((w) => w.kind === 'regular').flatMap((w) => w.games)
+  return games.length > 0 && games.every((g) => isComplete(g.publishedResult)) ? 'Final standings' : 'Ladder'
+}
+
 /** The latest results publish of any match day (UTC ISO), or null. */
 export function lastResultsPublishedAt(weeks: Week[]): string | null {
   const times = weeks.map((w) => w.resultsPublishedAt).filter((t): t is string => !!t)

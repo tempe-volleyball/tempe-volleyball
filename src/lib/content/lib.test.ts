@@ -1,8 +1,39 @@
 import { describe, expect, it } from 'vitest'
 import { buildMenuTree, checkMenu, menuToInput } from './menu'
 import { checkMediaMeta, mediaKeys, mediaUrls, parseUploadFile, variantWidths } from './media'
-import { checkPagePath, checkSlug, planMove, slugify } from './paths'
+import { checkPagePath, checkSlug, planMove, slugify, trailingSlashTarget } from './paths'
 import { DEFAULT_SETTINGS, announcementActive, checkSetting, instagramHandle, readSettings, telHref } from './settings'
+
+describe('trailingSlashTarget', () => {
+  it('strips the trailing slash old WordPress URLs end in', () => {
+    expect(trailingSlashTarget('/contact/')).toBe('/contact')
+    expect(trailingSlashTarget('/ladders/')).toBe('/ladders')
+    expect(trailingSlashTarget('/leagues/tnl/tnl-q4-2026/')).toBe('/leagues/tnl/tnl-q4-2026')
+    expect(trailingSlashTarget('/feed//')).toBe('/feed')
+  })
+  it('leaves slashless paths, the home page, APIs, files and the admin alone', () => {
+    for (const p of [
+      '/',
+      '/contact',
+      '/api/health/',
+      '/api/',
+      '/media/abc/800.webp/',
+      '/admin/',
+      '/admin/pages/',
+      '/_astro/x.css/',
+      '/cdn-cgi/x/',
+    ])
+      expect.soft(trailingSlashTarget(p), p).toBeNull()
+    expect(trailingSlashTarget('/administration/')).toBe('/administration')
+    expect(trailingSlashTarget('/wp-admin/')).toBe('/wp-admin')
+  })
+  it('never produces a protocol-relative Location', () => {
+    expect(trailingSlashTarget('//evil.example/')).toBe('/evil.example')
+    expect(trailingSlashTarget('///evil.example//')).toBe('/evil.example')
+    expect(trailingSlashTarget('/\\evil.example/')).toBeNull()
+    expect(trailingSlashTarget('//')).toBe('/')
+  })
+})
 
 describe('page paths', () => {
   it('normalises what people type', () => {

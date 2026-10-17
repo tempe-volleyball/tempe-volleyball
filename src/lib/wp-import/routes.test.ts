@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { leagueDataPageTarget, normalisePath, pagePath, parseSeasonName, postRoute, seasonRoute, seasonSlug } from './routes'
-import { decodeEntities, nameKey, slugify, titleCase } from './text'
+import {
+  leagueDataPageTarget,
+  normalisePath,
+  pagePath,
+  parseSeasonName,
+  postRoute,
+  seasonRoute,
+  seasonSlug,
+  wordpressRedirects,
+} from './routes'
+import { decodeEntities, isAutoExcerpt, nameKey, slugify, titleCase } from './text'
 
 describe('normalisePath', () => {
   it('strips host, query, fragment and trailing slash', () => {
@@ -9,6 +18,19 @@ describe('normalisePath', () => {
     expect(normalisePath('/event/match-15/#x')).toBe('/event/match-15')
     expect(normalisePath('https://www.tempevb.com/')).toBe('/')
     expect(normalisePath('about')).toBe('/about')
+  })
+})
+
+describe('wordpressRedirects', () => {
+  it('sends the feeds to the news feed and date archives with posts to the news index', () => {
+    const r = new Map(wordpressRedirects(['2023-12-11T22:30:00', '2023-12-08T22:20:00', '2022-01-05T10:00:00']))
+    expect(r.get('/feed')).toBe('/news/rss.xml')
+    expect(r.get('/comments/feed')).toBe('/news')
+    expect(r.get('/2023')).toBe('/news')
+    expect(r.get('/2023/12')).toBe('/news')
+    expect(r.get('/2022/01')).toBe('/news')
+    expect(r.has('/2023/11')).toBe(false)
+    expect([...r.keys()].every((k) => k === normalisePath(k))).toBe(true)
   })
 })
 
@@ -50,5 +72,17 @@ describe('text', () => {
     expect(slugify('KY &#038; CO')).toBe('ky-and-co')
     expect(nameKey('Ky & Co')).toBe(nameKey('KY &#038; CO'))
     expect(titleCase('PRELIMINARY SEMI FINAL 1')).toBe('Preliminary Semi Final 1')
+  })
+})
+
+describe('isAutoExcerpt', () => {
+  const content =
+    '<p><strong>Contact</strong><br><a href="mailto:m@x.com">m@x.com</a> or phone.</p>\n<iframe src="x">Loading…</iframe>\n<p>Getting there&nbsp;by car</p>'
+  it('recognises the excerpts WordPress generates, words run together', () => {
+    expect(isAutoExcerpt('<p>Contactm@x.com or phone. Loading… Getting there by [&hellip;]</p>\n', content)).toBe(true)
+    expect(isAutoExcerpt('', content)).toBe(true)
+  })
+  it('treats anything else as typed', () => {
+    expect(isAutoExcerpt('<p>Hi All, If keen please submit an entry</p>', '<p>If keen please submit an entry</p>')).toBe(false)
   })
 })

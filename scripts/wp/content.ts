@@ -2,6 +2,7 @@
 
 import sanitizeHtml from 'sanitize-html'
 import type { LeagueCode } from '../../src/server/db/schema/enums'
+import { EMBED_HOSTS, safeEmbedSrc } from '../../src/lib/content/render'
 import { rewriteUploads, type ResolvedMedia } from '../../src/lib/wp-import/html'
 import {
   LEAGUES_ROUTE,
@@ -16,9 +17,11 @@ import {
   pagePath,
   postRoute,
   seasonRoute,
+  wordpressRedirects,
 } from '../../src/lib/wp-import/routes'
 import type { SqlValue } from '../../src/lib/wp-import/sql'
-import { decodeEntities, plainText } from '../../src/lib/wp-import/text'
+import { describeHtml } from '../../src/lib/content'
+import { decodeEntities, isAutoExcerpt } from '../../src/lib/wp-import/text'
 import type { Competition } from './competition'
 import { stableId } from './ids'
 import type { WpData, WpPage } from './types'
@@ -45,14 +48,17 @@ const SANITIZE: sanitizeHtml.IOptions = {
   },
   allowedStyles: { '*': { 'text-align': [/^(left|right|center|justify)$/] } },
   allowedSchemes: ['http', 'https', 'mailto', 'tel'],
-  allowedIframeHostnames: [
-    'www.youtube.com',
-    'www.youtube-nocookie.com',
-    'player.vimeo.com',
-    'www.google.com',
-    'docs.google.com',
-    'maps.google.com',
-  ],
+  // Iframes keep their src only if the public renderer would accept it too (EMBED_HOSTS, Google hosts for Maps only).
+  allowedIframeHostnames: [...EMBED_HOSTS],
+  transformTags: {
+    iframe: (tagName, attribs) => {
+      const src = safeEmbedSrc(attribs.src)
+      const { src: _drop, ...rest } = attribs
+      return { tagName, attribs: src ? { ...rest, src } : rest }
+    },
+  },
+  // An iframe without an allowed src is an empty box (and its fallback text, "Loading…", isn't content).
+  exclusiveFilter: (frame) => frame.tag === 'iframe' && !frame.attribs.src,
 }
 
 /** Same-site absolute links become root-relative so they work on every environment. */
@@ -68,12 +74,13 @@ export function cleanBody(html: string, resolve: (url: string) => ResolvedMedia 
   return { ...r, html: relativiseLinks(r.html) }
 }
 
-const metaDescription = (excerpt: string) => {
-  const t = plainText(excerpt.replace(/\[&hellip;\]|\[…\]/g, ''))
-    .replace(/\s*(Continue reading|Read more).*$/i, '')
-    .trim()
-  if (!t) return null
-  return t.length <= 160 ? t : `${t.slice(0, 157).replace(/\s+\S*$/, '')}…`
+/**
+ * A typed excerpt, or else the content's text. WordPress's automatic excerpts strip tags with no space between blocks
+ * ("Contactm.mouhajer@…"), so those are rebuilt from the content, block-aware (describeHtml()).
+ */
+export const metaDescription = (p: WpPage) => {
+  const excerpt = p.excerpt?.rendered ?? ''
+  return describeHtml(isAutoExcerpt(excerpt, p.content.rendered) ? p.content.rendered : excerpt.replace(/\[(?:&hellip;|…)\]/g, ''))
 }
 
 const iso = (gmt: string) => `${gmt}${gmt.includes('.') ? '' : '.000'}Z`
@@ -120,7 +127,7 @@ export function buildContent(
       id,
       path,
       title: decodeEntities(p.title.rendered).replace(/\s+/g, ' ').trim(),
-      meta_description: metaDescription(p.excerpt?.rendered ?? ''),
+      meta_description: metaDescription(p),
       og_image_id: p.featured_media ? (mediaIdByWp.get(p.featured_media) ?? null) : null,
       template: front ? 'home' : p.slug === 'contact' ? 'contact' : 'content',
       body: body(p.content.rendered, p.slug),
@@ -139,7 +146,7 @@ export function buildContent(
       id: stableId('post', p.id),
       slug: p.slug,
       title: decodeEntities(p.title.rendered).replace(/\s+/g, ' ').trim(),
-      excerpt: metaDescription(p.excerpt?.rendered ?? ''),
+      excerpt: metaDescription(p),
       body: body(p.content.rendered, `post ${p.slug}`),
       cover_media_id: p.featured_media ? (mediaIdByWp.get(p.featured_media) ?? null) : null,
       category: p.categories.map((c) => categoryName.get(c)).find((n): n is string => !!n && !/^uncategori[sz]ed$/i.test(n)) ?? null,
@@ -210,6 +217,8 @@ export function buildContent(
   add('/wp-admin', '/admin', 'wordpress')
   add('/wp-login.php', '/admin', 'wordpress')
   add('/category/news', NEWS_ROUTE, 'wordpress')
+  for (const [from, to] of wordpressRedirects(data.posts.filter((p) => p.status === 'publish').map((p) => p.date)))
+    add(from, to, 'wordpress')
 
   const redirectRows: Row[] = [...redirects].map(([from, r]) => {
     report.redirects[r.kind] = (report.redirects[r.kind] ?? 0) + 1

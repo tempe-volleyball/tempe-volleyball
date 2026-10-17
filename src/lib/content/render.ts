@@ -14,15 +14,28 @@ export type JsonNode = { type: string; attrs?: Record<string, unknown>; content?
 /** Limits that keep a single save cheap to validate and render. */
 export const BODY_LIMITS = { maxJsonBytes: 600_000, maxNodes: 30_000, maxDepth: 40 } as const
 
-/** Hosts an `embed` (iframe) may load. Matches the importer's allowlist (scripts/wp/content.ts). */
+/**
+ * Hosts an `embed` (iframe) may load. Matches the importer's allowlist (scripts/wp/content.ts). Google's hosts are
+ * only allowed for Maps embeds (see GOOGLE_MAPS_HOSTS); the others accept any https path.
+ */
 export const EMBED_HOSTS = [
   'www.youtube.com',
   'www.youtube-nocookie.com',
   'player.vimeo.com',
-  'www.google.com',
   'docs.google.com',
+  'www.google.com',
+  'www.google.com.au',
   'maps.google.com',
+  'maps.google.com.au',
 ] as const
+
+/** Hosts that may only embed Google Maps: /maps/embed?…, or the older /maps?…&output=embed. */
+export const GOOGLE_MAPS_HOSTS: readonly string[] = ['www.google.com', 'www.google.com.au', 'maps.google.com', 'maps.google.com.au']
+
+const isGoogleMapsEmbed = (u: URL) =>
+  u.pathname === '/maps/embed' ||
+  u.pathname.startsWith('/maps/embed/') ||
+  ((u.pathname === '/maps' || u.pathname.startsWith('/maps/')) && u.searchParams.get('output') === 'embed')
 
 const ESC: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }
 export const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => ESC[c]!)
@@ -70,12 +83,14 @@ export function safeSrcset(value: unknown): string | null {
 
 const SIZES_RE = /^[\w\s().,:%-]{1,200}$/
 
-/** An iframe src on one of EMBED_HOSTS, https only. */
+/** An iframe src on one of EMBED_HOSTS (Google hosts: Maps embeds only), https only. */
 export function safeEmbedSrc(value: unknown): string | null {
   if (typeof value !== 'string') return null
   try {
     const u = new URL(value.trim())
-    if (u.protocol !== 'https:' || !(EMBED_HOSTS as readonly string[]).includes(u.hostname)) return null
+    if (u.protocol !== 'https:' || u.username || u.password || u.port) return null
+    if (!(EMBED_HOSTS as readonly string[]).includes(u.hostname)) return null
+    if (GOOGLE_MAPS_HOSTS.includes(u.hostname) && !isGoogleMapsEmbed(u)) return null
     return u.toString()
   } catch {
     return null

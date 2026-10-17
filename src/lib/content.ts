@@ -7,6 +7,8 @@
 //   and search engines know where it goes (Lighthouse link-text).
 // - Iframes get a title (Lighthouse frame-title), and images and iframes load lazily.
 
+import { decodeEntities } from './wp-import/text'
+
 const VAGUE = /^(?:click\s+)?(?:here|this|this link|link|more|read more)\.?$/i
 
 const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -101,16 +103,66 @@ export function prepareHtml(html: string, opts: PrepareOptions = {}): string {
 export const DEFAULT_DESCRIPTION =
   'Social mixed volleyball leagues, junior and adult development programs and training in Tempe, Burwood and Five Dock, Sydney.'
 
+/** Meta descriptions are cut to about this many characters, on a word boundary. */
+export const META_DESCRIPTION_MAX = 155
+
+// Elements whose text isn't content (iframes only hold "Loading…" fallback text).
+const NON_TEXT = /<(script|style|iframe|noscript|template|svg|video|audio|object|select|textarea)\b[^>]*>[\s\S]*?<\/\1\s*>/gi
+// Tags that separate words: block elements and <br>. Inline tags (<strong>, <a> …) don't.
+const BLOCK_TAG =
+  /<\/?(?:address|article|aside|blockquote|br|caption|dd|div|dl|dt|figcaption|figure|footer|h[1-6]|header|hr|img|li|main|nav|ol|p|pre|section|table|tbody|td|tfoot|th|thead|tr|ul)\b[^>]*>/gi
+// WordPress shortcodes the old site left in content ("[sp_table id=1]", "[/caption]").
+const SHORTCODE = /\[\/?[a-z][\w-]*(?:\s[^\]]*)?\]/gi
+
+/**
+ * Plain text of stored HTML, for descriptions and excerpts: block boundaries and <br> become spaces (so
+ * "<p>Contact<br>m@x.com</p>" reads "Contact m@x.com", not "Contactm@x.com"), entities are decoded and whitespace is
+ * collapsed.
+ */
+export function htmlToText(html: string): string {
+  return decodeEntities(
+    html
+      .replace(/<!--[\s\S]*?-->/g, ' ')
+      .replace(NON_TEXT, ' ')
+      .replace(BLOCK_TAG, ' ')
+      .replace(/<[^>]*>/g, '')
+      .replace(SHORTCODE, ' '),
+  )
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/** Shortens text to at most `max` characters on a word boundary, ending with "…". Whitespace is collapsed first. */
+export function truncateWords(text: string, max = META_DESCRIPTION_MAX): string {
+  const s = text.replace(/\s+/g, ' ').trim()
+  if (s.length <= max) return s
+  const cut = s.slice(0, max)
+  const space = cut.lastIndexOf(' ')
+  // One very long "word" (a URL): cut it mid-word rather than return almost nothing.
+  const head = space >= max * 0.6 ? cut.slice(0, space) : cut.slice(0, max - 1)
+  return `${head.replace(/[\s,.;:–—-]+$/, '')}…`
+}
+
+/** A description (or excerpt) from HTML: its text, cut on a word boundary; null if it has no text. */
+export function describeHtml(html: string, max = META_DESCRIPTION_MAX): string | null {
+  const t = htmlToText(html)
+  return t ? truncateWords(t, max) : null
+}
+
 /**
  * A usable meta description: the stored one unless it's empty, too short to say anything, or a placeholder the old
- * site leaked ("Loading…" from embedded Google Forms). Collapses whitespace and keeps it under 160 characters.
+ * site leaked ("Loading…" from embedded Google Forms); otherwise the body's text (`bodyHtml`, if given); otherwise
+ * the fallback. Whitespace is collapsed and it's cut to META_DESCRIPTION_MAX characters on a word boundary.
  */
-export function metaDescription(stored: string | null | undefined, fallback = DEFAULT_DESCRIPTION): string {
+export function metaDescription(
+  stored: string | null | undefined,
+  { bodyHtml, fallback = DEFAULT_DESCRIPTION }: { bodyHtml?: string | null; fallback?: string } = {},
+): string {
+  const usable = (s: string) => s.length >= 40 && !/^loading/i.test(s)
   const s = (stored ?? '').replace(/\s+/g, ' ').trim()
-  if (s.length < 40 || /^loading/i.test(s)) return fallback
-  if (s.length <= 160) return s
-  const cut = s.slice(0, 157)
-  return `${cut.slice(0, cut.lastIndexOf(' ') > 100 ? cut.lastIndexOf(' ') : 157).replace(/[\s,.;:–-]+$/, '')}…`
+  if (usable(s)) return truncateWords(s)
+  const body = bodyHtml ? htmlToText(bodyHtml) : ''
+  return usable(body) ? truncateWords(body) : fallback
 }
 
 /** "<title> | Tempe Volleyball", without repeating the site name. Shouting titles ("CONTACT") are title-cased. */

@@ -101,5 +101,28 @@ export function leagueDataPageTarget(slug: string): string | null {
   return t.view === 'ladder' ? leagueLadderRoute(ls) : leagueFixturesRoute(ls)
 }
 
+/** The news RSS feed (src/pages/news/rss.xml.ts). */
+export const NEWS_FEED_ROUTE = `${NEWS_ROUTE}/rss.xml`
+
+/**
+ * WordPress's own URLs that aren't pages or posts: the RSS feeds (the main feed goes to the new one; there are no
+ * comments any more) and the date archives (/2023, /2023/12) for every year and month with a post, which go to the
+ * news index. `postDates` are the posts' dates, "YYYY-MM-DD…" in Sydney time as WordPress gives them.
+ */
+export function wordpressRedirects(postDates: readonly string[]): [from: string, to: string][] {
+  const out: [string, string][] = [
+    ['/feed', NEWS_FEED_ROUTE],
+    ['/category/news/feed', NEWS_FEED_ROUTE],
+    ['/comments/feed', NEWS_ROUTE],
+  ]
+  const archives = new Set<string>()
+  for (const d of postDates) {
+    const m = /^(\d{4})-(\d{2})/.exec(d)
+    if (m) archives.add(`/${m[1]}`).add(`/${m[1]}/${m[2]}`)
+  }
+  for (const a of [...archives].toSorted()) out.push([a, NEWS_ROUTE])
+  return out
+}
+
 /** The new path of an imported WordPress page: "/" for the front page, otherwise "/<slug>". */
 export const pagePath = (slug: string, isFront: boolean) => (isFront ? '/' : normalisePath(`/${slug}`))

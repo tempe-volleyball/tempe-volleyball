@@ -9,6 +9,24 @@ export const RESERVED_PREFIXES = ['/admin', '/api', '/media', '/_astro', '/_imag
 /** Exact paths owned by routes or files. */
 export const RESERVED_PATHS = ['/robots.txt', '/sitemap.xml', '/sitemap-index.xml', '/favicon.ico', '/favicon.svg', '/rss.xml'] as const
 
+/** Prefixes the trailing-slash redirect leaves alone: APIs, files, the admin app and Cloudflare's own paths. */
+const SLASH_EXEMPT = ['/api', '/media', '/admin', '/_astro', '/_image', '/cdn-cgi'] as const
+
+const underPrefix = (path: string, prefixes: readonly string[]) => prefixes.some((p) => path === p || path.startsWith(`${p}/`))
+
+/**
+ * Where a request path with a trailing slash should be sent: the same path without it ("/contact/" -> "/contact"),
+ * as stored in pages.path and redirects.from_path. Every old WordPress URL ends in a slash, so this gives each page
+ * one URL. null when there's nothing to do: no trailing slash, "/", or a path under SLASH_EXEMPT. Repeated slashes
+ * collapse too, so "//evil.example/" becomes "/evil.example", never a protocol-relative Location.
+ */
+export function trailingSlashTarget(pathname: string): string | null {
+  if (pathname.length <= 1 || !pathname.endsWith('/')) return null
+  const target = normalisePath(pathname)
+  if (/^\/[/\\]/.test(target) || underPrefix(target, SLASH_EXEMPT)) return null
+  return target
+}
+
 const SEGMENT = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 export const MAX_PATH_LENGTH = 200
 export const MAX_SLUG_LENGTH = 100

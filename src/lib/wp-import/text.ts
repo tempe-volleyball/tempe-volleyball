@@ -33,6 +33,22 @@ export const plainText = (html: string) =>
     .replace(/\s+/g, ' ')
     .trim()
 
+/** Text with tags, shortcodes, entities, "[…]" and all whitespace removed, for comparing excerpts with content. */
+const squash = (html: string) =>
+  decodeEntities(html.replace(/<[^>]*>/g, '').replace(/\[\/?[a-z][\w-]*(?:\s[^\]]*)?\]/gi, ''))
+    .replace(/\[(?:…|\.\.\.)\]/g, '')
+    .replace(/\s+/g, '')
+
+/**
+ * Whether WordPress generated this excerpt from the content (it strips tags without leaving a space, so block
+ * boundaries run together: "Contactm.mouhajer@…") rather than someone typing it. Automatic excerpts are a prefix of
+ * the content's text once whitespace is ignored. An empty excerpt counts as automatic.
+ */
+export function isAutoExcerpt(excerptHtml: string, contentHtml: string): boolean {
+  const e = squash(excerptHtml)
+  return !e || squash(contentHtml).startsWith(e.slice(0, 80))
+}
+
 const SMALL = new Set(['and', 'or', 'of', 'the', 'a', 'to', 'vs', 'in', 'at'])
 
 /** "SEMI FINAL 1" -> "Semi Final 1", "3RD PLACE PLAYOFF" -> "3rd Place Playoff". */
