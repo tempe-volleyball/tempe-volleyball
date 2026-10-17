@@ -5,9 +5,11 @@ import { sydneyDateTime } from '../../lib/time'
 import { api, type LeagueListItem, type Me, type SeasonView } from '../api'
 import { Button, Card, Dialog, Field, Notice, Select, StatusBadge, errorMessage } from '../ui'
 import { nextQuarter } from './draft'
+import { NewProgrammeDialog } from '../programmes/ProgrammeList'
 
-// The leagues and their seasons (the demo's Home). Admins create next quarter's season here, copying the teams and
-// settings from the league's latest one. Editors only see published and archived seasons (they enter results).
+// Admin → Leagues: the leagues and their seasons (the demo's Home). Admins create next quarter's season here, copying
+// the teams and settings from the league's latest one, add leagues, and open a league to edit its details
+// (programmes/ProgrammePage.tsx). Editors only see published and archived seasons (they enter results).
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
@@ -16,6 +18,7 @@ export function SeasonList({ me }: { me: Me }) {
   const [leagues, setLeagues] = useState<LeagueListItem[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [creating, setCreating] = useState<LeagueListItem | null>(null)
+  const [newLeague, setNewLeague] = useState(false)
   useEffect(() => {
     void api<{ leagues: LeagueListItem[] }>('/api/admin/leagues')
       .then((r) => setLeagues(r.leagues))
@@ -24,19 +27,22 @@ export function SeasonList({ me }: { me: Me }) {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Seasons</h1>
-        <p className="mt-1 text-sm text-black/60">
-          {isAdmin
-            ? 'Each league runs a new season every quarter. Make the next one here, set it up, generate the draw and publish it.'
-            : 'Pick a season to enter its results.'}
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold">Leagues</h1>
+          <p className="mt-1 text-sm text-black/60">
+            {isAdmin
+              ? 'Each league runs a new season every quarter. Make the next one here, set it up, generate the draw and publish it. Open a league for its details and enrolment.'
+              : 'Pick a season to enter its results.'}
+          </p>
+        </div>
+        {isAdmin && <Button onClick={() => setNewLeague(true)}>New league</Button>}
       </div>
       {error && <Notice kind="error">{error}</Notice>}
       {leagues === null && !error && <p className="text-sm text-black/60">Loading…</p>}
       <div className="grid gap-5 md:grid-cols-2">
         {leagues
-          ?.filter((l) => l.active || l.seasons.length > 0)
+          ?.filter((l) => (isAdmin ? l.status !== 'retired' : l.status === 'active') || l.seasons.length > 0)
           .map((l) => {
             const seasons = isAdmin ? l.seasons : l.seasons.filter((s) => s.status !== 'draft')
             return (
@@ -44,16 +50,22 @@ export function SeasonList({ me }: { me: Me }) {
                 key={l.id}
                 title={`${l.name} (${l.code})`}
                 actions={
-                  isAdmin ? (
+                  isAdmin && l.status !== 'retired' ? (
                     <Button variant="secondary" className="px-3 py-1 text-xs" onClick={() => setCreating(l)}>
                       New season
                     </Button>
                   ) : undefined
                 }
               >
-                <p className="-mt-2 mb-3 text-sm text-black/60">
-                  {WEEKDAYS[l.weekday]}s{l.venue ? ` · ${l.venue.name}` : ''}
-                  {l.format === 'super' ? ' · best of 5, Volleyball NSW referees' : ''}
+                <p className="-mt-2 mb-3 flex flex-wrap items-center gap-x-2 text-sm text-black/60">
+                  <span>
+                    {WEEKDAYS[l.weekday]}s{l.venue ? ` · ${l.venue.name}` : ''}
+                    {l.format === 'super' ? ' · best of 5, Volleyball NSW referees' : ''}
+                  </span>
+                  {l.status !== 'active' && <StatusBadge status={l.status} />}
+                  <Link href={`/leagues/${l.id}`} className="text-brand ml-auto underline">
+                    League details
+                  </Link>
                 </p>
                 {seasons.length === 0 ? (
                   <p className="text-sm text-black/60">No seasons yet.</p>
@@ -76,6 +88,7 @@ export function SeasonList({ me }: { me: Me }) {
           })}
       </div>
       {creating && <CreateSeasonDialog league={creating} onCancel={() => setCreating(null)} />}
+      {newLeague && <NewProgrammeDialog kind="league" onCancel={() => setNewLeague(false)} />}
     </div>
   )
 }
@@ -102,7 +115,7 @@ function OlderSeasons({ seasons }: { seasons: LeagueListItem['seasons'] }) {
   )
 }
 
-function CreateSeasonDialog({ league, onCancel }: { league: LeagueListItem; onCancel: () => void }) {
+export function CreateSeasonDialog({ league, onCancel }: { league: LeagueListItem; onCancel: () => void }) {
   const [, navigate] = useLocation()
   const [next] = useState(() => nextQuarter(league.seasons, sydneyDateTime(new Date()).slice(0, 10)))
   const [year, setYear] = useState(String(next.year))

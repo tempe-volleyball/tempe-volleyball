@@ -137,3 +137,18 @@ export type { AdjustmentRow } from '../server/competition/adjustments'
 
 export type StatsResponse = import('../server/analytics/stats').StatsView & { canFetch: boolean }
 export type PageViewsResponse = { source: 'ga4' | 'search_console' | 'cloudflare' | null; days: number; views: Record<string, number> }
+// ── Programmes, categories, venues (docs/api/programmes.md) ───────────────────
+
+export type {
+  ProgrammeView,
+  ProgrammeListItem,
+  ProgrammeChoices,
+  ProgrammeGenerated,
+  ProgrammeHistory,
+  CategoryRef,
+  VenueRef,
+} from '../server/programmes/programmes'
+export type { CategoryListItem } from '../server/programmes/categories'
+export type { VenueRow, CourtRow } from '../server/programmes/venues'
+export type { SessionRow, TermRow, EventRow, InstanceProduct } from '../server/programmes/schedule'
+export type { Programme, ProgrammeKind, ProgrammeStatus, OccurrenceStatus } from '../server/db/schema'

@@ -16,6 +16,18 @@ export const tags = {
   news: 'news',
   post: (slug: string) => `post:${slug}`,
   media: (id: string) => `media:${id}`,
+  // ── Phase 6 (docs/api/programmes.md "Cache tags") ──
+  /**
+   * A programme's own page, any kind: /leagues/<slug>, /training/<slug>, /programs/<slug>, /events/<slug> and the pages
+   * under it (seasons, terms, events). League pages carry tags.league(slug) as well.
+   */
+  programme: (slug: string) => `programme:${slug}`,
+  /** A category landing page (/<slug>). */
+  category: (slug: string) => `category:${slug}`,
+  /** Every page that lists programmes: category pages, /enrol, and pages with a Programme list block. */
+  programmes: 'programmes',
+  /** Every page that shows venue details (Where We Play, programme and category pages show venue names too). */
+  venues: 'venues',
 } as const
 
 /** Public HTML: fresh for 5 minutes at the edge, then served stale for up to a day while it revalidates. */

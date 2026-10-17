@@ -5,7 +5,20 @@ import { LEAGUES_ROUTE, NEWS_ROUTE, normalisePath } from '../wp-import/routes'
 export { normalisePath }
 
 /** Path prefixes owned by routes, so no page may live at or under them. */
-export const RESERVED_PREFIXES = ['/admin', '/api', '/media', '/_astro', '/_image', '/cdn-cgi', LEAGUES_ROUTE, NEWS_ROUTE] as const
+export const RESERVED_PREFIXES = [
+  '/admin',
+  '/api',
+  '/media',
+  '/_astro',
+  '/_image',
+  '/cdn-cgi',
+  LEAGUES_ROUTE,
+  NEWS_ROUTE,
+  // Programme pages by kind (src/lib/programmes.ts PROGRAMME_PATH_PREFIX; /leagues is LEAGUES_ROUTE).
+  '/training',
+  '/programs',
+  '/events',
+] as const
 /** Exact paths owned by routes or files. */
 export const RESERVED_PATHS = ['/robots.txt', '/sitemap.xml', '/sitemap-index.xml', '/favicon.ico', '/favicon.svg', '/rss.xml'] as const
 
