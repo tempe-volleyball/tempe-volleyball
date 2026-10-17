@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, Redirect, Route, Router, Switch, useLocation } from 'wouter'
 import type { Me } from './api'
 import { authClient } from './auth-client'
+import { aroundNav } from './leave-guard'
 import { AcceptInvite } from './screens/AcceptInvite'
 import { Audit } from './screens/Audit'
 import { Media } from './screens/Media'
@@ -12,6 +13,8 @@ import { Security } from './screens/Security'
 import { Settings } from './screens/Settings'
 import { SignIn } from './screens/SignIn'
 import { Users } from './screens/Users'
+import { SeasonList } from './seasons/SeasonList'
+import { SeasonPage } from './seasons/SeasonPage'
 import { Button, Card, RoleBadge } from './ui'
 
 // The admin app: one React island at /admin/* with a client-side router (wouter, base /admin). The server renders
@@ -43,6 +46,7 @@ function Shell({ me, children }: { me: Me; children: React.ReactNode }) {
       <nav className="bg-brand" aria-label="Admin">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center px-4">
           {!me.totpRequired && <NavLink href="/">Home</NavLink>}
+          {!me.totpRequired && <NavLink href="/seasons">Seasons</NavLink>}
           {!me.totpRequired && <NavLink href="/pages">Pages</NavLink>}
           {!me.totpRequired && <NavLink href="/news">News</NavLink>}
           {!me.totpRequired && <NavLink href="/menu">Menu</NavLink>}
@@ -70,8 +74,13 @@ function Home({ me }: { me: Me }) {
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">Hello, {me.user.name || me.user.email}</h1>
       <Card title="Admin">
-        <p className="text-sm">Seasons and results editing are on their way. For now you can:</p>
+        <p className="text-sm">You can:</p>
         <ul className="mt-3 list-disc space-y-1 pl-5 text-sm">
+          <li>
+            <Link href="/seasons" className="text-brand underline">
+              {me.user.role === 'editor' ? 'Enter and publish results' : 'Set up seasons, make the draw and enter results'}
+            </Link>
+          </li>
           <li>
             <Link href="/pages" className="text-brand underline">
               Edit pages
@@ -145,6 +154,10 @@ function SignedIn({ me }: { me: Me }) {
         <Route path="/">
           <Home me={me} />
         </Route>
+        <Route path="/seasons">
+          <SeasonList me={me} />
+        </Route>
+        <Route path="/seasons/:id/:tab?">{(p) => <SeasonPage key={p.id} me={me} id={p.id} tab={p.tab} />}</Route>
         <Route path="/pages">
           <PageList />
         </Route>
@@ -195,7 +208,7 @@ function SignedIn({ me }: { me: Me }) {
 
 export default function App({ me }: { me: Me | null }) {
   return (
-    <Router base="/admin">
+    <Router base="/admin" aroundNav={aroundNav}>
       <Switch>
         <Route path="/sign-in">
           <SignIn />

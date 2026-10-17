@@ -55,6 +55,7 @@ export const auditActions = [
   'payment.mark_paid',
   'payment.refund',
   'results.publish',
+  'match.status',
   'season.create',
   'season.update',
   'season.draw_save',

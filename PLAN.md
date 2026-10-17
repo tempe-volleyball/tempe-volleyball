@@ -6,7 +6,7 @@ the existing domain renewal.
 
 Status (2026-10-18): Phases 1–3 are deployed to `https://tempe-volleyball-staging.tempevb.workers.dev` and
 `https://tempe-volleyball-production.tempevb.workers.dev` (Cloudflare account `6a3ae071f30ac4126317d2920b7ce299`); staging
-holds the imported WordPress data. Phase 4's library is ported; its admin screens are next. **Payments are parked** (see
+holds the imported WordPress data. Phase 4's library, API and admin screens (/admin/seasons) are in; next is Michael setting up real seasons. **Payments are parked** (see
 Phase 5).
 
 ## Contents

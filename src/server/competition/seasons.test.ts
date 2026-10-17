@@ -33,7 +33,7 @@ import { ladderRows, toCompetition } from './adapter'
 import { addAdjustment, deleteAdjustment, updateAdjustment } from './adjustments'
 import { clashDraws } from './clashes'
 import { chunkByParams } from './draw'
-import { publishResults, saveResults, undoResults } from './results'
+import { publishResults, saveResults, setMatchStatus, undoResults } from './results'
 import {
   createSeason,
   deleteSeason,
@@ -717,6 +717,73 @@ describe('results', () => {
     const r = await saveResults(db, admin, v.season.id, finalDay.id, { baseUpdatedAt: v.matchDays[finalDay.id]!.updatedAt, results }, at(5))
     const e = await rejects(publishResults(db, admin, v.season.id, finalDay.id, { baseUpdatedAt: r.updatedAt }), 422, 'not_ready')
     expect(e.message).toMatch(/draw/)
+  })
+
+  it('publishes a match day with a cancelled game, and keeps forfeits as results', async () => {
+    const v = await publishedSeason(4)
+    const day = v.competition.weeks!.find((w) => w.kind === 'regular')!
+    const [g1, g2] = day.games
+    const two = { sets: [[25, 20] as [number, number], [25, 18] as [number, number]] }
+    let token = (
+      await saveResults(
+        db,
+        admin,
+        v.season.id,
+        day.id,
+        { baseUpdatedAt: v.matchDays[day.id]!.updatedAt, results: { [g1!.id]: two, [g2!.id]: two } },
+        at(5),
+      )
+    ).updatedAt
+    token = (await publishResults(db, admin, v.season.id, day.id, { baseUpdatedAt: token }, at(6))).result.updatedAt
+
+    await rejects(setMatchStatus(db, admin, v.season.id, day.id, g1!.id, { baseUpdatedAt: token, status: 'postponed' }), 400)
+    await rejects(setMatchStatus(db, admin, v.season.id, day.id, g1!.id, { baseUpdatedAt: 'stale', status: 'cancelled' }), 409, 'conflict')
+    await rejects(setMatchStatus(db, admin, v.season.id, day.id, 'nope', { baseUpdatedAt: token, status: 'cancelled' }), 404)
+
+    // Cancel g1: its draft result goes, its published one stays until the day is republished.
+    const cancel = await setMatchStatus(db, admin, v.season.id, day.id, g1!.id, { baseUpdatedAt: token, status: 'cancelled' }, at(7))
+    expect(cancel.result.match).toEqual({ id: g1!.id, status: 'cancelled' })
+    expect(cancel.purge.tags).toEqual([tags.season('tnl-q1-2027'), tags.league('tnl'), tags.site])
+    token = cancel.result.matchDay.updatedAt
+    expect(token).toBe(at(7).toISOString())
+    expect(await db.select().from(matchResults).where(eq(matchResults.matchId, g1!.id)).all()).toEqual([
+      expect.objectContaining({ kind: 'published' }),
+    ])
+    await rejects(saveResults(db, admin, v.season.id, day.id, { baseUpdatedAt: token, results: { [g1!.id]: two } }), 400)
+
+    // Undo doesn't bring the cancelled game's result back as a draft; republishing drops it from the ladder.
+    token = (await undoResults(db, admin, v.season.id, day.id, { baseUpdatedAt: token }, at(8))).updatedAt
+    expect(await db.select().from(matchResults).where(eq(matchResults.matchId, g1!.id)).all()).toHaveLength(1)
+    token = (await publishResults(db, admin, v.season.id, day.id, { baseUpdatedAt: token }, at(9))).result.updatedAt
+    expect(await db.select().from(matchResults).where(eq(matchResults.matchId, g1!.id)).all()).toEqual([])
+    const after = await getSeason(db, v.season.id)
+    expect(ladderRows(after.competition as { settings: Settings; weeks: Week[] }, []).reduce((n, r) => n + r.played, 0)).toBe(2)
+    expect(after.matches[g1!.id]!.status).toBe('cancelled')
+
+    // A forfeit keeps its result and its label; publishing doesn't turn it into "played".
+    const forfeit = await setMatchStatus(db, admin, v.season.id, day.id, g2!.id, { baseUpdatedAt: token, status: 'forfeit' }, at(10))
+    token = forfeit.result.matchDay.updatedAt
+    token = (await publishResults(db, admin, v.season.id, day.id, { baseUpdatedAt: token }, at(11))).result.updatedAt
+    expect((await db.select().from(matches).where(eq(matches.id, g2!.id)).get())!.status).toBe('forfeit')
+
+    // Back to played: played with a published result, scheduled without one.
+    token = (await setMatchStatus(db, admin, v.season.id, day.id, g2!.id, { baseUpdatedAt: token, status: 'played' }, at(12))).result
+      .matchDay.updatedAt
+    expect((await db.select().from(matches).where(eq(matches.id, g2!.id)).get())!.status).toBe('played')
+    await setMatchStatus(db, admin, v.season.id, day.id, g1!.id, { baseUpdatedAt: token, status: 'played' }, at(13))
+    expect((await db.select().from(matches).where(eq(matches.id, g1!.id)).get())!.status).toBe('scheduled')
+    expect(await db.select().from(auditLog).where(eq(auditLog.action, 'match.status')).all()).toHaveLength(4)
+  })
+
+  it('publishes a night where every game was cancelled', async () => {
+    const v = await publishedSeason(4)
+    const day = v.competition.weeks!.find((w) => w.kind === 'regular')!
+    let token = v.matchDays[day.id]!.updatedAt
+    for (const [i, g] of day.games.entries())
+      token = (await setMatchStatus(db, admin, v.season.id, day.id, g.id, { baseUpdatedAt: token, status: 'cancelled' }, at(5 + i))).result
+        .matchDay.updatedAt
+    const pub = await publishResults(db, admin, v.season.id, day.id, { baseUpdatedAt: token }, at(9))
+    expect(pub.result.resultsPublishedAt).toBe(at(9).toISOString())
   })
 })
 

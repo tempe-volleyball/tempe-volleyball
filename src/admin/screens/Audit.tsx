@@ -20,6 +20,20 @@ const ACTIONS: Record<string, string> = {
   'media.delete': 'Deleted file',
   'menu.update': 'Changed menu',
   'settings.update': 'Changed setting',
+  'season.create': 'Created season',
+  'season.update': 'Changed season settings',
+  'season.draw_save': 'Saved draw',
+  'season.teams': 'Changed season teams',
+  'season.publish': 'Published season',
+  'season.unpublish': 'Unpublished season',
+  'season.archive': 'Archived season',
+  'season.unarchive': 'Unarchived season',
+  'season.delete': 'Deleted season',
+  'results.publish': 'Published results',
+  'match.status': 'Changed game status',
+  'ladder.adjust': 'Adjusted ladder',
+  'team.create': 'Created team',
+  'team.rename': 'Renamed team',
 }
 
 const describe = (row: AuditRow) => {
@@ -36,6 +50,24 @@ const describe = (row: AuditRow) => {
   if (row.action === 'media.delete') return String(before.filename ?? row.targetId ?? '')
   if (row.action === 'menu.update') return `${String(before.items ?? 0)} → ${String(after.items ?? 0)} items`
   if (row.action === 'settings.update') return row.targetId ?? ''
+  if (row.action === 'season.teams') {
+    const count = (v: unknown) => (Array.isArray(v) ? v.length : '?')
+    return `${count(before.teams)} → ${count(after.teamIds)} teams`
+  }
+  if (row.action.startsWith('season.')) {
+    const name = String(after.name ?? before.name ?? '')
+    if (row.action === 'season.update' && Array.isArray(after.changed))
+      return `${name}: ${(after.changed as string[]).join(', ') || 'no changes'}`
+    if (row.action === 'season.draw_save')
+      return `${String(after.matchDays ?? 0)} match days, ${String(after.matches ?? 0)} games${after.courtsOnly ? ' (courts only)' : ''}`
+    return name || (row.targetId ?? '')
+  }
+  if (row.action === 'results.publish')
+    return `${String(after.season ?? '')} match day ${String(after.matchDay ?? '')} (${String(after.date ?? '')})`
+  if (row.action === 'match.status')
+    return `${String(after.season ?? '')} ${String(after.date ?? '')}: ${String(before.status ?? '?')} → ${String(after.status ?? '?')}`
+  if (row.action === 'team.create') return String(after.name ?? '')
+  if (row.action === 'team.rename') return `${String(before.name ?? '?')} → ${String(after.name ?? '?')}`
   return row.targetType ? `${row.targetType} ${row.targetId ?? ''}` : ''
 }
 
