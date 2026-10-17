@@ -1,0 +1,60 @@
+{
+  // One Worker serves the public site, /admin and /api. Static files in dist/client are served
+  // by the assets layer without invoking the Worker (and don't count toward the 100k requests/day).
+  //
+  // Bindings are not inherited by environments, so each environment repeats them.
+  // Pick an environment at BUILD time with CLOUDFLARE_ENV=staging|production; the build writes
+  // dist/server/wrangler.json, which `wrangler deploy` then uses. The top level is local dev only.
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "tempe-volleyball",
+  "main": "./src/worker.ts",
+  "compatibility_date": "2026-10-12",
+  "compatibility_flags": ["global_fetch_strictly_public", "nodejs_compat"],
+  "assets": { "directory": "./dist", "binding": "ASSETS" },
+  "observability": { "enabled": true },
+  "workers_dev": true,
+  "preview_urls": true,
+
+  "vars": { "SITE_ENV": "development", "SITE_URL": "http://localhost:4321" },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "tempevb-local",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations",
+    },
+  ],
+  "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "tempevb-media-local" }],
+
+  "env": {
+    "staging": {
+      "name": "tempe-volleyball-staging",
+      "vars": { "SITE_ENV": "staging", "SITE_URL": "https://tempe-volleyball-staging.REPLACE_SUBDOMAIN.workers.dev" },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "tempevb-staging",
+          "database_id": "REPLACE_WITH_STAGING_D1_ID",
+          "migrations_dir": "migrations",
+        },
+      ],
+      "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "tempevb-media-staging" }],
+      // Hourly: expire invites and unpaid registrations, drain the email queue. Times are UTC.
+      "triggers": { "crons": ["0 * * * *"] },
+    },
+    "production": {
+      "name": "tempe-volleyball-production",
+      "vars": { "SITE_ENV": "production", "SITE_URL": "https://tempe-volleyball-production.REPLACE_SUBDOMAIN.workers.dev" },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "tempevb-production",
+          "database_id": "REPLACE_WITH_PRODUCTION_D1_ID",
+          "migrations_dir": "migrations",
+        },
+      ],
+      "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "tempevb-media-production" }],
+      "triggers": { "crons": ["0 * * * *"] },
+    },
+  },
+}

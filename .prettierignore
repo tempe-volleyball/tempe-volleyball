@@ -1,0 +1,8 @@
+dist
+.astro
+.wrangler
+node_modules
+migrations
+worker-configuration.d.ts
+package-lock.json
+docs/baseline

@@ -1,0 +1,17 @@
+# Copy to .dev.vars for local development (gitignored). Never commit real values.
+# In staging/production these are set with `wrangler secret put <NAME> --env <env>`.
+
+# Better Auth: any long random string locally (openssl rand -base64 32)
+BETTER_AUTH_SECRET=change-me
+
+# Stripe test-mode keys (https://dashboard.stripe.com/test/apikeys)
+STRIPE_SECRET_KEY=sk_test_...
+# From `stripe listen --forward-to localhost:4321/api/stripe/webhook`
+STRIPE_WEBHOOK_SECRET=whsec_...
+
+# Resend (https://resend.com/api-keys). Leave blank locally to log emails to the console instead.
+RESEND_API_KEY=
+
+# Cloudflare Turnstile test keys that always pass (https://developers.cloudflare.com/turnstile/troubleshooting/testing/)
+TURNSTILE_SITE_KEY=1x00000000000000000000AA
+TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA

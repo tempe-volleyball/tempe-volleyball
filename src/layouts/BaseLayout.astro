@@ -1,0 +1,45 @@
+---
+import '../styles/global.css'
+
+type Props = { title: string; description: string }
+const { title, description } = Astro.props
+const canonical = new URL(Astro.url.pathname, Astro.site)
+---
+
+<html lang="en-AU">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" href="/favicon.ico" />
+  </head>
+  <body class="flex min-h-screen flex-col">
+    <header class="border-accent bg-brand border-b-4 text-white">
+      <div class="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4">
+        <a href="/" class="font-display text-2xl font-bold tracking-wide uppercase">
+          Tempe Volleyball
+        </a>
+        <span class="text-sm">New site under construction</span>
+      </div>
+    </header>
+    <main class="mx-auto w-full max-w-6xl flex-1 px-4 py-10">
+      <slot />
+    </main>
+    <footer>
+      <div class="bg-footer px-4 py-8 text-white">
+        <p class="mx-auto max-w-6xl">
+          Contact Michael on 0414 911 544 ·{' '}
+          <a class="text-accent" href="mailto:tempevb@gmail.com">
+            tempevb@gmail.com
+          </a>
+        </p>
+      </div>
+      <div class="bg-accent px-4 py-3 text-xs text-white">
+        <p class="mx-auto max-w-6xl">© {new Date().getFullYear()} Tempe Volleyball League</p>
+      </div>
+    </footer>
+  </body>
+</html>

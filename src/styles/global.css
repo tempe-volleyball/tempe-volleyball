@@ -1,0 +1,29 @@
+@import 'tailwindcss';
+
+/*
+ * Design tokens taken from the live WordPress site (ThemeBoy "Premier" theme), see docs/reference/.
+ * Fonts: the old site loads Lato (headings, nav) and Droid Sans (body) from Google Fonts.
+ * Phase 2 self-hosts Lato and Noto Sans (Droid Sans's successor) as static files.
+ */
+@theme {
+  --font-sans: 'Noto Sans', 'Droid Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Lato', ui-sans-serif, system-ui, sans-serif;
+
+  --color-brand: #104293; /* nav bar, table bodies */
+  --color-brand-soft: #87a0c9; /* muted text on brand blue (fails contrast on the old site; fix in Phase 6) */
+  --color-accent: #ffa800; /* links, table captions, header rule, copyright bar */
+  --color-ink: #222222; /* body text */
+  --color-paper: #e4e4e4; /* page background */
+  --color-header-row: #555555; /* table header rows */
+  --color-footer: #111111; /* footer widgets area */
+}
+
+body {
+  @apply bg-paper text-ink font-sans antialiased;
+}
+
+h1,
+h2,
+h3 {
+  @apply font-display;
+}

@@ -1,0 +1,21 @@
+# build output
+dist/
+.astro/
+.wrangler/
+
+# dependencies
+node_modules/
+
+# logs
+*.log
+
+# secrets: local dev only, never commit
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+.env
+.env.*
+
+# OS / editor
+.DS_Store
+.idea/
