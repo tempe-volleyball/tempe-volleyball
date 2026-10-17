@@ -21,6 +21,7 @@
     "db:migrate:staging": "wrangler d1 migrations apply DB --env staging --remote",
     "db:migrate:production": "wrangler d1 migrations apply DB --env production --remote",
     "admin:bootstrap": "node scripts/admin-bootstrap.ts",
+    "import:wp": "tsx scripts/import-wp.ts",
     "check": "npm run lint && npm run format:check && npm run typecheck && npm test && npm run build",
     "astro": "astro"
   },
@@ -41,11 +42,15 @@
     "@types/node": "^26.6.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "@types/sanitize-html": "^2.16.2",
     "drizzle-kit": "^0.31.11",
     "oxlint": "^1.88.0",
     "prettier": "^3.9.10",
     "prettier-plugin-astro": "^1.1.1",
+    "sanitize-html": "^2.18.1",
+    "sharp": "^0.35.5",
     "tailwindcss": "^4.3.3",
+    "tsx": "^4.23.15",
     "typescript": "~6.0",
     "vitest": "^5.0.5",
     "wrangler": "^4.151.1"

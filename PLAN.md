@@ -293,7 +293,13 @@ These don't block Phase 1 or 2.
 5. **News:** keep posting, or treat the 23 posts as an archive?
 6. **Domain and email:** who controls tempevb.com (registrar login) and its DNS today, and where is email hosted? (The
    site lists a Gmail address, but the domain may still have MX records.) Needed before the cutover so mail doesn't break.
-7. Smaller ones, for later phases:
+7. **Drawn matches (found by the importer, 2026-10-18):** on the old site, a social match level on sets (1–1) was
+   decided on total points: SportsPress recorded it as "draww"/"drawl" and the ladder counted it as a win (3) or a loss
+   (1); only a match level on points too was a draw (2). The ported fixtures library counts every 1–1 as a draw. The
+   importer reproduces the old ladders with `ladder_adjustments` (reason `wp-import reconciliation`), but Michael needs
+   to confirm the rule for new seasons. Relatedly, the short third set is recorded as set points but doesn't always
+   count as a set, so the importer keeps SportsPress's sets/points totals and drops set scores that disagree.
+8. Smaller ones, for later phases:
    - Do mixed leagues need gender on registrations (for team balance)?
    - Do JDP juniors need guardian consent wording or a Working With Children note?
    - Should old match stub pages (`/event/<slug>/`) redirect to the season fixtures page or to a new match page?
