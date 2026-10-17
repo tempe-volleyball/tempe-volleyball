@@ -39,7 +39,8 @@ export type SeasonCompetition = { settings: Settings; weeks: Week[] }
 
 const ref = (teamId: string | null, label: string | null): Ref => (teamId ? { team: teamId } : { label: label ?? 'TBC' })
 
-const toResult = (r: MatchResult | undefined): Result | undefined =>
+/** A match_results row as the lib's Result. */
+export const toResult = (r: MatchResult | undefined): Result | undefined =>
   r
     ? {
         home: r.homeSets,

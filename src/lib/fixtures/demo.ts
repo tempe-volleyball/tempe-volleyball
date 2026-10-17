@@ -18,7 +18,7 @@ export function blankSettings(): Settings {
 }
 
 export function newCompetition(settings: Settings = blankSettings()): Competition {
-  return { id: uid('c'), settings, weeks: null, edited: false, updatedAt: Date.now() }
+  return { id: uid(), settings, weeks: null, edited: false, updatedAt: Date.now() }
 }
 
 /** A Thursday league shaped like the current one on tempevb.com, for tests and local dev. */
@@ -33,7 +33,7 @@ export function demoCompetition(): Competition {
     'Teletobies',
     'Just The Tip',
     'Aim Bot',
-  ].map((name) => ({ id: uid('t'), name }))
+  ].map((name) => ({ id: uid(), name }))
   return newCompetition({
     ...blankSettings(),
     name: 'Thursday Night League',

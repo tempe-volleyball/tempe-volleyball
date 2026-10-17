@@ -424,15 +424,15 @@ function finalsWeeks(s: Settings): PlayingWeek[] {
     {
       kind: 'semi',
       games: [
-        { id: uid('g'), ...slot(0), title: 'Semi Final 1', home: L('2nd'), away: L('3rd'), duty: D('4th') },
-        { id: uid('g'), ...slot(1), title: 'Semi Final 2', home: L('1st'), away: L('4th'), duty: D('Loser SF1') },
+        { id: uid(), ...slot(0), title: 'Semi Final 1', home: L('2nd'), away: L('3rd'), duty: D('4th') },
+        { id: uid(), ...slot(1), title: 'Semi Final 2', home: L('1st'), away: L('4th'), duty: D('Loser SF1') },
       ],
     },
     {
       kind: 'final',
       games: [
-        { id: uid('g'), ...slot(0), title: 'Grand Final', home: L('Winner SF1'), away: L('Winner SF2'), duty: D('Loser SF1') },
-        { id: uid('g'), ...slot(1), title: '3rd Place', home: L('Loser SF1'), away: L('Loser SF2'), duty: D('Loser GF') },
+        { id: uid(), ...slot(0), title: 'Grand Final', home: L('Winner SF1'), away: L('Winner SF2'), duty: D('Loser SF1') },
+        { id: uid(), ...slot(1), title: '3rd Place', home: L('Loser SF1'), away: L('Loser SF2'), duty: D('Loser GF') },
       ],
     },
   ]
@@ -450,9 +450,9 @@ export function assignDates(s: Settings, playing: (PlayingWeek & { id?: string }
   let guard = 0
   while (i < playing.length && guard++ < 520) {
     if (skip.has(date)) {
-      weeks.push({ id: uid('w'), kind: 'skip', date, matchDay: 0, games: [], note: skip.get(date) || 'No games' })
+      weeks.push({ id: uid(), kind: 'skip', date, matchDay: 0, games: [], note: skip.get(date) || 'No games' })
     } else {
-      weeks.push({ id: uid('w'), ...playing[i]!, date, matchDay: i + 1 })
+      weeks.push({ id: uid(), ...playing[i]!, date, matchDay: i + 1 })
       i++
     }
     date = addDays(date, 7)
@@ -514,7 +514,7 @@ export function generate(s: Settings): Week[] {
   const regular: PlayingWeek[] = best!.rounds.map((r) => {
     const court = assignCourts(r, sessions, courts)
     const games: Game[] = r.pairs.map(([a, b], g) => ({
-      id: uid('g'),
+      id: uid(),
       session: r.session[g]!,
       court: court[g]!,
       home: ref(a),

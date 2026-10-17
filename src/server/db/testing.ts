@@ -39,10 +39,28 @@ export const createMigratedSqlite = () => {
 
 type Method = 'run' | 'all' | 'values' | 'get'
 
+/**
+ * What the client has run, so tests can hold code to D1's free-plan limits: 50 queries per request (each statement
+ * in a batch counts) and 100 bound parameters per statement. Reset it with `stats.reset()` before the call measured.
+ */
+export type QueryStats = { queries: number; batches: number; maxParams: number; reset(): void }
+
 /** A migrated in-memory database and a Drizzle client (sqlite-proxy driver) with the full schema. */
 export const createTestDb = () => {
   const sqlite = createMigratedSqlite()
+  const stats: QueryStats = {
+    queries: 0,
+    batches: 0,
+    maxParams: 0,
+    reset() {
+      this.queries = 0
+      this.batches = 0
+      this.maxParams = 0
+    },
+  }
   const exec = (sql: string, params: unknown[], method: Method) => {
+    stats.queries++
+    stats.maxParams = Math.max(stats.maxParams, params.length)
     const stmt = sqlite.prepare(sql)
     const args = params as SQLInputValue[]
     if (method === 'run') {
@@ -60,6 +78,7 @@ export const createTestDb = () => {
     async (sql, params, method) => exec(sql, params, method),
     // db.batch(): like D1, all statements run in one transaction and a failure rolls back the whole batch.
     async (queries) => {
+      stats.batches++
       sqlite.exec('BEGIN')
       try {
         const results = queries.map((q) => exec(q.sql, q.params, q.method))
@@ -72,7 +91,7 @@ export const createTestDb = () => {
     },
     { schema },
   )
-  return { sqlite, db }
+  return { sqlite, db, stats }
 }
 
 export type TestDb = ReturnType<typeof createTestDb>['db']
