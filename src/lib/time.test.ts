@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatAud, sydneyDateTime } from './time'
+import { formatAud, sydneyDate, sydneyDateTime } from './time'
 
 describe('sydneyDateTime', () => {
   it('uses AEDT (+11) in summer', () => {
@@ -12,6 +12,13 @@ describe('sydneyDateTime', () => {
 
   it('rolls the date over at Sydney midnight, not UTC midnight', () => {
     expect(sydneyDateTime(new Date('2026-10-16T14:30:00Z'))).toBe('2026-10-17 01:30')
+  })
+})
+
+describe('sydneyDate', () => {
+  it('is the Sydney calendar day', () => {
+    expect(sydneyDate(new Date('2026-10-16T13:59:00Z'))).toBe('2026-10-17')
+    expect(sydneyDate(new Date('2026-10-16T12:59:00Z'))).toBe('2026-10-16')
   })
 })
 

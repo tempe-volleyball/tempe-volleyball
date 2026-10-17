@@ -18,6 +18,9 @@ export function sydneyDateTime(at: Date): string {
   return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}`
 }
 
+/** The Sydney calendar date of an instant, "YYYY-MM-DD" (e.g. the day an email counts against the daily cap). */
+export const sydneyDate = (at: Date): string => sydneyDateTime(at).slice(0, 10)
+
 /** Formats integer cents as AUD, e.g. 12500 -> "$125.00". Store money as integer cents everywhere. */
 export function formatAud(cents: number): string {
   return new Intl.NumberFormat(LOCALE, { style: 'currency', currency: CURRENCY }).format(cents / 100)
