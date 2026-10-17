@@ -28,10 +28,17 @@ npm run check                     # everything CI runs, in order
 npm run db:generate -- --name <what>   # drizzle-kit: schema.ts changes -> migrations/NNNN_<what>.sql
 npm run db:migrate:local               # apply migrations to the local D1
 npm run admin:bootstrap -- --email <email> --env local|staging|production   # create/promote an owner
+npm run import:wp                      # import the old WordPress/SportsPress site into the local D1 + R2
+npm run import:wp -- --remote-staging  # …and into staging too (never production). --sql-only, --skip-media, --refresh
 ```
 
 Local admin sign-in: `npm run db:migrate:local`, bootstrap an owner, `npm run dev`, then open `/admin`. With no
 `RESEND_API_KEY`, development and staging print every email (codes included) to the console / Workers Logs.
+
+The importer (`scripts/import-wp.ts`) caches the API and media under `scripts/.cache/` (gitignored), writes chunked
+upsert SQL to `scripts/.cache/sql/`, and prints a report (also `scripts/.cache/report.json`). Re-running is safe: ids
+are derived from WordPress ids, and rows a previous run imported into a season that SportsPress no longer has are
+pruned (so don't hand-edit imported seasons and then re-import).
 
 Prettier uses `--no-semi --single-quote --print-width 140` (in `.prettierrc.json`, plus the Astro plugin).
 
@@ -53,6 +60,10 @@ src/lib/fixtures/    The demo's fixtures logic, ported (Phase 4): types, schedul
                      analysis (validate, teamStats), results (ladder, ratio, set scores, finals resolver, ladder
                      heading), edit, competition, export, clashes (court clashes across leagues), demo (sample
                      season). index.ts re-exports the public API. No storage: DB adapters live in src/server/.
+src/lib/wp-import/   Pure parts of the WordPress importer: title parser (finals labels, duty, byes, skip weeks),
+                     SportsPress result mapping, route conventions + old-URL mapping (routes.ts), SQL upserts,
+                     upload-link rewriting, ladder reconciliation.
+scripts/             Node-only tools run with tsx: import-wp.ts (+ wp/: fetch, competition, content, media).
 src/server/          Code that touches bindings: db/schema.ts + db/index.ts (Drizzle; AppDb + runBatch work for D1
                      and the test DB), cron.ts, health.ts, http.ts (JSON route helpers), services.ts (per-isolate
                      db/mailer/auth from `cloudflare:workers`; only routes/middleware import it), later payments/.
