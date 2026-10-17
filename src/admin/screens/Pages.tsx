@@ -348,6 +348,7 @@ export function PageEditor({ id }: { id: string | null }) {
               />
               <RichText
                 key={editorKey}
+                dataBlocks
                 initial={page?.body ?? { blocks: [], html: '' }}
                 onChange={(b) => {
                   blocks.current = b

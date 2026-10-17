@@ -36,8 +36,7 @@ typed by the arrays in `enums.ts`, with no SQL CHECK, so adding a value is a cod
   update the days latest first (one statement per day in one `db.batch`, about 12 rows), or the shifted dates collide.
 - **Partial unique indexes** (`registrations` per player, `groups` per name) use the raw `status` column in `WHERE`.
   Update the index if `closedRegistrationStatuses` changes.
-- **The menu kinds `category` and `programme`** are in the enum, but `checkMenu` refuses them and `itemHref` returns
-  null until the menu work implements them (src/lib/content/menu.ts, src/lib/menu.ts).
+- **The menu kinds `category` and `programme`** are implemented (src/lib/content/menu.ts; docs/api/menu-and-blocks.md).
 - **The importer** (`scripts/import-wp.ts`) assigns imported leagues to their categories, but only where
   `category_id IS NULL`.
 - **Every column with a default adds a bound parameter to each Drizzle insert row.** Drizzle binds `.default()`

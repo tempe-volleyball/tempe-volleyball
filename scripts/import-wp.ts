@@ -15,7 +15,7 @@ import { parseArgs } from 'node:util'
 import { UPLOAD_URL_RE, uploadKey, type ResolvedMedia } from '../src/lib/wp-import/html'
 import { chunkStatements, sqlLiteral, upsertStatements, type SqlValue } from '../src/lib/wp-import/sql'
 import { RECONCILIATION_REASON, buildCompetition } from './wp/competition'
-import { buildContent, contentPages, mediaRedirects } from './wp/content'
+import { buildContent, contentPages, guardedMenuStatements, mediaRedirects } from './wp/content'
 import { CACHE_DIR, SITE, fetchCollection } from './wp/fetch'
 import { THEME_MEDIA_WP_IDS, libraryIndex, loadManifest, processMedia, saveManifest, type MediaItem, type R2Object } from './wp/media'
 import type { WpData, WpMedia } from './wp/types'
@@ -253,7 +253,8 @@ async function main() {
     ...up('ladder_adjustments', comp.ladderAdjustments),
     ...up('pages', content.pages),
     ...up('posts', content.posts),
-    ...up('menu_items', content.menuItems),
+    // The menu only while nobody has edited it in the admin (then it's Michael's).
+    ...guardedMenuStatements(content.menuItems),
     ...up('redirects', redirects, ['from_path'], { where: `"redirects"."source" = 'wp-import'`, update: ['to_path', 'status'] }),
     // Prune rows a previous run imported into these seasons that SportsPress no longer has.
     ...(seasonIds

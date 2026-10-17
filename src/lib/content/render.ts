@@ -7,6 +7,13 @@
 //
 // Node and mark names are TipTap 3's (StarterKit + Image + TableKit + TextAlign, and our own `embed` for iframes).
 // The admin editor (src/admin/editor/) registers exactly these.
+//
+// Data blocks (programmeList, ladder, fixtures; src/lib/content/blocks.ts) show live data, so they can't be baked
+// into the stored HTML: on save they render as nothing, and at view time the page route renders the body again with
+// a `dataBlock` callback that writes each block from D1 data (src/server/content/blocks.ts). Their attrs are only
+// ever read through the parse*Attrs() normalisers in data-blocks.ts, and every value is escaped.
+
+import { DATA_BLOCK_TYPES } from './blocks'
 
 export type JsonMark = { type: string; attrs?: Record<string, unknown> }
 export type JsonNode = { type: string; attrs?: Record<string, unknown>; content?: JsonNode[]; text?: string; marks?: JsonMark[] }
@@ -163,7 +170,16 @@ function renderText(node: JsonNode): string {
   return html
 }
 
-const children = (node: JsonNode, depth: number) => (node.content ?? []).map((c) => renderNode(c, depth + 1)).join('')
+/** How data blocks render: null (on save) writes nothing in their place. */
+export type RenderOptions = { dataBlock?: ((node: JsonNode) => string) | null }
+
+const DATA_TYPES: ReadonlySet<string> = new Set(DATA_BLOCK_TYPES)
+
+/** True for programmeList, ladder and fixtures nodes. */
+export const isDataBlock = (node: { type?: unknown } | null | undefined) =>
+  !!node && typeof node.type === 'string' && DATA_TYPES.has(node.type)
+
+const children = (node: JsonNode, depth: number, o: RenderOptions) => (node.content ?? []).map((c) => renderNode(c, depth + 1, o)).join('')
 
 function cellAttrs(a: Record<string, unknown> | undefined): Attrs {
   const colspan = int(a?.colspan, 1, 50)
@@ -174,33 +190,33 @@ function cellAttrs(a: Record<string, unknown> | undefined): Attrs {
   ]
 }
 
-function renderNode(node: JsonNode, depth: number): string {
+function renderNode(node: JsonNode, depth: number, o: RenderOptions): string {
   if (!node || typeof node !== 'object' || depth > BODY_LIMITS.maxDepth) return ''
   const a = node.attrs
   switch (node.type) {
     case 'text':
       return renderText(node)
     case 'doc':
-      return children(node, depth)
+      return children(node, depth, o)
     case 'paragraph':
-      return `<p${attrs(alignStyle(a))}>${children(node, depth)}</p>`
+      return `<p${attrs(alignStyle(a))}>${children(node, depth, o)}</p>`
     case 'heading': {
       // H1 is the page title, so body headings start at H2.
       const level = Math.max(2, int(a?.level, 1, 6) ?? 2)
-      return `<h${level}${attrs(alignStyle(a))}>${children(node, depth)}</h${level}>`
+      return `<h${level}${attrs(alignStyle(a))}>${children(node, depth, o)}</h${level}>`
     }
     case 'bulletList':
-      return `<ul>${children(node, depth)}</ul>`
+      return `<ul>${children(node, depth, o)}</ul>`
     case 'orderedList': {
       const start = int(a?.start, 0, 100_000)
-      return `<ol${attrs([['start', start !== null && start !== 1 ? start : null]])}>${children(node, depth)}</ol>`
+      return `<ol${attrs([['start', start !== null && start !== 1 ? start : null]])}>${children(node, depth, o)}</ol>`
     }
     case 'listItem':
-      return `<li>${children(node, depth)}</li>`
+      return `<li>${children(node, depth, o)}</li>`
     case 'blockquote':
-      return `<blockquote>${children(node, depth)}</blockquote>`
+      return `<blockquote>${children(node, depth, o)}</blockquote>`
     case 'codeBlock':
-      return `<pre><code>${children(node, depth)}</code></pre>`
+      return `<pre><code>${children(node, depth, o)}</code></pre>`
     case 'horizontalRule':
       return '<hr>'
     case 'hardBreak':
@@ -237,21 +253,34 @@ function renderNode(node: JsonNode, depth: number): string {
       ])}></iframe></div>`
     }
     case 'table':
-      return `<div class="table-wrap"><table><tbody>${children(node, depth)}</tbody></table></div>`
+      return `<div class="table-wrap"><table><tbody>${children(node, depth, o)}</tbody></table></div>`
     case 'tableRow':
-      return `<tr>${children(node, depth)}</tr>`
+      return `<tr>${children(node, depth, o)}</tr>`
     case 'tableHeader':
-      return `<th${attrs(cellAttrs(a))}>${children(node, depth)}</th>`
+      return `<th${attrs(cellAttrs(a))}>${children(node, depth, o)}</th>`
     case 'tableCell':
-      return `<td${attrs(cellAttrs(a))}>${children(node, depth)}</td>`
+      return `<td${attrs(cellAttrs(a))}>${children(node, depth, o)}</td>`
     default:
+      if (DATA_TYPES.has(node.type)) return o.dataBlock ? o.dataBlock(node) : ''
       // Unknown node: keep its content, drop the wrapper.
-      return children(node, depth)
+      return children(node, depth, o)
   }
 }
 
 /** HTML for a list of top-level blocks (ContentBody.blocks). */
-export const renderBlocks = (blocks: readonly JsonNode[]) => blocks.map((b) => renderNode(b, 1)).join('')
+export const renderBlocks = (blocks: readonly JsonNode[], o: RenderOptions = {}) => blocks.map((b) => renderNode(b, 1, o)).join('')
+
+/** Whether a body has any data block (anywhere), i.e. must be rendered at view time. */
+export function hasDataBlocks(blocks: readonly unknown[] | undefined): boolean {
+  const stack = [...(blocks ?? [])]
+  while (stack.length) {
+    const n = stack.pop() as JsonNode | null
+    if (!n || typeof n !== 'object') continue
+    if (isDataBlock(n)) return true
+    if (Array.isArray(n.content)) stack.push(...n.content)
+  }
+  return false
+}
 
 export type BodyCheck = { ok: true; blocks: JsonNode[] } | { ok: false; message: string }
 

@@ -2,11 +2,18 @@
 // Hero photo with the logo on the left and the two-row blue nav block on the right; on narrow screens the nav
 // collapses into an amber "Menu" bar above the hero. The menu is a <details>, so it works without JavaScript; the
 // small script only closes dropdowns on outside click / Escape and keeps the menu open on wide screens in browsers
-// without ::details-content.
-import { isActive, type MenuItem } from '../lib/menu'
+// without ::details-content. Dropdowns are <details> too, so they open by tap on phones and without JavaScript.
+// The social links (Site settings) are icons in the hero's top corner rather than menu items.
+import { isActive, type MenuItem } from '../lib/content/menu'
+import type { SocialSettings } from '../lib/content/settings'
+import { safeHref } from '../lib/content/render'
 
-type Props = { menu: MenuItem[]; pathname: string }
-const { menu, pathname } = Astro.props
+type Props = { menu: MenuItem[]; pathname: string; social?: SocialSettings }
+const { menu, pathname, social } = Astro.props
+const socials = [
+  { label: 'Tempe Volleyball on Instagram', href: safeHref(social?.instagram), icon: 'instagram' },
+  { label: 'Tempe Volleyball on Facebook', href: safeHref(social?.facebook), icon: 'facebook' },
+].filter((s) => s.href && /^https:\/\//i.test(s.href))
 
 const itemClass = (active: boolean) =>
   [
@@ -95,6 +102,32 @@ const subClass = 'block px-4 py-2.5 font-display text-base font-bold text-white 
       decoding="async"
       class="absolute inset-0 h-full w-full object-cover object-[center_30%]"
     />
+    {socials.length > 0 && (
+      <ul class="absolute top-3 right-4 z-10 flex gap-2 xl:right-8" aria-label="Social media">
+        {socials.map((s) => (
+          <li>
+            <a
+              href={s.href}
+              rel="noopener"
+              class="bg-brand/80 hover:bg-brand focus-visible:bg-brand flex h-10 w-10 items-center justify-center rounded-full text-white"
+              aria-label={s.label}
+            >
+              {s.icon === 'instagram' ? (
+                <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="2" y="2" width="20" height="20" rx="5" />
+                  <circle cx="12" cy="12" r="4" />
+                  <circle cx="17.5" cy="6.5" r="1" fill="currentColor" />
+                </svg>
+              ) : (
+                <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M14 8h3V4h-3c-2.8 0-5 2.2-5 5v2H7v4h2v9h4v-9h3l1-4h-4V9c0-.6.4-1 1-1z" />
+                </svg>
+              )}
+            </a>
+          </li>
+        ))}
+      </ul>
+    )}
     <div class="relative mx-auto flex h-full max-w-6xl items-center justify-center px-4 lg:justify-start lg:px-8 xl:px-[3.25rem]">
       <a href="/" class="block">
         <img

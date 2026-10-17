@@ -7,6 +7,7 @@ import BaseLayout from '../layouts/BaseLayout.astro'
 import { DEFAULT_DESCRIPTION, documentTitle, metaDescription } from '../lib/content'
 import { normalisePath } from '../lib/wp-import/routes'
 import { cachePublic, tags } from '../server/cache'
+import { renderBody } from '../server/content/blocks'
 import { followRedirect, publicDb } from '../server/public'
 import { loadSite, lookupPath } from '../server/site'
 
@@ -19,7 +20,9 @@ if (!found.page && found.redirect) return followRedirect(Astro, db, path, found.
 if (found.page?.template === 'home') return Astro.redirect('/', 301)
 
 const page = found.page
-if (page) cachePublic(Astro.cache, tags.page(path))
+// Data blocks (programme lists, ladders, fixtures) render from live data here; other pages use the stored HTML.
+const body = page ? await renderBody(db, site, page.body) : null
+if (page) cachePublic(Astro.cache, tags.page(path), ...(body?.tags ?? []))
 else Astro.response.status = 404
 ---
 
@@ -31,7 +34,7 @@ else Astro.response.status = 404
     sidebar
     canonicalPath={path}
   >
-    <PageBody title={page.title} html={page.body.html} titles={found.titles} />
+    <PageBody title={page.title} html={body?.html ?? page.body.html} titles={found.titles} />
   </BaseLayout>
 ) : (
   <BaseLayout title={documentTitle('Page not found')} description={DEFAULT_DESCRIPTION} site={site}>

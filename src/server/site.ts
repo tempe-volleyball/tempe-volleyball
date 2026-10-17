@@ -1,14 +1,16 @@
-import { and, asc, desc, eq, sql } from 'drizzle-orm'
-import { buildMenu, type MenuItem } from '../lib/menu'
+import { and, asc, desc, eq, ne, sql } from 'drizzle-orm'
+import { publicMenu, type MenuItem, type MenuRow } from '../lib/content/menu'
 import { runBatch, type AppDb } from './db'
 import {
-  leagues,
+  categories,
   menuItems,
+  programmes,
   pages,
   posts,
   redirects,
   siteSettings,
   venues,
+  type Category,
   type League,
   type Page,
   type Post,
@@ -25,6 +27,7 @@ import {
   type SeasonRows,
   type SeasonSummary,
 } from './competition/load'
+import { menuCategoryColumns, menuRowColumns } from './content/menu'
 
 // What every public page shows around its content (menu, ladder widgets, venues) plus each league's current
 // season, loaded in one db.batch() whatever the page.
@@ -37,9 +40,42 @@ export type LeagueSeason = {
   ladder: LadderRow[]
 }
 
+/** What the menu and the page blocks need of a programme (every kind; drafts are never loaded). */
+export type SiteProgramme = Pick<
+  League,
+  | 'id'
+  | 'kind'
+  | 'code'
+  | 'name'
+  | 'slug'
+  | 'weekday'
+  | 'defaultVenueId'
+  | 'sort'
+  | 'status'
+  | 'categoryId'
+  | 'startTime'
+  | 'endTime'
+  | 'scheduleLabel'
+  | 'summaryLine'
+  | 'moreInfoUrl'
+  | 'menuVisible'
+  | 'enrolmentOpen'
+  | 'enrolmentOpensAt'
+  | 'enrolmentClosesAt'
+  | 'nextStartsOn'
+  | 'nextStartsText'
+  | 'priceCents'
+>
+
+export type SiteCategory = Pick<Category, 'id' | 'name' | 'slug' | 'sort' | 'status'>
+
 export type Site = {
   menu: MenuItem[]
+  /** Leagues (kind 'league'), drafts included: the competition data. */
   leagues: League[]
+  /** Every programme that isn't a draft, any kind, in programme order (menus, blocks). */
+  programmes: SiteProgramme[]
+  categories: SiteCategory[]
   seasons: SeasonSummary[]
   venues: Venue[]
   /** Each active league's current season, in league order. */
@@ -50,19 +86,46 @@ export type Site = {
 
 const menuQuery = (db: AppDb) =>
   db
-    .select({
-      id: menuItems.id,
-      parentId: menuItems.parentId,
-      label: menuItems.label,
-      kind: menuItems.kind,
-      url: menuItems.url,
-      sort: menuItems.sort,
-      pagePath: sql<string | null>`case when ${pages.status} = 'published' then ${pages.path} end`,
-      leagueSlug: leagues.slug,
-    })
+    .select({ ...menuRowColumns, pagePath: sql<string | null>`case when ${pages.status} = 'published' then ${pages.path} end` })
     .from(menuItems)
     .leftJoin(pages, eq(pages.id, menuItems.pageId))
-    .leftJoin(leagues, eq(leagues.id, menuItems.leagueId))
+
+const programmeQuery = (db: AppDb) =>
+  db
+    .select({
+      id: programmes.id,
+      kind: programmes.kind,
+      code: programmes.code,
+      name: programmes.name,
+      slug: programmes.slug,
+      weekday: programmes.weekday,
+      defaultVenueId: programmes.defaultVenueId,
+      sort: programmes.sort,
+      status: programmes.status,
+      categoryId: programmes.categoryId,
+      startTime: programmes.startTime,
+      endTime: programmes.endTime,
+      scheduleLabel: programmes.scheduleLabel,
+      summaryLine: programmes.summaryLine,
+      moreInfoUrl: programmes.moreInfoUrl,
+      menuVisible: programmes.menuVisible,
+      enrolmentOpen: programmes.enrolmentOpen,
+      enrolmentOpensAt: programmes.enrolmentOpensAt,
+      enrolmentClosesAt: programmes.enrolmentClosesAt,
+      nextStartsOn: programmes.nextStartsOn,
+      nextStartsText: programmes.nextStartsText,
+      priceCents: programmes.priceCents,
+    })
+    .from(programmes)
+    .where(ne(programmes.status, 'draft'))
+    .orderBy(asc(programmes.sort), asc(programmes.name))
+
+const categoryQuery = (db: AppDb) =>
+  db
+    .select({ ...menuCategoryColumns, sort: categories.sort })
+    .from(categories)
+    .where(ne(categories.status, 'draft'))
+    .orderBy(asc(categories.sort), asc(categories.name))
 
 export function seasonView(data: SeasonData, summary: SeasonSummary): LeagueSeason {
   const competition = toCompetition(data)
@@ -79,17 +142,22 @@ export async function loadSite(db: AppDb): Promise<Site> {
     seasonListQuery(db),
     db.select().from(venues).orderBy(asc(venues.sort)),
     db.select({ key: siteSettings.key, value: siteSettings.value }).from(siteSettings),
+    programmeQuery(db),
+    categoryQuery(db),
     ...sq,
   ])
-  const [menuRows, leagueRows, courtRows, seasonList, venueRows, settingRows, ...seasonRows] = res as unknown as [
-    Awaited<ReturnType<typeof menuQuery>>,
-    League[],
-    Awaited<typeof courtQ>,
-    SeasonSummary[],
-    Venue[],
-    { key: string; value: unknown }[],
-    ...SeasonRows,
-  ]
+  const [menuRows, leagueRows, courtRows, seasonList, venueRows, settingRows, programmeRows, categoryRows, ...seasonRows] =
+    res as unknown as [
+      (MenuRow & { pagePath: string | null })[],
+      League[],
+      Awaited<typeof courtQ>,
+      SeasonSummary[],
+      Venue[],
+      { key: string; value: unknown }[],
+      SiteProgramme[],
+      SiteCategory[],
+      ...SeasonRows,
+    ]
   const byId = assembleSeasons(seasonRows as unknown as SeasonRows, leagueRows, courtRows)
   const current: LeagueSeason[] = []
   for (const league of leagueRows) {
@@ -98,9 +166,16 @@ export async function loadSite(db: AppDb): Promise<Site> {
     const data = summary && byId.get(summary.id)
     if (summary && data) current.push(seasonView(data, summary))
   }
+  const pagePaths = new Map(menuRows.map((r) => [r.pageId, r.pagePath]))
   return {
-    menu: buildMenu(menuRows),
+    menu: publicMenu(menuRows, {
+      pagePath: (id) => pagePaths.get(id) ?? null,
+      programmes: programmeRows,
+      categories: categoryRows,
+    }),
     leagues: leagueRows,
+    programmes: programmeRows,
+    categories: categoryRows,
     seasons: seasonList,
     venues: venueRows,
     current,

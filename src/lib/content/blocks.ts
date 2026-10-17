@@ -15,9 +15,15 @@ export type ProgrammeListFilter = {
   categoryIds?: string[]
   /** Empty = every kind. */
   kinds?: ProgrammeKind[]
-  /** Only programmes whose enrolment is open right now. */
+  /** Only programmes whose enrolment is open right now (same as enrolment: 'open'; kept for older blocks). */
   enrolmentOpenOnly?: boolean
+  /** Enrolment state: open now, closed now, or either. Missing = 'open' when enrolmentOpenOnly, else 'any'. */
+  enrolment?: EnrolmentFilter
 }
+
+/** The "status" filter of a programme list. Programme status itself isn't a choice: only active ones are ever listed. */
+export const enrolmentFilters = ['any', 'open', 'closed'] as const
+export type EnrolmentFilter = (typeof enrolmentFilters)[number]
 
 /**
  * The programme details a line is generated from, captured when Michael overrides a line. Comparing it with the
@@ -70,8 +76,13 @@ export type ProgrammeListAttrs = {
   overrides: Record<string, ProgrammeLineOverride>
   /** Optional heading above the list. */
   title: string | null
-  /** Each line links to the programme page. */
+  /** Each line links to the programme page (unless the template places a {link} itself). */
   linkLines: boolean
+  /**
+   * A programme's own summary line wins over this block's template (docs/admin.md §3.4: override → summary line →
+   * template). False = always use the template here, e.g. an enrolment list that wants "{name}: {nextStarts}".
+   */
+  useSummaryLines: boolean
   /** What to show when nothing matches ("Enrolments open soon"). Null = render nothing. */
   emptyText: string | null
 }
@@ -93,6 +104,8 @@ export const PROGRAMME_TEMPLATE_PLACEHOLDERS = [
   'category',
   'summary',
   'price',
+  /** A "More info" link to the programme page. */
+  'link',
 ] as const
 export type ProgrammeTemplatePlaceholder = (typeof PROGRAMME_TEMPLATE_PLACEHOLDERS)[number]
 
@@ -106,6 +119,7 @@ export const DEFAULT_PROGRAMME_LIST_ATTRS: ProgrammeListAttrs = {
   overrides: {},
   title: null,
   linkLines: true,
+  useSummaryLines: true,
   emptyText: null,
 }
 

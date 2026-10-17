@@ -3,13 +3,20 @@ import { useState, type ReactNode } from 'react'
 import { safeHref } from '../../lib/content/render'
 import type { ContentBody, MediaItem } from '../api'
 import { MediaPicker } from '../media/MediaLibrary'
+import { DATA_BLOCK_LABELS, dataBlockExtensions, type DataBlockType } from './data-blocks'
 import { embedUrl, editorExtensions } from './extensions'
 
 // The rich-text editor (TipTap) for pages and posts. It edits the body's JSON blocks; the server renders and
 // sanitises the public HTML from them on save (src/lib/content/render.ts). Imported pages that only have HTML are
 // parsed into blocks when opened.
 
-export type RichTextProps = { initial: ContentBody; onChange: (blocks: unknown[]) => void; label?: string }
+export type RichTextProps = {
+  initial: ContentBody
+  onChange: (blocks: unknown[]) => void
+  label?: string
+  /** Offer the data blocks (Programme list, Ladder, Fixtures). Pages only: they render live on the public page. */
+  dataBlocks?: boolean
+}
 
 const initialContent = (body: ContentBody): JSONContent | string =>
   Array.isArray(body.blocks) && body.blocks.length ? { type: 'doc', content: body.blocks as JSONContent[] } : body.html || '<p></p>'
@@ -45,7 +52,7 @@ function ToolButton({
 
 const Sep = () => <span className="mx-1 h-6 w-px bg-black/15" aria-hidden />
 
-function Toolbar({ editor, onImage }: { editor: Editor; onImage: () => void }) {
+function Toolbar({ editor, onImage, dataBlocks }: { editor: Editor; onImage: () => void; dataBlocks?: boolean }) {
   const s = useEditorState({
     editor,
     selector: ({ editor: e }) => ({
@@ -170,6 +177,28 @@ function Toolbar({ editor, onImage }: { editor: Editor; onImage: () => void }) {
       <ToolButton label="Horizontal line" onClick={() => chain().setHorizontalRule().run()}>
         ―
       </ToolButton>
+      {dataBlocks && (
+        <select
+          aria-label="Insert a data block"
+          className="rounded border border-black/20 bg-white px-1 py-1 text-sm"
+          value=""
+          onChange={(e) => {
+            const type = e.target.value as DataBlockType
+            // A paragraph after it, so typing (or the next block) goes below instead of replacing the selected block.
+            if (type)
+              chain()
+                .insertContent([{ type }, { type: 'paragraph' }])
+                .run()
+          }}
+        >
+          <option value="">+ Block…</option>
+          {(Object.keys(DATA_BLOCK_LABELS) as DataBlockType[]).map((t) => (
+            <option key={t} value={t}>
+              {DATA_BLOCK_LABELS[t]}
+            </option>
+          ))}
+        </select>
+      )}
       {s.table ? (
         <>
           <ToolButton label="Add row" onClick={() => chain().addRowAfter().run()}>
@@ -204,10 +233,10 @@ function Toolbar({ editor, onImage }: { editor: Editor; onImage: () => void }) {
   )
 }
 
-export function RichText({ initial, onChange, label = 'Content' }: RichTextProps) {
+export function RichText({ initial, onChange, label = 'Content', dataBlocks = false }: RichTextProps) {
   const [picking, setPicking] = useState(false)
   const editor = useEditor({
-    extensions: editorExtensions(),
+    extensions: dataBlocks ? [...editorExtensions(), ...dataBlockExtensions()] : editorExtensions(),
     content: initialContent(initial),
     editorProps: { attributes: { class: 'rich-text min-h-80 px-4 py-3 outline-none', 'aria-label': label } },
     onUpdate: ({ editor: e }) => onChange(e.getJSON().content ?? []),
@@ -229,7 +258,7 @@ export function RichText({ initial, onChange, label = 'Content' }: RichTextProps
     <div>
       <span className="mb-1 block text-sm font-semibold">{label}</span>
       <div className="focus-within:border-brand rounded border border-black/20 bg-white">
-        {editor && <Toolbar editor={editor} onImage={() => setPicking(true)} />}
+        {editor && <Toolbar editor={editor} onImage={() => setPicking(true)} dataBlocks={dataBlocks} />}
         <EditorContent editor={editor} />
       </div>
       {picking && <MediaPicker onPick={insertImage} onCancel={() => setPicking(false)} />}
