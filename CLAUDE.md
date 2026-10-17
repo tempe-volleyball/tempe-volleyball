@@ -41,8 +41,11 @@ src/worker.ts        Worker entry: Astro's fetch handler + scheduled() (crons). 
 src/middleware.ts    Runs on every SSR request (noindex unless production on www.tempevb.com; auth guard later).
 src/pages/           Routes. api/health.ts is the deploy smoke test. robots.txt.ts disallows all outside production.
 src/layouts/         Page shells for public pages.
-src/lib/             Pure logic with tests. No bindings, no `cloudflare:*` imports, no DOM. The demo's scheduler,
-                     ladder and finals code gets ported here (Phase 4).
+src/lib/             Pure logic with tests. No bindings, no `cloudflare:*` imports, no DOM. time.ts, indexing.ts.
+src/lib/fixtures/    The demo's fixtures logic, ported (Phase 4): types, scheduler (+ rng, dates, holidays),
+                     analysis (validate, teamStats), results (ladder, ratio, set scores, finals resolver, ladder
+                     heading), edit, competition, export, clashes (court clashes across leagues), demo (sample
+                     season). index.ts re-exports the public API. No storage: DB adapters live in src/server/.
 src/server/          Code that touches bindings: db/schema.ts + db/index.ts (Drizzle), cron.ts, health.ts; later
                      auth/, email/, payments/.
 migrations/          Generated SQL (+ drizzle meta/). Never edit an applied migration; add a new one.
@@ -130,8 +133,12 @@ These come from `/home/jeremy/code/volleyball-registration-page/CLAUDE.md`, whos
 - **Draft vs published results:** `result` is what's being typed in; `publishedResult` is what counts. Standings, finals
   seeding, the website and exports only ever read published results. Results are published per match day.
 - A published season's draw is locked; changes to settings that would need a new draw (teams, session count, meetings,
-  finals) are blocked. Court names can still change.
-- **Scheduler** (`scheduler.ts`): a circle-method round robin repeated `meetings` times; `sessionPatterns` allows only
+  finals, duty on/off) are blocked. Court names can still change.
+- **TVSL / no duty:** `settings.duty === false` (missing = on). The scheduler then skips duty assignment and the
+  duty-feasibility filter in `sessionPatterns`, finals get `duty: null`, and `validate()` doesn't ask for duty.
+- **Set scores:** `Result.sets` (`[home, away][]`, up to `MAX_SETS` = 5). When present, sets won and P+/P− are derived
+  from them (`effectiveResult`/`completeResult`); always read results through those, not `r.home` directly.
+- **Scheduler** (`fixtures/scheduler.ts`): a circle-method round robin repeated `meetings` times; `sessionPatterns` allows only
   splits where every game can get an adjacent-session ref (bipartite matching in `dutyFeasible`); simulated annealing
   moves and swaps games between sessions and re-solves each night's duties optimally with the Hungarian algorithm
   (`minCostAssignment`); then courts are assigned so duty teams stay on their court, and dates are laid out around
