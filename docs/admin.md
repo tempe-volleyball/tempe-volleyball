@@ -16,7 +16,7 @@ Status as of 2026-10-18: **Done** = built and on staging, **Partial** = some of 
 
 | Feature                           | What we need                                                                                                                           | Status      | What's there / what's left                                                                                                                                                                                      |
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Leagues**                       | Leagues as records (TNL, FNL …) that own their seasons, with add, rename, retire and reactivate                                        | **Partial** | The `leagues` table and its `active` flag exist, but there's no admin screen; the 5 leagues came from the import. Retiring a league should also deal with its description page and menu items (see section 3).  |
+| **Leagues**                       | Leagues as records (TNL, FNL …) that own their seasons, with add, rename, retire and reactivate                                        | **Partial** | The `leagues` table and its `active` flag exist, but there's no admin screen; the 5 leagues came from the import. Becomes programmes; see section 3.                                                            |
 | **Seasons**                       | A league has quarterly seasons, each with its own settings                                                                             | **Done**    | Admin → Seasons: create, set up, publish, archive. Points per W/D/L and sets per match are per season.                                                                                                          |
 | **Teams and rollover**            | Teams carry over between seasons; one-click "roll over to next season"                                                                 | **Done**    | "New season" copies the latest season's teams and settings. Teams can be renamed and created. Still missing: a team list screen (merge duplicates, see a team's history).                                       |
 | **Venues and courts**             | Venues (Robyn Webster, MLC, Five Dock) separate from the courts inside them                                                            | **Partial** | Tables exist and seasons use them. No admin screen to add or edit venues, courts, addresses or maps; the public Where We Play page is still free text.                                                          |
@@ -27,7 +27,7 @@ Status as of 2026-10-18: **Done** = built and on staging, **Partial** = some of 
 | **Scoring rules**                 | Fixed ladder columns, with W/D/L points, sets per match and tie-break order per season                                                 | **Partial** | Points and sets per match are per season. Tie-break order is fixed in code; making it a season setting is missing. The 1–1 rule (draw, or decided on points as SportsPress did) is still open.                  |
 | **Ladders**                       | Automatic, with point adjustments plus a reason, hiding a withdrawn team, and automatic "Week X of Y" and "Updated" lines              | **Partial** | Automatic, adjustments with reasons, and the generated headings are done. Hiding or marking a **withdrawn team** is missing.                                                                                    |
 | **Fixture lists**                 | Filtered lists ("this week", "upcoming") and an iCal feed per team                                                                     | **Missing** | The league page shows the whole season. No "this week" view, no team pages, no iCal feeds.                                                                                                                      |
-| **Fixtures and ladders on pages** | "Ladder" and "Fixtures" blocks in the page editor that follow the current season (SportsPress used shortcodes)                         | **Missing** | Pages are free text with no link to league data. See section 3.                                                                                                                                                 |
+| **Fixtures and ladders on pages** | "Ladder" and "Fixtures" blocks in the page editor that follow the current season (SportsPress used shortcodes)                         | **Missing** | Pages are free text with no link to league data. Designed in section 3.4.                                                                                                                                       |
 | **Bulk postpone or cancel**       | Postpone or cancel a whole night, with a choice to push the season back a week                                                         | **Missing** | Matches can be cancelled one at a time. No whole-night action and no "push the rest of the season back a week" (needs the postponed status above).                                                              |
 | **Import and export**             | A one-time WordPress import, plus CSV export                                                                                           | **Done**    | `npm run import:wp` (staging so far; production in Phase 8) and a CSV download per season.                                                                                                                      |
 | **Roles**                         | Owner / admin / editor; a results-only helper role could come later                                                                    | **Done**    | With invites, the audit log and TOTP for owners. Editors see only results in Seasons.                                                                                                                           |
@@ -47,24 +47,141 @@ The old site has Google Analytics 4 and Search Console through Site Kit, and Jet
 | **Business numbers**         | Sign-ups, payments, revenue, session-pack balances, attendance, who still owes money                                                                                     | **Depends on Phase 5 (parked).** The Stats page should leave room for it.                                                                                                                                                                                 |
 | **Optional**                 | View counts beside each page in Admin → Pages (like Jetpack's Stats column), a weekly summary email                                                                      | Free; from the same daily data.                                                                                                                                                                                                                           |
 
-## 3. How league data and pages fit together
+## 3. Programmes, categories and how pages link to them
 
-Today there are two unconnected kinds of public page:
+Agreed with Jeremy on 2026-10-18. **The principle: the admin gives complete control of the website, and every system is
+as automated and robust as possible.** Anything generated from data can still be edited by hand. When in doubt, take the
+more robust, more configurable option.
 
-- **Generated league pages** (`/leagues/<league>` and `/leagues/<league>/<season>`) show fixtures and ladders from the
-  season data and update themselves.
-- **Free-text pages** (37 imported, such as the TVSL info page `/saturday-night-endorsed-league`, training, ADP and JDP)
-  are written by hand and know nothing about leagues.
+Why: the old site's pages are hand-typed and drift out of date (the main enrolment page is `/2023-enrolment` in 2026, and
+it still lists a Monday league). A new league should appear everywhere it belongs without anyone editing pages.
 
-So retiring a league today means a database change plus archiving its description page and menu items by hand. To fix
-that:
+### 3.1 Programmes
 
-- **Ladder and Fixtures blocks** in the page editor (parity with SportsPress shortcodes): pick a league, and the block
-  always shows its current season. Rendered on the server from the same data as the league pages.
-- **A league owns its description.** Either the league page shows an editable description above its fixtures, or a
-  league links to one page. Retiring a league then offers to archive that page and remove its menu items in one step.
-- **Training and programmes** (adult training, ADP, JDP) stay as text pages for now. Making them real records (dates,
-  capacity of 40, sign-up list) belongs with Phase 5, which is parked.
+- **One record type underneath: a programme.** The existing `leagues` table grows into it with additive columns, so
+  imported leagues and seasons are kept.
+- **Four kinds**, fixed in code because each has its own admin screens:
+
+  | Kind            | Examples                                          | What it adds                                                |
+  | --------------- | ------------------------------------------------- | ----------------------------------------------------------- |
+  | **league**      | TNL, FNL, SNL, SAL, TVSL                          | Seasons, draws, results, ladders (Admin → Seasons as built) |
+  | **training**    | Scrim & Coached Training, Thursday casual         | Sessions with dates, times, venue and a cap                 |
+  | **development** | ADP, JDP (VolleyJoeys)                            | Terms with sessions, age groups                             |
+  | **event**       | Tempe Cup, rep team trials, socials, come-and-try | One date or a short range, its own entry form, no seasons   |
+
+- **Separate admin sections** for Leagues, Training, Development and Events. Each shows only what that kind needs. They
+  share the programme basics: name, code, URL, category, venue, day and times, description, summary line, status and
+  enrolment settings.
+- **Summary line:** a one-line description generated from the programme's details by default, such as "Thursday Night
+  League (TNL) @ Robyn Webster Sports Centre, Tempe, Thursdays 8–10pm". Michael can edit it on the programme, and it then
+  shows everywhere that programme is listed. Each programme also has a short description and a "more info" link.
+
+### 3.2 Categories
+
+- **Managed in the admin:** name, URL, menu order and an editable intro. Every programme belongs to exactly one category,
+  of any kind.
+- **Each category has a landing page** (such as `/mixed-leagues`) listing its programmes with day, venue, times and next
+  start date.
+- **Seed:**
+
+  | Category       | Programmes                                                                       |
+  | -------------- | -------------------------------------------------------------------------------- |
+  | Mixed Leagues  | TNL, FNL, SNL, SAL                                                               |
+  | Super League   | TVSL                                                                             |
+  | Juniors        | JDP (VolleyJoeys); the Saturday Junior League if it still runs (Michael adds it) |
+  | Adult Training | Scrim & Coached Training, ADP                                                    |
+
+### 3.3 Lifecycle
+
+| Status      | Public site                                                                                                                                        |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Draft**   | Hidden everywhere while it's set up                                                                                                                |
+| **Active**  | In menus, category pages and lists                                                                                                                 |
+| **Retired** | Removed from menus, lists and blocks. Its page stays up ("This league has finished") with past seasons archived, so old links and history survive. |
+
+- **Enrolment** is a separate switch: open or closed, with optional open and close dates so it changes on its own. When
+  open, the programme appears on `/enrol` and in "enrolment open" lists, with a "Next season starts …" line taken from its
+  next season or session (or typed by hand).
+- **Delete** is only allowed while a programme has no seasons, sessions, results or enrolments; after that it can only be
+  retired. Reactivating restores everything, menu position included.
+- Every status change is audited and purges the affected cached pages.
+
+### 3.4 Blocks in the page editor
+
+- **Programme list block:** choose what it shows (a category, kinds, "enrolment open only"). One line per programme, so a
+  new programme adds its line automatically. The block has an editable line template (`Next {name} ({code}) @ {venue}
+({times})`), and each line can be reordered, hidden or overridden with hand-written text for that page.
+- **Which text wins:** page override → the programme's own summary line → generated text.
+- **Changed data:** an overridden line keeps Michael's text, and the editor flags it when the programme's details change
+  ("TNL's venue changed since you edited this line"), with one click back to the automatic text.
+- **Retired programmes** drop out of every list, overrides included.
+- **Ladder and Fixtures blocks:** pick a league; the block always shows its current season. They're data, so no per-line
+  overrides, but they have display options (compact or full, number of rows, title override). This replaces SportsPress's
+  shortcodes.
+- Everything around a block is ordinary editable text. Blocks render on the server from the same data as the programme
+  pages, and publishing a season, results or a programme change purges every page that uses them.
+
+### 3.5 Menu
+
+- **A "category" menu item expands into a dropdown on its own:** the category's landing page, then one link per active
+  programme in it. A new programme joins automatically; a retired one leaves.
+- **Michael can still** reorder and rename dropdowns, hide a programme from the menu without retiring it, and pin
+  hand-made links before or after the automatic ones.
+- **One link per league**, not separate Ladder and Fixtures links. League pages get Fixtures, Ladder and Results tabs,
+  and old `#ladder` / `#fixtures` links still open the right tab.
+- **Proposed top level:** Home · Mixed Leagues · Super League · Juniors · Adult Training · Enrol · About (Where We Play,
+  Contact, Rules, FAQ). Instagram moves to header icons; "Login" leaves the public menu (`/admin` still works).
+
+### 3.6 URLs
+
+- **Category pages:** `/mixed-leagues`, `/super-league`, `/juniors`, `/adult-training`.
+- **Programme pages are flat**, so re-categorising never changes a URL: `/leagues/tnl`, `/training/<slug>`,
+  `/programs/<slug>`, `/events/<slug>`. The breadcrumb shows the category. Seasons stay at `/leagues/tnl/tnl-q4-2026`.
+- **One enrolment page, `/enrol`.** `/2023-enrolment` and the other year-stamped and duplicate enrolment pages 301 to it.
+- Michael can change any URL; the old one leaves a 301 automatically, as pages already do.
+
+### 3.7 Enrolment (moved out of parked Phase 5)
+
+The site takes enrolments itself, replacing the Google Forms. **Payment processing stays parked.**
+
+- **Forms per programme**, with fields Michael can edit (skill level, preferred division, guardian details for juniors
+  …), protected by Turnstile.
+- **Caps** where they belong, each defaulting from the programme and changeable per instance: per training session (for
+  example 32 or 40), per development term, per event, and per league season by **teams, players or both**. Leagues can
+  take team entries and individual "free agents", whom Michael places into teams.
+- **Full → waitlist.** When someone cancels, the first on the waitlist is offered the spot by email.
+- **Paid / unpaid marked by hand** for now (PayID as today). When Stripe comes back it just marks enrolments paid.
+- **Admin:** lists per programme, session, season or event, CSV export, and confirmation emails through the outbox
+  (once Resend is set up). Uses the existing `players`, `groups` and `registrations` tables; `products` maps onto
+  sessions, terms, seasons and events.
+
+### 3.8 Content map
+
+The 37 imported pages get a new home each. I draft the text, Michael reviews it on staging, and the map is a table in
+`docs/content-map.md` (one row per old URL, its new home and status) to tick off:
+
+- **Programme descriptions:** TVSL info, ADP, JDP, VolleyJoeys, Scrim & Coached Training, Thursday casual training.
+- **Merged into `/enrol`:** `/2023-enrolment`, `/2021-interest-in-playing`, New Player, Returning Player, New Team,
+  Returning Team (and their 2023/2026 duplicates).
+- **Archived and redirected:** 2021 Monday and Thursday leagues, COVID guidelines, Sample Page, the 2022 junior
+  tournaments, the Tempe Cup thank-you page, other duplicates.
+- **Kept and tidied:** About, Where We Play, Contact, Rules, FAQ, with dated or outdated details flagged for Michael.
+- **For Michael to decide:** Tempe Cup registration (likely an event) and the USyd Junior Rep programme.
+- Nothing is lost: archived pages keep their revisions, and every old URL 301s somewhere sensible.
+
+### 3.9 Build order (Phase 6)
+
+1. Programmes and categories: data model, the four admin sections, category management (absorbs "league management" and
+   "venues and courts" from section 1).
+2. Menu and blocks: automatic category dropdowns, the Programme list block, Ladder and Fixtures blocks.
+3. Public pages: category and programme pages, flat URLs with 301s, league page tabs.
+4. Enrolment: forms, caps, waitlists, manual paid/unpaid, CSV export.
+5. Content map: rewrite the 37 imported pages into the new structure for Michael's review.
+6. The rest of section 1 (postponed/TBD, bulk postpone or cancel a night, cross-league match list, withdrawn teams,
+   tie-break order, fixture lists and iCal) and the analytics in section 2.
+
+Phase 7 then designs how the category, programme and enrolment pages look and does their SEO (structured data for
+leagues and events, sitemap).
 
 ## 4. Admin UI/UX
 
