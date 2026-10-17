@@ -21,3 +21,6 @@ node_modules/
 .idea/
 auth-schema.gen.ts
 scripts/.cache/
+
+# Claude Code agent worktrees
+.claude/worktrees/

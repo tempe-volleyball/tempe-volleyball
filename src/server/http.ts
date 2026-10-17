@@ -9,15 +9,19 @@ export const json = (data: unknown, status = 200) => Response.json(data, { statu
 export class HttpError extends Error {
   readonly status: number
   readonly code: string
-  constructor(status: number, code: string, message: string) {
+  /** Extra fields for the error body, e.g. { issues } when a draw fails validation. */
+  readonly details?: Record<string, unknown>
+  constructor(status: number, code: string, message: string, details?: Record<string, unknown>) {
     super(message)
     this.status = status
     this.code = code
+    if (details) this.details = details
   }
 }
 
 export function errorResponse(e: unknown) {
-  if (e instanceof RoleError || e instanceof HttpError) return json({ error: e.code, message: e.message }, e.status)
+  if (e instanceof HttpError) return json({ ...e.details, error: e.code, message: e.message }, e.status)
+  if (e instanceof RoleError) return json({ error: e.code, message: e.message }, e.status)
   console.error('[api] unexpected error', e)
   return json({ error: 'server_error', message: 'Something went wrong.' }, 500)
 }

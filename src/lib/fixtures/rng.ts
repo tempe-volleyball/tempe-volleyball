@@ -19,8 +19,9 @@ export function shuffle<T>(arr: T[], rng: () => number): T[] {
   return a
 }
 
-let counter = 0
-export function uid(prefix = 'id'): string {
-  counter++
-  return `${prefix}_${Date.now().toString(36)}${counter.toString(36)}${Math.random().toString(36).slice(2, 6)}`
-}
+/**
+ * A new id for a week, game, team or competition: a random UUID (crypto.randomUUID exists in browsers, Node and
+ * Workers). The server stores these as the match_days/matches row ids, so ids made in the browser survive a save and
+ * results stay attached to their matches.
+ */
+export const uid = (): string => crypto.randomUUID()
