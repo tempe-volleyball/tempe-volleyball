@@ -69,7 +69,7 @@ covers that.
 | Bot protection      | Turnstile on every public form, verified server-side before any D1 write.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | Time and money      | Store instants as UTC ISO strings; store match dates as `YYYY-MM-DD` and times as `HH:MM` **Sydney wall-clock**. Format with `Australia/Sydney` and `en-AU`, AUD (`src/lib/time.ts`).                                                                                                                                                                                                                                                                                                                                                                                                 |
 | Search engines      | Real URLs, `<title>` and meta description per page, Open Graph, JSON-LD (`SportsOrganization`, `SportsEvent` for upcoming fixtures, `BreadcrumbList`), a sitemap of real pages only (not 480 match stubs), and 301s from every old URL. Non-production environments send `X-Robots-Tag: noindex` and a disallow-all `robots.txt`.                                                                                                                                                                                                                                                     |
-| Analytics           | Cloudflare Web Analytics beacon (no cookies, no banner) and Google Search Console verified by DNS TXT. Phase 7 adds an admin stats page that reads Cloudflare's GraphQL Analytics API with a read-only token.                                                                                                                                                                                                                                                                                                                                                                         |
+| Analytics           | Keep GA4 (same tag) and Google Search Console (verified by DNS TXT), add the Cloudflare Web Analytics beacon, drop Jetpack. Phase 7 adds an admin Stats page fed by a daily cron; see [docs/admin.md](docs/admin.md#2-analytics-and-the-stats-page). GA4 sets cookies, so "no cookie banner" needs checking.                                                                                                                                                                                                                                                                          |
 | Observability       | Workers Logs (`observability.enabled`). Structured `console.info/error` with a request id. Add Sentry's free plan only if this proves too thin.                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 
 ### Code layout
@@ -292,14 +292,19 @@ The public website only; the admin is Phase 7.
 
 ### Phase 7: Admin upgrade
 
-UI/UX improvements across `/admin`, plus new admin features. The full scope is still being written with Jeremy; so far:
+**Scope lives in [docs/admin.md](docs/admin.md).** In short:
 
-- Admin UI/UX improvements (to be detailed).
-- Admin stats page reading Cloudflare's GraphQL Analytics API with a read-only token.
-- Further features to be added here.
+- **Parity with SportsPress first:** everything Michael relies on in the old admin must exist before the cutover
+  (league management, venues and courts, postponed/TBD matches, bulk postpone or cancel a night, a cross-league match list,
+  withdrawn teams, tie-break order, Ladder and Fixtures blocks for pages, fixture lists and iCal feeds, CSV import).
+- **Analytics:** keep GA4 and Search Console, add Cloudflare Web Analytics, drop Jetpack, and build an admin Stats page fed
+  by a daily cron.
+- **Admin UI/UX** improvements, still being written.
+- **Done when:** every "must have" row in docs/admin.md is Done, and Michael can run a night without SportsPress.
 
 ### Phase 8: Migration and cutover
 
+- **Gate:** don't cut over until Phase 7's parity list in [docs/admin.md](docs/admin.md) is complete.
 - **Production data**: run the importer against production (it deliberately has no production target yet; add one only
   with explicit go-ahead), or copy staging's cleaned data, so production starts from the same content Michael has
   checked on staging. Bootstrap Michael as owner on production.
