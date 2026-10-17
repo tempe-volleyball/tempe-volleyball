@@ -1,0 +1,39 @@
+{
+  "totals": {
+    "rows": [
+      { "keys": ["2026-10-14"], "clicks": 41, "impressions": 812, "ctr": 0.05049261083743842, "position": 7.3 },
+      { "keys": ["2026-10-15"], "clicks": 38, "impressions": 760, "ctr": 0.05, "position": 6.9 }
+    ],
+    "responseAggregationType": "byProperty"
+  },
+  "query": {
+    "rows": [
+      { "keys": ["2026-10-14", "tempe volleyball"], "clicks": 22, "impressions": 61, "ctr": 0.36065573770491804, "position": 1.1 },
+      { "keys": ["2026-10-14", "social volleyball sydney"], "clicks": 6, "impressions": 140, "ctr": 0.04285714285714286, "position": 8.4 },
+      { "keys": ["2026-10-14", "volleyball inner west"], "clicks": 3, "impressions": 52, "ctr": 0.057692307692307696, "position": 5.2 },
+      { "keys": ["2026-10-15", "tempe volleyball"], "clicks": 19, "impressions": 55, "ctr": 0.34545454545454546, "position": 1.0 },
+      { "keys": ["2026-10-15", "volleyball tempe ladder"], "clicks": 4, "impressions": 9, "ctr": 0.4444444444444444, "position": 1.4 }
+    ],
+    "responseAggregationType": "byProperty"
+  },
+  "page": {
+    "rows": [
+      { "keys": ["2026-10-14", "https://www.tempevb.com/"], "clicks": 25, "impressions": 300, "ctr": 0.0833, "position": 4.2 },
+      { "keys": ["2026-10-14", "https://www.tempevb.com/fixtures/"], "clicks": 9, "impressions": 120, "ctr": 0.075, "position": 6.0 },
+      { "keys": ["2026-10-14", "https://tempevb.com/fixtures/"], "clicks": 1, "impressions": 30, "ctr": 0.0333, "position": 9.0 },
+      { "keys": ["2026-10-15", "https://www.tempevb.com/"], "clicks": 24, "impressions": 290, "ctr": 0.0827, "position": 4.0 }
+    ],
+    "responseAggregationType": "byPage"
+  },
+  "device": {
+    "rows": [
+      { "keys": ["2026-10-14", "MOBILE"], "clicks": 30, "impressions": 600, "ctr": 0.05, "position": 7.0 },
+      { "keys": ["2026-10-14", "DESKTOP"], "clicks": 11, "impressions": 212, "ctr": 0.0519, "position": 8.1 }
+    ],
+    "responseAggregationType": "byProperty"
+  },
+  "country": {
+    "rows": [{ "keys": ["2026-10-14", "aus"], "clicks": 40, "impressions": 790, "ctr": 0.0506, "position": 7.2 }],
+    "responseAggregationType": "byProperty"
+  }
+}

@@ -1,7 +1,17 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useLocation } from 'wouter'
 import { checkPagePath, slugify } from '../../lib/content/paths'
-import { api, formatWhen, statusLabel, type PageRow, type PageSummary, type PageTemplate, type PurgeResult, type RevisionRow } from '../api'
+import {
+  api,
+  formatWhen,
+  statusLabel,
+  type PageViewsResponse,
+  type PageRow,
+  type PageSummary,
+  type PageTemplate,
+  type PurgeResult,
+  type RevisionRow,
+} from '../api'
 import { RichText } from '../editor/LazyRichText'
 import { ImageField } from '../media/MediaLibrary'
 import { Button, Card, Dialog, Field, Notice, Select, StatusBadge, TextArea, errorMessage, purgeNote } from '../ui'
@@ -21,6 +31,13 @@ export function PageList() {
   const [q, setQ] = useState('')
   const [pages, setPages] = useState<PageSummary[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // Views per path over 30 days from the Stats data (null until loaded, or when no source has data).
+  const [views, setViews] = useState<PageViewsResponse | null>(null)
+  useEffect(() => {
+    api<PageViewsResponse>('/api/admin/stats/pages')
+      .then((r) => setViews(r.source ? r : null))
+      .catch(() => setViews(null))
+  }, [])
   useEffect(() => {
     const t = setTimeout(
       () =>
@@ -57,6 +74,11 @@ export function PageList() {
                   <th className="pr-3 pb-2 font-semibold">Title</th>
                   <th className="pr-3 pb-2 font-semibold">Path</th>
                   <th className="pr-3 pb-2 font-semibold">Status</th>
+                  {views && (
+                    <th className="pr-3 pb-2 text-right font-semibold" title={`Page views in the last ${views.days} days (Stats)`}>
+                      Views ({views.days} d)
+                    </th>
+                  )}
                   <th className="pb-2 font-semibold">Last saved</th>
                 </tr>
               </thead>
@@ -73,6 +95,7 @@ export function PageList() {
                     <td className="py-2 pr-3">
                       <StatusBadge status={p.status} />
                     </td>
+                    {views && <td className="py-2 pr-3 text-right tabular-nums">{views.views[p.path]?.toLocaleString('en-AU') ?? '–'}</td>}
                     <td className="py-2 whitespace-nowrap">{formatWhen(p.updatedAt)}</td>
                   </tr>
                 ))}

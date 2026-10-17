@@ -132,3 +132,8 @@ export type { TeamListItem } from '../server/competition/teams'
 export type { ClashDraws } from '../server/competition/clashes'
 export type { MatchDayState } from '../server/competition/results'
 export type { AdjustmentRow } from '../server/competition/adjustments'
+
+// ── Stats (docs/api/stats.md) ─────────────────────────────────────────────────
+
+export type StatsResponse = import('../server/analytics/stats').StatsView & { canFetch: boolean }
+export type PageViewsResponse = { source: 'ga4' | 'search_console' | 'cloudflare' | null; days: number; views: Record<string, number> }

@@ -1,0 +1,114 @@
+{
+  "reports": [
+    {
+      "dimensionHeaders": [{ "name": "date" }],
+      "metricHeaders": [
+        { "name": "activeUsers", "type": "TYPE_INTEGER" },
+        { "name": "newUsers", "type": "TYPE_INTEGER" },
+        { "name": "sessions", "type": "TYPE_INTEGER" },
+        { "name": "screenPageViews", "type": "TYPE_INTEGER" },
+        { "name": "engagedSessions", "type": "TYPE_INTEGER" }
+      ],
+      "rows": [
+        {
+          "dimensionValues": [{ "value": "20261016" }],
+          "metricValues": [{ "value": "131" }, { "value": "88" }, { "value": "167" }, { "value": "412" }, { "value": "102" }]
+        },
+        {
+          "dimensionValues": [{ "value": "20261015" }],
+          "metricValues": [{ "value": "119" }, { "value": "73" }, { "value": "150" }, { "value": "377" }, { "value": "91" }]
+        }
+      ],
+      "rowCount": 2,
+      "metadata": { "currencyCode": "AUD", "timeZone": "Australia/Sydney" },
+      "kind": "analyticsData#runReport"
+    },
+    {
+      "dimensionHeaders": [{ "name": "date" }, { "name": "pagePath" }],
+      "metricHeaders": [
+        { "name": "screenPageViews", "type": "TYPE_INTEGER" },
+        { "name": "activeUsers", "type": "TYPE_INTEGER" }
+      ],
+      "rows": [
+        { "dimensionValues": [{ "value": "20261016" }, { "value": "/" }], "metricValues": [{ "value": "140" }, { "value": "96" }] },
+        {
+          "dimensionValues": [{ "value": "20261016" }, { "value": "/thursday-night-league-ladder/" }],
+          "metricValues": [{ "value": "71" }, { "value": "40" }]
+        },
+        {
+          "dimensionValues": [{ "value": "20261016" }, { "value": "/thursday-night-league-ladder" }],
+          "metricValues": [{ "value": "9" }, { "value": "6" }]
+        },
+        {
+          "dimensionValues": [{ "value": "20261016" }, { "value": "/2023-enrolment/?utm_source=ig" }],
+          "metricValues": [{ "value": "33" }, { "value": "21" }]
+        },
+        { "dimensionValues": [{ "value": "20261015" }, { "value": "/" }], "metricValues": [{ "value": "128" }, { "value": "90" }] },
+        { "dimensionValues": [{ "value": "20261015" }, { "value": "/fixtures/" }], "metricValues": [{ "value": "64" }, { "value": "37" }] }
+      ],
+      "rowCount": 6,
+      "metadata": { "currencyCode": "AUD", "timeZone": "Australia/Sydney" },
+      "kind": "analyticsData#runReport"
+    },
+    {
+      "dimensionHeaders": [{ "name": "date" }, { "name": "sessionDefaultChannelGroup" }, { "name": "sessionSource" }],
+      "metricHeaders": [{ "name": "sessions", "type": "TYPE_INTEGER" }],
+      "rows": [
+        {
+          "dimensionValues": [{ "value": "20261016" }, { "value": "Organic Search" }, { "value": "google" }],
+          "metricValues": [{ "value": "78" }]
+        },
+        {
+          "dimensionValues": [{ "value": "20261016" }, { "value": "Direct" }, { "value": "(direct)" }],
+          "metricValues": [{ "value": "52" }]
+        },
+        {
+          "dimensionValues": [{ "value": "20261016" }, { "value": "Organic Social" }, { "value": "l.instagram.com" }],
+          "metricValues": [{ "value": "25" }]
+        },
+        {
+          "dimensionValues": [{ "value": "20261016" }, { "value": "Organic Search" }, { "value": "bing" }],
+          "metricValues": [{ "value": "12" }]
+        },
+        {
+          "dimensionValues": [{ "value": "20261015" }, { "value": "Organic Search" }, { "value": "google" }],
+          "metricValues": [{ "value": "70" }]
+        },
+        {
+          "dimensionValues": [{ "value": "20261015" }, { "value": "Direct" }, { "value": "(direct)" }],
+          "metricValues": [{ "value": "80" }]
+        }
+      ],
+      "rowCount": 6,
+      "kind": "analyticsData#runReport"
+    },
+    {
+      "dimensionHeaders": [{ "name": "date" }, { "name": "deviceCategory" }],
+      "metricHeaders": [
+        { "name": "activeUsers", "type": "TYPE_INTEGER" },
+        { "name": "sessions", "type": "TYPE_INTEGER" }
+      ],
+      "rows": [
+        { "dimensionValues": [{ "value": "20261016" }, { "value": "mobile" }], "metricValues": [{ "value": "101" }, { "value": "128" }] },
+        { "dimensionValues": [{ "value": "20261016" }, { "value": "desktop" }], "metricValues": [{ "value": "27" }, { "value": "35" }] },
+        { "dimensionValues": [{ "value": "20261016" }, { "value": "tablet" }], "metricValues": [{ "value": "3" }, { "value": "4" }] },
+        { "dimensionValues": [{ "value": "20261015" }, { "value": "mobile" }], "metricValues": [{ "value": "95" }, { "value": "120" }] }
+      ],
+      "rowCount": 4,
+      "kind": "analyticsData#runReport"
+    },
+    {
+      "dimensionHeaders": [{ "name": "date" }, { "name": "country" }],
+      "metricHeaders": [{ "name": "activeUsers", "type": "TYPE_INTEGER" }],
+      "rows": [
+        { "dimensionValues": [{ "value": "20261016" }, { "value": "Australia" }], "metricValues": [{ "value": "124" }] },
+        { "dimensionValues": [{ "value": "20261016" }, { "value": "United States" }], "metricValues": [{ "value": "5" }] },
+        { "dimensionValues": [{ "value": "20261016" }, { "value": "(not set)" }], "metricValues": [{ "value": "2" }] },
+        { "dimensionValues": [{ "value": "20261015" }, { "value": "Australia" }], "metricValues": [{ "value": "117" }] }
+      ],
+      "rowCount": 4,
+      "kind": "analyticsData#runReport"
+    }
+  ],
+  "kind": "analyticsData#batchRunReports"
+}

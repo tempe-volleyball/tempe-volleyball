@@ -391,7 +391,16 @@ I haven't created or guessed any of these. Everything below is free unless noted
    **Workers R2 Storage: Edit**, scoped to that one account. Also send the **Account ID**.
 6. Later (Phase 7's contact form, or Phase 5's forms if they come first): a **Turnstile** widget (site key + secret) with hostnames `*.workers.dev` for now, and tempevb.com
    at cutover.
-7. Later: a read-only **Analytics** API token for the admin stats page (Phase 6), and a **Web Analytics** site token at the cutover (Phase 8).
+7. For the admin Stats page (built in Phase 6, waiting for these): a **Web Analytics** site (manual snippet) for
+   `www.tempevb.com`, giving the beacon token and site tag (at the cutover, Phase 8), and an API token with **Account →
+   Account Analytics → Read** (secret `CF_ANALYTICS_TOKEN`). Steps in docs/admin.md §2.3.
+
+### Google (Phase 6 Stats page)
+
+1. A Google Cloud **service account** with the Analytics Data API and Search Console API enabled, added as **Viewer** on
+   the GA4 property and as a **Restricted** user on the Search Console property. Its JSON key goes in with
+   `wrangler secret put GOOGLE_SERVICE_ACCOUNT_JSON --env production`. Steps in docs/admin.md §2.3.
+2. The **GA4 property ID** and the **Search Console property name**, entered in Admin → Settings → Analytics.
 
 ### GitHub
 
@@ -423,7 +432,8 @@ I haven't created or guessed any of these. Everything below is free unless noted
 ### Secrets per environment (set with `wrangler secret put <NAME> --env staging|production`)
 
 `BETTER_AUTH_SECRET` (Phase 3), `RESEND_API_KEY` (Phase 3), `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` (Phase 5, parked),
-`TURNSTILE_SECRET_KEY` (Phase 5). None are needed for the Phase 1 deploy.
+`TURNSTILE_SECRET_KEY` (Phase 5), `GOOGLE_SERVICE_ACCOUNT_JSON` and `CF_ANALYTICS_TOKEN` (Phase 6 Stats page; optional,
+each source shows "not connected yet" without them). None are needed for the Phase 1 deploy.
 
 ### Cron trigger limit
 

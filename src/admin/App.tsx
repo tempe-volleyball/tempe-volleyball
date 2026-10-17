@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Suspense, lazy, useState } from 'react'
 import { Link, Redirect, Route, Router, Switch, useLocation } from 'wouter'
 import type { Me } from './api'
 import { authClient } from './auth-client'
@@ -16,6 +16,9 @@ import { Users } from './screens/Users'
 import { SeasonList } from './seasons/SeasonList'
 import { SeasonPage } from './seasons/SeasonPage'
 import { Button, Card, RoleBadge } from './ui'
+
+// The Stats screen (charts) is its own chunk, loaded when first opened.
+const Stats = lazy(() => import('./screens/Stats'))
 
 // The admin app: one React island at /admin/* with a client-side router (wouter, base /admin). The server renders
 // the same shell for every /admin path and has already checked the session (src/middleware.ts), so `me` is the
@@ -51,6 +54,7 @@ function Shell({ me, children }: { me: Me; children: React.ReactNode }) {
           {!me.totpRequired && <NavLink href="/news">News</NavLink>}
           {!me.totpRequired && <NavLink href="/menu">Menu</NavLink>}
           {!me.totpRequired && <NavLink href="/media">Media</NavLink>}
+          {!me.totpRequired && <NavLink href="/stats">Stats</NavLink>}
           {!me.totpRequired && <NavLink href="/settings">Settings</NavLink>}
           {!me.totpRequired && me.canManageUsers && <NavLink href="/users">Admin users</NavLink>}
           {!me.totpRequired && me.canManageUsers && <NavLink href="/audit">Audit log</NavLink>}
@@ -98,6 +102,11 @@ function Home({ me }: { me: Me }) {
           <li>
             <Link href="/media" className="text-brand underline">
               Upload images and files
+            </Link>
+          </li>
+          <li>
+            <Link href="/stats" className="text-brand underline">
+              See visitors, Google searches and site speed
             </Link>
           </li>
           <li>
@@ -177,6 +186,11 @@ function SignedIn({ me }: { me: Me }) {
         </Route>
         <Route path="/media">
           <Media />
+        </Route>
+        <Route path="/stats">
+          <Suspense fallback={<p className="text-sm text-black/60">Loading…</p>}>
+            <Stats me={me} />
+          </Suspense>
         </Route>
         <Route path="/settings">
           <Settings me={me} />

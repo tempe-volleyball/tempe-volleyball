@@ -18,16 +18,56 @@ export type AnnouncementSettings = {
   endsAt: string
 }
 
+/** How the GA4 tag loads (docs/admin.md §2, "Tag loading"). */
+export const tagLoadings = ['interaction', 'idle', 'eager'] as const
+export type TagLoading = (typeof tagLoadings)[number]
+
+/**
+ * Analytics (docs/admin.md §2). Tags are only emitted in production on www.tempevb.com (src/lib/indexing.ts);
+ * the API ids say where the daily cron reads from. Secrets (GOOGLE_SERVICE_ACCOUNT_JSON, CF_ANALYTICS_TOKEN) are
+ * Worker secrets, never settings.
+ */
+export type AnalyticsSettings = {
+  /** The Google tag on public pages ("G-…" or "GT-…"). Empty = no tag. */
+  ga4MeasurementId: string
+  tagLoading: TagLoading
+  /** The GA4 property's numeric id, for the Data API. */
+  ga4PropertyId: string
+  /** Cloudflare Web Analytics beacon token (the site's "JS snippet" token). Empty = no beacon. */
+  cfBeaconToken: string
+  /** Cloudflare account id and the Web Analytics site tag, for the GraphQL API. */
+  cfAccountId: string
+  cfSiteTag: string
+  /** "sc-domain:tempevb.com" or "https://www.tempevb.com/" (exactly as Search Console names the property). */
+  searchConsoleSite: string
+  /** Optional google-site-verification meta content (the property is meant to be verified by DNS TXT). */
+  searchConsoleVerification: string
+  /** Per-source switch for the daily fetch (on, but it only runs once the source is configured). */
+  fetch: { ga4: boolean; searchConsole: boolean; cloudflare: boolean }
+  /** How many days the first fetch of a source goes back. */
+  backfillDays: number
+  /** Daily rows older than this are pruned. */
+  retentionDays: number
+}
+
 export type SiteSettings = {
   contact: ContactSettings
   payid: PayIdSettings
   social: SocialSettings
   revolutioniseUrl: string
   announcement: AnnouncementSettings
+  analytics: AnalyticsSettings
 }
 
 export type SettingKey = keyof SiteSettings
-export const settingKeys = ['contact', 'payid', 'social', 'revolutioniseUrl', 'announcement'] as const satisfies readonly SettingKey[]
+export const settingKeys = [
+  'contact',
+  'payid',
+  'social',
+  'revolutioniseUrl',
+  'announcement',
+  'analytics',
+] as const satisfies readonly SettingKey[]
 
 /** Who may change each key. PayID is where players send money, so it's admin+ like other payment settings. */
 export const settingMinRole: Record<SettingKey, UserRole> = {
@@ -36,6 +76,7 @@ export const settingMinRole: Record<SettingKey, UserRole> = {
   social: 'editor',
   revolutioniseUrl: 'admin',
   announcement: 'editor',
+  analytics: 'admin',
 }
 
 export const DEFAULT_SETTINGS: SiteSettings = {
@@ -44,6 +85,20 @@ export const DEFAULT_SETTINGS: SiteSettings = {
   social: { instagram: 'https://www.instagram.com/tempe.volleyball/', facebook: '' },
   revolutioniseUrl: '',
   announcement: { enabled: false, text: '', linkUrl: '', linkLabel: '', tone: 'info', endsAt: '' },
+  analytics: {
+    // The old site's Google tag (Site Kit), so GA4's history carries on.
+    ga4MeasurementId: 'GT-PLFFMCMT',
+    tagLoading: 'interaction',
+    ga4PropertyId: '',
+    cfBeaconToken: '',
+    cfAccountId: '',
+    cfSiteTag: '',
+    searchConsoleSite: '',
+    searchConsoleVerification: '',
+    fetch: { ga4: true, searchConsole: true, cloudflare: true },
+    backfillDays: 90,
+    retentionDays: 1095,
+  },
 }
 
 export const isSettingKey = (k: unknown): k is SettingKey => typeof k === 'string' && (settingKeys as readonly string[]).includes(k)
@@ -79,6 +134,24 @@ const obj = (v: unknown, label: string): Record<string, unknown> => {
   if (!v || typeof v !== 'object' || Array.isArray(v)) throw new Invalid(`${label} is malformed.`)
   return v as Record<string, unknown>
 }
+
+const pattern = (v: unknown, label: string, max: number, re: RegExp, hint: string) => {
+  const s = str(v, label, max)
+  if (s && !re.test(s)) throw new Invalid(`${label} ${hint}`)
+  return s
+}
+
+const intIn = (v: unknown, label: string, min: number, max: number, fallback: number) => {
+  if (v === undefined || v === null || v === '') return fallback
+  const n = typeof v === 'string' ? Number(v) : v
+  if (typeof n !== 'number' || !Number.isInteger(n) || n < min || n > max)
+    throw new Invalid(`${label} must be a whole number from ${min} to ${max}.`)
+  return n
+}
+
+const upper = (v: unknown) => (typeof v === 'string' ? v.toUpperCase() : v)
+
+const HEX32 = /^[0-9a-f]{32}$/i
 
 const checkers: { [K in SettingKey]: (v: unknown) => SiteSettings[K] } = {
   contact: (v) => {
@@ -120,6 +193,42 @@ const checkers: { [K in SettingKey]: (v: unknown) => SiteSettings[K] } = {
       linkLabel: str(o.linkLabel, 'Link label', 60),
       tone: o.tone === 'warning' ? 'warning' : 'info',
       endsAt: endsAt ? new Date(endsAt).toISOString() : '',
+    }
+  },
+  analytics: (v) => {
+    const o = obj(v, 'Analytics')
+    const d = DEFAULT_SETTINGS.analytics
+    const f = o.fetch && typeof o.fetch === 'object' ? (o.fetch as Record<string, unknown>) : {}
+    const searchConsoleSite = str(o.searchConsoleSite, 'Search Console property', 200)
+    if (
+      searchConsoleSite &&
+      !/^sc-domain:[a-z0-9.-]+\.[a-z]{2,}$/i.test(searchConsoleSite) &&
+      !/^https?:\/\/[^\s/]+\.[^\s]+\/$/i.test(searchConsoleSite)
+    )
+      throw new Invalid('The Search Console property is "sc-domain:example.com" or a URL ending in "/", as Search Console shows it.')
+    const verification = str(o.searchConsoleVerification, 'Search Console verification', 200)
+    // People paste the whole <meta> tag; keep just its content.
+    const content = /content=["']([^"']+)["']/i.exec(verification)?.[1] ?? verification
+    if (content && !/^[\w-]{10,100}$/.test(content))
+      throw new Invalid('The Search Console verification code should be letters, digits, - and _.')
+    return {
+      ga4MeasurementId: pattern(
+        upper(o.ga4MeasurementId),
+        'The GA4 measurement ID',
+        30,
+        /^(G|GT)-[A-Z0-9]{4,20}$/,
+        'looks like G-XXXXXXX or GT-XXXXXXX.',
+      ),
+      tagLoading: tagLoadings.includes(o.tagLoading as TagLoading) ? (o.tagLoading as TagLoading) : d.tagLoading,
+      ga4PropertyId: pattern(o.ga4PropertyId, 'The GA4 property ID', 20, /^\d{5,15}$/, 'is a number (GA4 → Admin → Property details).'),
+      cfBeaconToken: pattern(o.cfBeaconToken, 'The Web Analytics token', 32, HEX32, 'is 32 letters and digits.').toLowerCase(),
+      cfAccountId: pattern(o.cfAccountId, 'The Cloudflare account ID', 32, HEX32, 'is 32 letters and digits.').toLowerCase(),
+      cfSiteTag: pattern(o.cfSiteTag, 'The Web Analytics site tag', 32, HEX32, 'is 32 letters and digits.').toLowerCase(),
+      searchConsoleSite,
+      searchConsoleVerification: content,
+      fetch: { ga4: f.ga4 !== false, searchConsole: f.searchConsole !== false, cloudflare: f.cloudflare !== false },
+      backfillDays: intIn(o.backfillDays, 'Days to fetch the first time', 1, 480, d.backfillDays),
+      retentionDays: intIn(o.retentionDays, 'Days of history to keep', 30, 3650, d.retentionDays),
     }
   },
 }

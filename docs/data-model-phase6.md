@@ -236,6 +236,15 @@ range_start, range_end, rows_written, error, timestamps. One row per source per 
 
 **`analytics_state`**: `source` PK, `enabled`, `last_complete_date`, `last_success_at`, `last_error_at`, `last_error`,
 `cursor` (JSON), timestamps. Each run re-fetches the last ~3 days, because sources revise recent data.
+`cursor.lockUntil` (UTC ISO) is the fetch lock; `enabled = false` is a manual kill switch (the admin's switch is
+Settings → Analytics).
+
+Metrics stored (src/lib/analytics/): **ga4** totals `activeUsers`, `newUsers`, `sessions`, `screenPageViews`,
+`engagedSessions`; breakdowns `pagePath`, `sessionDefaultChannelGroup`, `sessionSource`, `deviceCategory`, `country`.
+**search_console** `clicks`, `impressions`, `positionSum` (position × impressions) for totals and `query`, `page`,
+`device`, `country`. **cloudflare** `visits`, `pageviews` for totals and `requestPath`, `refererHost`, `countryName`,
+`deviceType`; vitals totals `lcpP75`, `inpP75`, `clsP75`, `fcpP75`, `ttfbP75` (ms; CLS unitless) and `vitalsSamples`.
+Page paths are normalised (no query, no trailing slash).
 
 ## Audit actions added (TS only)
 
