@@ -17,6 +17,9 @@ import { Categories } from './programmes/Categories'
 import { ProgrammeList } from './programmes/ProgrammeList'
 import { ProgrammePage } from './programmes/ProgrammePage'
 import { Venues } from './programmes/Venues'
+import { EnrolmentList } from './enrolment/EnrolmentList'
+import { FormEditor, FormList } from './enrolment/Forms'
+import { TargetPage } from './enrolment/TargetPage'
 import { SeasonList } from './seasons/SeasonList'
 import { SeasonPage } from './seasons/SeasonPage'
 import { Button, Card, RoleBadge } from './ui'
@@ -59,6 +62,7 @@ function Shell({ me, children }: { me: Me; children: React.ReactNode }) {
           {!me.totpRequired && <NavLink href="/events">Events</NavLink>}
           {!me.totpRequired && <NavLink href="/categories">Categories</NavLink>}
           {!me.totpRequired && <NavLink href="/venues">Venues</NavLink>}
+          {!me.totpRequired && me.user.role !== 'editor' && <NavLink href="/enrolments">Enrolments</NavLink>}
           {!me.totpRequired && <NavLink href="/pages">Pages</NavLink>}
           {!me.totpRequired && <NavLink href="/news">News</NavLink>}
           {!me.totpRequired && <NavLink href="/menu">Menu</NavLink>}
@@ -94,6 +98,18 @@ function Home({ me }: { me: Me }) {
               {me.user.role === 'editor' ? 'Enter and publish results' : 'Set up seasons, make the draw and enter results'}
             </Link>
           </li>
+          {me.user.role !== 'editor' && (
+            <li>
+              <Link href="/enrolments" className="text-brand underline">
+                See enrolments, mark payments and manage waitlists
+              </Link>{' '}
+              (and the{' '}
+              <Link href="/forms" className="text-brand underline">
+                enrolment forms
+              </Link>
+              )
+            </li>
+          )}
           <li>
             {me.user.role === 'editor' ? 'See' : 'Manage'} the{' '}
             <Link href="/leagues" className="text-brand underline">
@@ -224,6 +240,20 @@ function SignedIn({ me }: { me: Me }) {
           <Venues me={me} />
         </Route>
         <Route path="/seasons/:id/:tab?">{(p) => <SeasonPage key={p.id} me={me} id={p.id} tab={p.tab} />}</Route>
+        {me.user.role !== 'editor' && (
+          <Route path="/enrolments">
+            <EnrolmentList />
+          </Route>
+        )}
+        {me.user.role !== 'editor' && (
+          <Route path="/enrolments/:kind/:id">{(p) => <TargetPage key={`${p.kind}/${p.id}`} kind={p.kind} id={p.id} />}</Route>
+        )}
+        {me.user.role !== 'editor' && (
+          <Route path="/forms">
+            <FormList />
+          </Route>
+        )}
+        {me.user.role !== 'editor' && <Route path="/forms/:id">{(p) => <FormEditor key={p.id} id={p.id} />}</Route>}
         <Route path="/pages">
           <PageList />
         </Route>

@@ -26,7 +26,10 @@ export const formFieldTypes = [
   'checkboxes',
   /** A required tick box with linked terms (waiver, code of conduct). */
   'consent',
-  /** Guardian name, email and phone, saved to players.guardian_* (juniors). */
+  /**
+   * Guardian, saved to players.guardian_* (juniors). The public form asks only the name: the contact email and
+   * phone are the guardian's on a junior form, so they're copied in rather than asked twice.
+   */
   'guardian',
   /** Emergency contact name and phone, saved to players.emergency_contact. */
   'emergency_contact',

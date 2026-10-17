@@ -233,6 +233,48 @@ The site takes enrolments itself, replacing the Google Forms. **Payment processi
   (once Resend is set up). Uses the existing `players`, `groups` and `registrations` tables; `products` maps onto
   sessions, terms, seasons and events.
 
+**Status: Done (server, admin and the form component); the public pages that show the form are the Public step.**
+Built: the form builder (Admin → Enrolments → Enrolment forms) with every field type, required, help text, reordering,
+per-entry-type and conditional questions, defaults per kind and a live preview; `POST /api/enrol` with Turnstile,
+validation against the form, exact caps by players and/or teams, waitlist, duplicate detection, D1 rate limits and
+`TVB-XXXX` references; emailed waitlist offers with expiring accept/decline links and the hourly cron that passes
+lapsed offers on; four email templates; Admin → Enrolments (per season, session, term or event, with counts against
+the caps, search and filters, mark paid/unpaid with method and note, cancel, reinstate, move, promote and offer from
+the waitlist, free agents into teams, add by hand, CSV export); and the `<EnrolmentForm>` island for `/enrol` and
+programme pages. API: [docs/api/enrolment.md](api/enrolment.md). Left: real Turnstile keys for production (without
+them the form says enrolment is unavailable), the `/enrol` and programme pages, and Resend for the emails.
+
+Decisions (each the more robust or more configurable option):
+
+- **Caps are checked inside the insert's batch**, not before it, so the last spot can't be taken twice. Over the cap,
+  an entry joins the end of the waitlist, also when others are already waiting, so nobody jumps the queue. With the
+  waitlist off it's refused. The admin can still confirm someone past the cap, on purpose.
+- **Offers go out automatically** whenever a spot frees up (cancel, delete, move, a raised cap, a decline, a lapsed
+  offer), held for the programme's offer hours (48 by default, per instance). The cron keeps going down the list. The
+  admin can also offer, confirm or resend by hand. One request offers at most 5, and the cron at most 3 an hour, to
+  stay inside the free plan's query limit.
+- **Offer links are signed, not stored**, and die the moment the offer is answered or lapses.
+- **Duplicates** are the same email and the same first and last name in the same target, so siblings can share a
+  parent's email. A public form fills only blank player details and never overwrites what's there.
+- **Rate limits** live in D1 (`rate_limits`, fixed windows): 20 an hour per IP, 6 an hour and 15 a day per email.
+- **Editors get no access** to enrolments or forms: it's personal data, juniors' included, and nothing an editor does
+  (results, pages, news) needs it. Admins and owners see everything. Revisit if Michael wants a check-in helper.
+- **Payment method and note** are kept with "paid" (PayID, cash, bank transfer, card, other), and both directions are
+  audited. Stripe, when it returns, just sets `paid_at`.
+- **Form changes are versioned**: each registration records the form and version it answered, and questions are
+  retired rather than deleted, so old answers keep their labels in the admin and the CSV.
+
+**Privacy and retention.** Stored per player: name, email, phone, and only what the form asks: year of birth (not a
+full birth date), guardian name, emergency contact, and the answers. On a junior form the contact email and phone
+are the guardian's, so they're asked once. Personal data is shown to admins and owners only, is never in a URL, and is
+never cached at the edge: the API answers `no-store`, the public form pages carry only the form definition, and the
+offer page renders nothing personal on the server. None of it goes to analytics (GA4 and the Cloudflare beacon see
+page URLs only, and no URL holds an answer or a token). The audit log records which personal fields changed, not their
+values. Rate-limit keys are salted hashes, deleted when their window ends; offer links are scrubbed from the outbox.
+Retention: entries stay while Michael needs them for the season. "Delete for good" removes an entry, and the player
+row with it when nothing else uses it. A yearly clean-up of finished seasons (for example after 2 years) is a
+follow-up for Michael to decide.
+
 ### 3.8 Content map
 
 The 37 imported pages get a new home each. I draft the text, Michael reviews it on staging, and the map is a table in
@@ -296,7 +338,8 @@ Programmes admin (build step 1), decisions taken the robust and configurable way
    management" and "venues and courts" from section 1).
 2. Menu and blocks: automatic category dropdowns, the Programme list block, Ladder and Fixtures blocks.
 3. Public pages: category and programme pages, flat URLs with 301s, league page tabs.
-4. Enrolment: forms, caps, waitlists, manual paid/unpaid, CSV export.
+4. Enrolment: forms, caps, waitlists, manual paid/unpaid, CSV export. **Done** (section 3.7); the pages showing the
+   form come with step 3.
 5. Content map: rewrite the 37 imported pages into the new structure for Michael's review.
 6. The rest of section 1 (postponed/TBD, bulk postpone or cancel a night, cross-league match list, withdrawn teams,
    tie-break order, fixture lists and iCal) and the analytics in section 2 (built; waiting for credentials).

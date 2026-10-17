@@ -183,6 +183,16 @@ If nothing was inserted, insert as `waitlist` with `waitlist_position = coalesce
 (when the waitlist is enabled). Indexes: `registrations_product_id_status_idx`, `groups_product_id_status_idx` and
 the `(product_id, waitlist_position)` indexes on both tables.
 
+As built (docs/api/enrolment.md), the batch inserts the entry as `confirmed` and then a conditional UPDATE in the
+same batch moves it to the waitlist when the count is over the cap or others are waiting (or a conditional DELETE
+refuses it with the waitlist off). Same guarantee, and one code path for players and team entries.
+
+### `rate_limits` (new, migration `0004_enrolment_rate_limits`; `admin.ts`)
+
+Fixed-window counters for public endpoints without a session (the enrolment form). `key` (PK, `"<scope>:<salted
+sha-256 prefix>"`, never the IP or email itself), `count`, `window_start`, `expires_at` (UTC; indexed, the hourly cron
+deletes ended windows). `hit()` in `src/server/ratelimit.ts` upserts each key atomically.
+
 ## Fixtures parity (columns on existing tables)
 
 | Table                     | Column                                         | Notes                                                                                                                                                                                                                       |
