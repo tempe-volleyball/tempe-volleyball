@@ -46,7 +46,7 @@ src/lib/             Pure logic with tests. No bindings, no `cloudflare:*` impor
 src/server/          Code that touches bindings: db/schema.ts + db/index.ts (Drizzle), cron.ts, health.ts; later
                      auth/, email/, payments/.
 migrations/          Generated SQL (+ drizzle meta/). Never edit an applied migration; add a new one.
-.github/workflows/   ci.yml (PR checks + preview), deploy.yml (staging -> approval -> production), backup.yml (nightly).
+.github/workflows/   ci.yml (PR checks + preview), deploy.yml (staging -> production), backup.yml (nightly).
 docs/reference/      Screenshots of the old site, the design to match.  docs/baseline/  Lighthouse baseline.
 ```
 

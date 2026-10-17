@@ -1,7 +1,8 @@
 name: Deploy
 
-# Merge to main -> check -> migrate + deploy staging -> (manual approval) -> migrate + deploy production.
-# The approval comes from the "production" GitHub environment's required reviewers (repo settings).
+# Merge to main -> check -> migrate + deploy staging -> smoke test -> migrate + deploy production -> smoke test.
+# Production follows staging automatically. To add a manual approval later, set required reviewers on the
+# "production" GitHub environment (repo settings); no change to this file is needed.
 
 on:
   push:

@@ -50,7 +50,7 @@ covers that.
                        │                      production)
                        └────────────────────────────────────────────────────────────────────────┘
    external: Stripe Checkout + webhooks · Resend (email) · Turnstile · Revolutionise (VNSW membership, link only)
-   GitHub Actions: CI, preview versions, deploy staging → approve → production, nightly D1 export to R2
+   GitHub Actions: CI, preview versions, deploy staging → production, nightly D1 export to R2
 ```
 
 ### Key decisions
@@ -102,9 +102,9 @@ Backups go to a separate private bucket, `tempevb-backups` (30-day lifecycle rul
 - **`ci.yml`** (every PR): lint, format check, typecheck, test, build, then upload a **preview version** of the staging
   Worker with alias `pr-<n>` and post its URL in the job summary. Previews use the staging database and **don't** run
   migrations.
-- **`deploy.yml`** (merge to `main`): check → migrate and deploy **staging**, then smoke-test `/api/health` → wait for
-  **manual approval** (the `production` GitHub environment's required reviewers) → migrate and deploy **production**, then
-  smoke-test. Migrations run before the new code goes live, so each one must work with the code that's already deployed
+- **`deploy.yml`** (merge to `main`): check → migrate and deploy **staging**, then smoke-test `/api/health` → migrate and deploy
+  **production** automatically, then smoke-test. A failure at any step stops the run before production. There's no manual
+  approval step (decided 2026-10-17); one can be added later as required reviewers on the `production` environment. Migrations run before the new code goes live, so each one must work with the code that's already deployed
   (add first, remove in a later release).
 - **`backup.yml`** (nightly, 03:30 Sydney in summer): `wrangler d1 export` of production → gzip → `tempevb-backups/d1/production/<date>.sql.gz`.
   D1 Time Travel covers point-in-time restore for 7 days.
@@ -194,7 +194,7 @@ confirm they're a member (`vnsw_confirmed`).
 
 ## Phases
 
-Each phase ends with something deployed to staging, and production after approval.
+Each phase ends with something deployed to staging and production.
 
 ### Phase 1: Skeleton and deploy ✅ (code done; deploy waits on accounts)
 
@@ -307,6 +307,8 @@ I haven't created or guessed any of these. Everything below is free unless noted
 
 ### Cloudflare
 
+**Done 2026-10-17** (steps 1–5, on the account for jezzah2g0@gmail.com). Steps 6 and 7 are still to do.
+
 1. A **Cloudflare account** that will own the site (ideally Michael's, or a shared one with Michael as Super
    Administrator), on the Workers **Free** plan.
 2. The **workers.dev subdomain** you choose (Workers & Pages → Overview). I'll put it into `SITE_URL` in `wrangler.jsonc`.
@@ -324,11 +326,11 @@ I haven't created or guessed any of these. Everything below is free unless noted
 
 ### GitHub
 
-1. Create the **repository** (name, and owner: you or an organisation) and tell me whether it's public or private.
-   Then I'll add the remote and push. **Note:** a "required reviewers" approval on a GitHub environment is free for
-   public repos, but private repos need GitHub Team. If it's private on the free plan, I'll switch the production step to
-   a manual "Run workflow" button instead.
-2. **Environments**: `preview`, `staging`, `production` (with you and/or Michael as required reviewers on `production`).
+**Done 2026-10-17.** The repo is `tempe-volleyball/tempe-volleyball` (public).
+
+1. The **repository**, in a free organisation.
+2. **Environments**: `preview`, `staging`, `production` (`staging` and `production` limited to `main`, with no required
+   reviewers).
 3. **Secrets** (repo or environment level): `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`.
 4. **Variables**: `STAGING_URL`, `PRODUCTION_URL` (the workers.dev URLs), and `CLOUDFLARE_READY=true` once the steps
    above are done. This switches on the deploy steps.
