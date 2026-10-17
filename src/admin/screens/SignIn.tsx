@@ -121,7 +121,8 @@ export function SignIn() {
           {step === 'code' && (
             <form className="space-y-4" onSubmit={verifyCode}>
               <p className="text-sm">
-                If <b>{email}</b> has an admin account, we've emailed it a 6-digit code. It expires in 5 minutes.
+                If that address has an admin account, a code is on its way to <b>{email}</b>. It expires in 5 minutes. If nothing arrives,
+                check the address and your spam folder before asking for another.
               </p>
               <Field
                 label="Code"
@@ -151,7 +152,8 @@ export function SignIn() {
           {step === 'link-sent' && (
             <div className="space-y-4">
               <Notice kind="success">
-                If <b>{email}</b> has an admin account, we've emailed it a sign-in link. It works once and expires in 5 minutes.
+                If that address has an admin account, a sign-in link is on its way to <b>{email}</b>. It works once and expires in 5
+                minutes.
               </Notice>
               <Button variant="link" onClick={() => setStep('email')}>
                 Back

@@ -7,6 +7,7 @@ import { createMailer, type Mailer } from './email'
  * idempotent and batches its D1 writes:
  *  - expire admin invites past their expiry
  *  - send queued emails that went over Resend's daily limit
+ *  - clear secret payloads (codes, sign-in and invite links) from outbox rows that can no longer be sent
  * Still to come: release unpaid registrations past their hold time (Phase 5).
  * The nightly D1 backup runs from GitHub Actions, not here (see .github/workflows/backup.yml).
  */
@@ -19,10 +20,12 @@ export async function runScheduled(cron: string, env: Env): Promise<void> {
 }
 
 /** The jobs themselves, with bindings passed in so tests can run them. One failing job doesn't stop the others. */
-export async function runJobs(db: AppDb, mailer: Pick<Mailer, 'drainOutbox'>, now = new Date()) {
-  const [invites, email] = await Promise.allSettled([expireInvites(db, now), mailer.drainOutbox()])
-  return {
-    invitesExpired: invites.status === 'fulfilled' ? invites.value : `error: ${String(invites.reason)}`,
-    email: email.status === 'fulfilled' ? email.value : `error: ${String(email.reason)}`,
-  }
+export async function runJobs(db: AppDb, mailer: Pick<Mailer, 'drainOutbox' | 'scrubSensitivePayloads'>, now = new Date()) {
+  const [invites, email, scrubbed] = await Promise.allSettled([
+    expireInvites(db, now),
+    mailer.drainOutbox(),
+    mailer.scrubSensitivePayloads(),
+  ])
+  const value = <T>(r: PromiseSettledResult<T>) => (r.status === 'fulfilled' ? r.value : `error: ${String(r.reason)}`)
+  return { invitesExpired: value(invites), email: value(email), payloadsScrubbed: value(scrubbed) }
 }

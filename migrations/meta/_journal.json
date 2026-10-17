@@ -15,6 +15,13 @@
       "when": 1792242375720,
       "tag": "0001_full_schema",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1792250980716,
+      "tag": "0002_email_outbox_recipient_index",
+      "breakpoints": true
     }
   ]
 }

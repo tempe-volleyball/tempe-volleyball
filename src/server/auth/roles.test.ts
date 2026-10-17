@@ -119,6 +119,23 @@ describe('changeRole', () => {
     ])
   })
 
+  it("signs the target out everywhere in the same write, and leaves other people's sessions alone", async () => {
+    const owner = await addUser('own', 'owner')
+    const admin = await addUser('adm', 'admin')
+    await addUser('ed', 'editor')
+    const addSession = (id: string, userId: string) =>
+      db.insert(session).values({ id, token: `t-${id}`, userId, expiresAt: later(1e6), updatedAt: NOW })
+    await addSession('s-adm-1', 'adm')
+    await addSession('s-adm-2', 'adm')
+    await addSession('s-own', 'own')
+    await addSession('s-ed', 'ed')
+    await changeRole(db, owner, 'adm', 'editor', NOW)
+    expect((await db.select({ id: session.id }).from(session)).map((s) => s.id).toSorted()).toEqual(['s-ed', 's-own'])
+    // A refused change doesn't touch anyone's sessions.
+    await rejects(changeRole(db, admin, 'ed', 'admin'), 'forbidden')
+    expect(await db.select().from(session)).toHaveLength(2)
+  })
+
   it('lets owners make and demote other owners', async () => {
     const a = await addUser('a', 'owner')
     await addUser('b', 'admin')

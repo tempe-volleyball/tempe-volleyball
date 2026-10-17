@@ -14,8 +14,20 @@ export type TemplateName = keyof TemplateData
 
 export const templateNames = ['auth.otp', 'auth.magic_link', 'admin.invite'] as const satisfies readonly TemplateName[]
 
-/** Templates whose payload is a secret (codes, sign-in links). Their payload is cleared once sent, and never logged in production. */
+/**
+ * Templates whose payload is a secret (codes, sign-in links, invite links). Their payload is kept only while the
+ * email can still be sent, cleared on every final state, and never logged in production.
+ */
 export const SENSITIVE_TEMPLATES: ReadonlySet<TemplateName> = new Set(['auth.otp', 'auth.magic_link', 'admin.invite'])
+
+/**
+ * Sign-in emails. Always send-now-or-never (the code expires in minutes), never stored with their payload, limited
+ * per recipient, and counted against their own share of the daily cap.
+ */
+export const AUTH_TEMPLATES: ReadonlySet<TemplateName> = new Set(['auth.otp', 'auth.magic_link'])
+
+export const isSensitiveTemplate = (name: string) => (SENSITIVE_TEMPLATES as ReadonlySet<string>).has(name)
+export const isAuthTemplate = (name: string) => (AUTH_TEMPLATES as ReadonlySet<string>).has(name)
 
 export type RenderedEmail = { subject: string; text: string; html: string }
 

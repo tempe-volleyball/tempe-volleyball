@@ -1,10 +1,11 @@
 import { base32 } from '@better-auth/utils/base32'
 import { createOTP } from '@better-auth/utils/otp'
 import { eq } from 'drizzle-orm'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createTestDb, type TestDb } from '../db/testing'
 import { session, user, type UserRole } from '../db/schema'
 import { createMailer } from '../email'
+import { AUTH_PER_HOUR } from '../email/mailer'
 import { createAuth, createAuthSenders, type Auth } from './auth'
 
 // End to end through Better Auth's HTTP handler over the in-memory database: email code and magic-link sign-in,
@@ -122,6 +123,39 @@ describe('passwordless sign-in', () => {
     expect((await b.json('/sign-in/magic-link', { body: { email: 'stranger@example.com', callbackURL: '/admin' } })).status).toBe(200)
     expect(logs).toEqual([])
     expect(await db.select().from(user).where(eq(user.email, 'stranger@example.com'))).toEqual([])
+  })
+
+  it("answers the same for admins and strangers when email can't be sent", async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const prodEnv = { ...env, SITE_ENV: 'production' }
+    const disabled = createMailer({ db, env: prodEnv, log: (m) => logs.push(m) })
+    const prodAuth = createAuth({ db, env: { ...prodEnv, SITE_URL: ORIGIN }, senders: createAuthSenders(db, disabled) })
+    const b = new Browser(prodAuth)
+    const ask = async (email: string) => [
+      await b.json('/email-otp/send-verification-otp', { body: { email, type: 'sign-in' } }),
+      await b.json('/sign-in/magic-link', { body: { email, callbackURL: '/admin' } }),
+    ]
+    const admin = await ask('owner@example.com')
+    const stranger = await ask('stranger@example.com')
+    expect(admin.map((r) => r.status)).toEqual([200, 200])
+    expect(admin).toEqual(stranger)
+    expect(logs).toEqual([])
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('email not sent'))
+    // The warning never carries the code or link.
+    expect(JSON.stringify(warn.mock.calls)).not.toMatch(/\d{6}|magic-link\/verify/)
+    warn.mockRestore()
+  })
+
+  it('drops sign-in emails over the per-recipient limit without changing the answer', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const b = new Browser(auth)
+    for (let i = 0; i < AUTH_PER_HOUR; i++)
+      await b.json('/email-otp/send-verification-otp', { body: { email: 'owner@example.com', type: 'sign-in' } })
+    logs = []
+    const res = await b.json('/email-otp/send-verification-otp', { body: { email: 'owner@example.com', type: 'sign-in' } })
+    expect(res.status).toBe(200)
+    expect(logs).toEqual([])
+    warn.mockRestore()
   })
 
   it('signs in with a magic link, landing on the callback URL', async () => {

@@ -6,7 +6,7 @@ import { getMediaBucket, getServices } from '../../../../../server/services'
 /** Streams one file of an upload (original.<ext> or <width>.webp) straight into R2. The body is the raw file. */
 export const PUT: APIRoute = ({ locals, request, params }) =>
   handle(async () => {
-    requireRole(locals.user, 'editor', request)
+    await requireRole(locals.user, 'editor', request, getServices().db)
     const stored = await storeUpload(getServices().db, getMediaBucket(), params.id!, params.file!, {
       body: request.body,
       contentType: request.headers.get('content-type'),

@@ -1,6 +1,6 @@
 import { and, desc, eq, gt, isNull, lt, lte, sql } from 'drizzle-orm'
 import { runBatch, type AppDb } from '../db'
-import { adminInvites, auditLog, user } from '../db/schema'
+import { adminInvites, auditLog, session, user } from '../db/schema'
 import type { AdminInvite, AuditAction, NewAuditLogEntry, UserRole } from '../db/schema'
 import { canAssign, canRemove, isRole, outranks } from '../../lib/roles'
 
@@ -134,7 +134,8 @@ export const inviteStatus = (
   return 'pending'
 }
 
-const loadActorRole = async (db: AppDb, actor: Actor): Promise<UserRole> => {
+/** The actor's current role, read from D1. Throws RoleError('forbidden') if their account is gone. */
+export const loadActorRole = async (db: AppDb, actor: Pick<Actor, 'id'>): Promise<UserRole> => {
   const row = await db.select({ role: user.role }).from(user).where(eq(user.id, actor.id)).get()
   if (!row) throw new RoleError('forbidden', 'Your account no longer exists.')
   return row.role
@@ -171,6 +172,9 @@ export async function changeRole(db: AppDb, actor: Actor, targetId: string, to: 
         .update(user)
         .set({ role: to, updatedAt: now })
         .where(and(eq(user.id, target.id), eq(user.role, target.role))),
+      // Sign them out everywhere, so the new role applies from their next sign-in rather than when the session
+      // cookie cache expires. (Unsafe API calls re-read the role anyway; this also covers page loads and GETs.)
+      db.delete(session).where(eq(session.userId, target.id)),
       db
         .insert(auditLog)
         .values(audit(actor, action, { type: 'user', id: target.id }, { role: target.role }, { role: to, email: target.email }, at)),
@@ -201,6 +205,8 @@ export async function removeUser(db: AppDb, actor: Actor, targetId: string, now 
   }
   try {
     await runBatch(db, [
+      // The cascade would remove sessions too; deleting them explicitly keeps that true whatever the FKs say.
+      db.delete(session).where(eq(session.userId, target.id)),
       db.delete(user).where(eq(user.id, target.id)),
       db
         .insert(auditLog)

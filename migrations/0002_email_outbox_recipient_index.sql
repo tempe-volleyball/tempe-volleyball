@@ -1,0 +1,1 @@
+CREATE INDEX `email_outbox_to_template_created_at_idx` ON `email_outbox` (`to`,`template`,`created_at`);
