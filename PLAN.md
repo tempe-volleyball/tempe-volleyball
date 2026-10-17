@@ -253,6 +253,9 @@ Each phase ends with something deployed to staging and production.
 
 ### Phase 5: Registration and payments (parked, 2026-10-18)
 
+**Update:** enrolment without online payment (forms, caps, waitlists, manual paid/unpaid) moved to Phase 6. Only payment
+processing (Stripe, PayID automation, refunds) stays parked.
+
 Michael says payments are his smallest pain point today and he'd rather revisit them later. **Nothing in this phase is
 being built now**, but the groundwork stays so it can be picked up without a migration:
 
@@ -283,6 +286,11 @@ When it's picked up, the original scope still applies:
 - **Parity with SportsPress first:** everything Michael relies on in the old admin must exist before the cutover
   (league management, venues and courts, postponed/TBD matches, bulk postpone or cancel a night, a cross-league match list,
   withdrawn teams, tie-break order, Ladder and Fixtures blocks for pages, fixture lists and iCal feeds, CSV import).
+- **Programmes and categories** ([docs/admin.md §3](docs/admin.md#3-programmes-categories-and-how-pages-link-to-them)):
+  leagues, training, development programmes and events become records in admin-managed categories. Menus, category
+  pages, `/enrol` and page blocks are generated from them and stay editable by hand. **Enrolment (without online
+  payment)** moves here from Phase 5: forms, caps, waitlists, manual paid/unpaid. The 37 imported pages are remapped
+  into the new structure.
 - **Analytics:** keep GA4 and Search Console, add Cloudflare Web Analytics, drop Jetpack, and build an admin Stats page fed
   by a daily cron.
 - **Admin UI/UX** improvements, still being written.
