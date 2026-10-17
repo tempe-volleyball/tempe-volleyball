@@ -105,7 +105,8 @@ function oversizedRow(table: string, row: Record<string, SqlValue>, opts: Upsert
   for (let i = 0; i < chars.length; i += piece) {
     const part = chars.slice(i, i + piece).join('')
     stmts.push(
-      `UPDATE ${ident(table)} SET ${ident(col)} = ${ident(col)} || ${sqlLiteral(part)} WHERE ${ident(key)} = ${sqlLiteral(row[key])};`,
+      // Same guard as the upsert, so a row it left alone (an admin edit, say) isn't appended to.
+      `UPDATE ${ident(table)} SET ${ident(col)} = ${ident(col)} || ${sqlLiteral(part)} WHERE ${ident(key)} = ${sqlLiteral(row[key])}${opts.where ? ` AND (${opts.where})` : ''};`,
     )
   }
   return stmts

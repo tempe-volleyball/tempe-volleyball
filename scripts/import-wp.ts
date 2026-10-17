@@ -253,7 +253,12 @@ async function main() {
     ...up('matches', comp.matches),
     ...up('match_results', comp.matchResults, ['match_id', 'kind']),
     ...up('ladder_adjustments', comp.ladderAdjustments),
-    ...up('pages', content.pages),
+    // Never over a page edited in the admin (updated_by), and never its status: a page archived in the admin or by the
+    // content map (scripts/content) stays archived.
+    ...up('pages', content.pages, ['id'], {
+      where: `"pages"."updated_by" IS NULL`,
+      update: Object.keys(content.pages[0] ?? {}).filter((c) => c !== 'id' && c !== 'status'),
+    }),
     ...up('posts', content.posts),
     // The menu only while nobody has edited it in the admin (then it's Michael's).
     ...guardedMenuStatements(content.menuItems),

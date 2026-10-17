@@ -19,7 +19,7 @@ Status as of 2026-10-18: **Done** = built and on staging, **Partial** = some of 
 | **Leagues**                       | Leagues as records (TNL, FNL …) that own their seasons, with add, rename, retire and reactivate                                        | **Done**    | Admin → Leagues lists each league with its seasons; a league opens to Details, Enrolment and Seasons tabs: add, rename, change URL (leaves 301s for the league and its season pages), category, retire, reactivate, delete while it has no history. Training, Development and Events have their own sections (sessions, terms, dates). API: [api/programmes.md](api/programmes.md). |
 | **Seasons**                       | A league has quarterly seasons, each with its own settings                                                                             | **Done**    | Admin → Seasons: create, set up, publish, archive. Points per W/D/L and sets per match are per season.                                                                                                                                                                                                                                                                              |
 | **Teams and rollover**            | Teams carry over between seasons; one-click "roll over to next season"                                                                 | **Done**    | "New season" copies the latest season's teams and settings. Teams can be renamed and created. Still missing: a team list screen (merge duplicates, see a team's history).                                                                                                                                                                                                           |
-| **Venues and courts**             | Venues (Robyn Webster, MLC, Five Dock) separate from the courts inside them                                                            | **Done**    | Admin → Venues: name, URL, address, map link, directions; courts per venue with ordering and renames; delete only when unused. Programme, category and fixture pages read them; the Where We Play content page still holds its own text (content map, or a venues block later).                                                                                                     |
+| **Venues and courts**             | Venues (Robyn Webster, MLC, Five Dock) separate from the courts inside them                                                            | **Done**    | Admin → Venues: name, URL, address, map link, directions; courts per venue with ordering and renames; delete only when unused. Programme, category and fixture pages read them; the content map copied the Tempe and Burwood directions into Venues, but the public copy is still the Where We Play page until a venues block shows them.                                           |
 | **Matches**                       | Date, time, teams, court, match day, status, plus duty team, bye and finals placeholders as real fields                                | **Done**    | Duty, byes and placeholders are fields. Status is scheduled, played, forfeit, cancelled, **postponed** or **TBD**, with a public note, set per game on the Results tab and shown on the public fixtures. Not in the admin yet: moving one postponed game to another night (`matches.original_match_day_id`) and the `referee` field.                                                |
 | **Creating fixtures**             | The draw generator, with CSV import as a fallback                                                                                      | **Done**    | Generator (runs in the browser), plus **CSV import** for draft seasons: paste or pick a file, a preview listing every problem by line, then it becomes the draw (audited as `fixtures.import`). It meets the same checks as a generated draw. See docs/api/seasons.md.                                                                                                              |
 | **Match list**                    | Filters for team, venue, league, season and match day; results for a whole match day on one screen                                     | **Done**    | A season's Results tab shows a whole match day on one screen. Admin → **Matches** lists every game across leagues for a date range (Today, Next 7 days, this Thursday … buttons), filtered by league, season, team (playing or on duty), venue, court and status, each linking to its match day's results.                                                                          |
@@ -290,6 +290,35 @@ The 37 imported pages get a new home each. I draft the text, Michael reviews it 
 - **For Michael to decide:** Tempe Cup registration (likely an event) and the USyd Junior Rep programme.
 - Nothing is lost: archived pages keep their revisions, and every old URL 301s somewhere sensible.
 
+**Status: Done on staging, waiting for Michael's review.** The map is [content-map.md](content-map.md), with the
+questions for Michael and the go-live steps. The drafted text is `scripts/content/drafts.ts`, applied by
+`scripts/content/apply.ts` as guarded SQL (`scripts/content/content-map.sql`, checked in for Phase 8). On staging: 6
+draft programmes (ADP, Scrim & Coached Training, Thursday Night Casual Training, JDP, Junior Rep Teams, Tempe Cup),
+the four category intros, the TVSL description, league times, venue directions, proposed revisions of the six kept
+pages, a draft `/enrol` intro page, 19 stale pages archived with 301s, and dormant 301s for the 9 pages that move later.
+
+Decisions (each the more robust or more configurable option):
+
+- **Nothing published is overwritten.** New programmes are drafts; a kept page's proposal is a revision just behind
+  the live version (Revisions → View → Restore), and `/enrol`'s intro is a draft page. Only empty fields (category
+  intros, the TVSL description, league times, venue directions) were filled directly.
+- **Guarded and repeatable:** every statement only touches rows nobody has edited in the admin (`updated_by` null, no
+  page revisions) that still have the imported title or an empty field, and running it again changes nothing. Ids are
+  deterministic, so production gets the same rows.
+- **Redirects are written before their page goes:** a published page wins over a redirect, so each moving page's 301
+  is already in place and takes effect the moment Michael archives it. Pages archived now point at pages that are
+  live today (a category page, `/enrol`, `/rules`), never at a draft.
+- **Dateless text:** dates, prices and fees go in the fields that change each season (seasons, sessions, products,
+  "next starts" text), not in descriptions. Where the old site had a price (Thursday casual: $15, 40 a session) it went
+  into the draft programme's price and cap. Category intros don't name days or venues because the cards under them are
+  generated.
+- **Multi-venue programmes** (ADP, JDP) have no default venue and a hand-written day-and-times label, rather than two
+  programmes, so they keep one page, one form and one enrolment list; each term can still set its own venue.
+- **The home page's typed-out league and program list becomes two Programme list blocks** in its proposed revision, so
+  a new or retired programme updates it by itself.
+- **Re-imports respect the admin:** `npm run import:wp` no longer overwrites a page edited in the admin, never changes
+  a page's status (so archived pages stay archived), and doesn't append oversized bodies to a page it skipped.
+
 ### 3.9 Data model
 
 Shipped as one additive migration (`0003_phase6_programmes`), with every table and column in
@@ -344,7 +373,8 @@ Programmes admin (build step 1), decisions taken the robust and configurable way
    lists and iCal feeds (section 3.13).
 4. Enrolment: forms, caps, waitlists, manual paid/unpaid, CSV export. **Done** (section 3.7); the pages showing the
    form come with step 3.
-5. Content map: rewrite the 37 imported pages into the new structure for Michael's review.
+5. **Done (staging, for review):** content map: the 37 imported pages rewritten into the new structure for Michael's
+   review (section 3.8, [content-map.md](content-map.md)).
 6. The rest of section 1 (postponed/TBD, bulk postpone or cancel a night, cross-league match list, withdrawn teams,
    tie-break order, CSV fixture import, fixture lists and iCal are done) and the analytics in section 2
    (built; waiting for credentials).
@@ -454,7 +484,8 @@ Decisions (each the more robust or more configurable option):
 - **Old enrolment pages → `/enrol`:** `/2023-enrolment`, `/2021-interest-in-playing`, `/new-player(-2023)`,
   `/new-team-group(-2023)`, `/returning-player` and `/returning-team` are `manual` redirects written by the importer
   (`ENROL_REDIRECTS` in `src/lib/wp-import/routes.ts`), never overwriting one Michael has edited. They take over as
-  soon as the content map archives each page (a published page always wins over a redirect).
+  soon as each page is archived (a published page always wins over a redirect). The content map archived the five
+  2020–2022 ones; `/2023-enrolment` and the two 2026 forms wait until `/enrol` is live (docs/content-map.md).
 - **Cache tags** match the purge helpers: programme pages carry `programme:<slug>` (+ `league:<slug>`),
   `category:<slug>` (the breadcrumb), `venues` and `page:<path>` (which the enrolment admin purges); category pages
   `category:<slug>`, `programmes`, `venues`; `/enrol` `page:/enrol`, `programmes`, `venues`; fixture lists and feeds

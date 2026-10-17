@@ -35,6 +35,32 @@ describe('upserts', () => {
     expect((sqlite.prepare('SELECT count(*) AS n FROM pages').get() as { n: number }).n).toBe(1)
   })
 
+  it('leaves rows the guard excludes alone, big ones included (as import-wp does for edited pages)', () => {
+    const { sqlite } = createTestDb()
+    sqlite.exec(
+      `INSERT INTO "user" ("id", "name", "email", "email_verified", "created_at", "updated_at") VALUES ('mm', 'M', 'm@x.au', 1, 0, 0)`,
+    )
+    const opts = { conflict: ['id'], touch: true, where: `"pages"."updated_by" IS NULL`, update: ['path', 'title', 'body'] }
+    const page = (id: string, html: string) => ({
+      id,
+      path: `/${id}`,
+      title: 'Imported',
+      template: 'content',
+      body: { blocks: [], html },
+      status: 'published',
+    })
+    const rows = [page('small', '<p>a</p>'), page('big', `<p>${'x'.repeat(200_000)}</p>`), page('edited', `<p>${'y'.repeat(200_000)}</p>`)]
+    for (const s of upsertStatements('pages', rows, opts)) sqlite.exec(s)
+    sqlite.exec(`UPDATE pages SET status = 'archived' WHERE id = 'small'`)
+    sqlite.exec(`UPDATE pages SET title = 'Mine', body = '{"blocks":[],"html":"<p>mine</p>"}', updated_by = 'mm' WHERE id = 'edited'`)
+    for (const s of upsertStatements('pages', rows, opts)) sqlite.exec(s)
+    const get = (id: string) =>
+      sqlite.prepare('SELECT title, status, body FROM pages WHERE id = ?').get(id) as { title: string; status: string; body: string }
+    expect(get('small').status).toBe('archived')
+    expect(JSON.parse(get('big').body).html).toBe(rows[1]!.body.html)
+    expect(get('edited')).toEqual({ title: 'Mine', status: 'published', body: '{"blocks":[],"html":"<p>mine</p>"}' })
+  })
+
   it('batches many small rows into few statements', () => {
     const rows = Array.from({ length: 500 }, (_, i) => ({ id: `t${i}`, name: `Team ${i}`, slug: `team-${i}` }))
     const stmts = upsertStatements('teams', rows, { conflict: ['id'] })
