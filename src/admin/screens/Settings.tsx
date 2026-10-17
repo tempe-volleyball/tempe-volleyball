@@ -199,6 +199,123 @@ export function Settings({ me }: { me: Me }) {
           )}
         </Section>
       </div>
+
+      <Section
+        {...common}
+        k="analytics"
+        title="Analytics"
+        intro="Tags on the live site and where the Stats page reads its numbers from. Tags only appear on www.tempevb.com in production. The API keys are Worker secrets, set by whoever runs the Cloudflare account (docs/admin.md §2)."
+      >
+        {(v, set) => (
+          <div className="grid gap-6 lg:grid-cols-3">
+            <div className="space-y-4">
+              <h3 className="font-bold">Google Analytics</h3>
+              <Field
+                label="Measurement ID (tag)"
+                placeholder="GT-XXXXXXX or G-XXXXXXX"
+                value={v.ga4MeasurementId}
+                hint="Empty = no Google tag. GT-PLFFMCMT is the old site's tag."
+                onChange={(e) => set({ ...v, ga4MeasurementId: e.target.value.trim() })}
+              />
+              <Select
+                label="Load the tag"
+                value={v.tagLoading}
+                hint="Later loading keeps pages fast; 'straight away' counts every visit but costs some speed."
+                onChange={(e) => set({ ...v, tagLoading: e.target.value as typeof v.tagLoading })}
+              >
+                <option value="interaction">On first scroll, tap or key (or after 15 s)</option>
+                <option value="idle">When the page has finished loading</option>
+                <option value="eager">Straight away</option>
+              </Select>
+              <Field
+                label="Property ID (for Stats)"
+                inputMode="numeric"
+                placeholder="312345678"
+                value={v.ga4PropertyId}
+                hint="GA4 → Admin → Property details."
+                onChange={(e) => set({ ...v, ga4PropertyId: e.target.value.trim() })}
+              />
+              <label className="flex items-center gap-2 text-sm font-semibold">
+                <input
+                  type="checkbox"
+                  checked={v.fetch.ga4}
+                  onChange={(e) => set({ ...v, fetch: { ...v.fetch, ga4: e.target.checked } })}
+                />{' '}
+                Fetch daily numbers
+              </label>
+            </div>
+            <div className="space-y-4">
+              <h3 className="font-bold">Search Console</h3>
+              <Field
+                label="Property"
+                placeholder="sc-domain:tempevb.com"
+                value={v.searchConsoleSite}
+                hint={'Exactly as Search Console shows it: "sc-domain:…" or a URL ending in /.'}
+                onChange={(e) => set({ ...v, searchConsoleSite: e.target.value.trim() })}
+              />
+              <Field
+                label="Verification code (optional)"
+                placeholder="Paste the google-site-verification meta tag"
+                value={v.searchConsoleVerification}
+                hint="Only needed if the property isn't verified by DNS."
+                onChange={(e) => set({ ...v, searchConsoleVerification: e.target.value })}
+              />
+              <label className="flex items-center gap-2 text-sm font-semibold">
+                <input
+                  type="checkbox"
+                  checked={v.fetch.searchConsole}
+                  onChange={(e) => set({ ...v, fetch: { ...v.fetch, searchConsole: e.target.checked } })}
+                />{' '}
+                Fetch daily numbers
+              </label>
+            </div>
+            <div className="space-y-4">
+              <h3 className="font-bold">Cloudflare Web Analytics</h3>
+              <Field
+                label="Beacon token (tag)"
+                placeholder="32 letters and digits"
+                value={v.cfBeaconToken}
+                hint="From the site's manual JS snippet. Empty = no beacon."
+                onChange={(e) => set({ ...v, cfBeaconToken: e.target.value.trim() })}
+              />
+              <Field label="Account ID" value={v.cfAccountId} onChange={(e) => set({ ...v, cfAccountId: e.target.value.trim() })} />
+              <Field
+                label="Site tag (for Stats)"
+                value={v.cfSiteTag}
+                hint="Web Analytics → the site → its URL's siteTag."
+                onChange={(e) => set({ ...v, cfSiteTag: e.target.value.trim() })}
+              />
+              <label className="flex items-center gap-2 text-sm font-semibold">
+                <input
+                  type="checkbox"
+                  checked={v.fetch.cloudflare}
+                  onChange={(e) => set({ ...v, fetch: { ...v.fetch, cloudflare: e.target.checked } })}
+                />{' '}
+                Fetch daily numbers
+              </label>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2 lg:col-span-3">
+              <Field
+                label="Days to fetch the first time"
+                type="number"
+                min={1}
+                max={480}
+                value={v.backfillDays}
+                hint="Search Console keeps 16 months, Cloudflare 6."
+                onChange={(e) => set({ ...v, backfillDays: Number(e.target.value) })}
+              />
+              <Field
+                label="Days of history to keep"
+                type="number"
+                min={30}
+                max={3650}
+                value={v.retentionDays}
+                onChange={(e) => set({ ...v, retentionDays: Number(e.target.value) })}
+              />
+            </div>
+          </div>
+        )}
+      </Section>
     </div>
   )
 }

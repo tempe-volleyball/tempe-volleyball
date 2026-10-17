@@ -8,7 +8,19 @@ import { createMailer, type Mailer } from './email'
 // middleware import this; code in src/server takes db/mailer/auth as arguments so tests can pass their own.
 
 /** Secrets set with `wrangler secret put` (or .dev.vars locally). Typed here because `wrangler types` only sees the ones in your local .dev.vars. */
-export type Secrets = { BETTER_AUTH_SECRET?: string; RESEND_API_KEY?: string }
+export type Secrets = {
+  BETTER_AUTH_SECRET?: string
+  RESEND_API_KEY?: string
+  /** Analytics (docs/admin.md §2): the Google service-account key file (JSON) and a Cloudflare Analytics: Read token. */
+  GOOGLE_SERVICE_ACCOUNT_JSON?: string
+  CF_ANALYTICS_TOKEN?: string
+}
+
+/** The analytics secrets, for src/server/analytics. */
+export const analyticsSecrets = () => ({
+  GOOGLE_SERVICE_ACCOUNT_JSON: secrets.GOOGLE_SERVICE_ACCOUNT_JSON,
+  CF_ANALYTICS_TOKEN: secrets.CF_ANALYTICS_TOKEN,
+})
 
 export const secrets = env as unknown as Secrets
 

@@ -1,0 +1,75 @@
+{
+  "pageloads": {
+    "data": {
+      "viewer": {
+        "accounts": [
+          {
+            "totals": [
+              { "count": 402, "sum": { "visits": 171 }, "dimensions": { "date": "2026-10-16" } },
+              { "count": 365, "sum": { "visits": 160 }, "dimensions": { "date": "2026-10-15" } }
+            ],
+            "requestPath": [
+              { "count": 150, "sum": { "visits": 98 }, "dimensions": { "date": "2026-10-16", "requestPath": "/" } },
+              { "count": 70, "sum": { "visits": 22 }, "dimensions": { "date": "2026-10-16", "requestPath": "/leagues/tnl" } },
+              { "count": 12, "sum": { "visits": 3 }, "dimensions": { "date": "2026-10-16", "requestPath": "/leagues/tnl/" } },
+              { "count": 133, "sum": { "visits": 91 }, "dimensions": { "date": "2026-10-15", "requestPath": "/" } }
+            ],
+            "refererHost": [
+              { "count": 180, "sum": { "visits": 80 }, "dimensions": { "date": "2026-10-16", "refererHost": "www.google.com" } },
+              { "count": 140, "sum": { "visits": 61 }, "dimensions": { "date": "2026-10-16", "refererHost": "" } },
+              { "count": 60, "sum": { "visits": 25 }, "dimensions": { "date": "2026-10-16", "refererHost": "l.instagram.com" } }
+            ],
+            "countryName": [
+              { "count": 390, "sum": { "visits": 165 }, "dimensions": { "date": "2026-10-16", "countryName": "AU" } },
+              { "count": 12, "sum": { "visits": 6 }, "dimensions": { "date": "2026-10-16", "countryName": "US" } }
+            ],
+            "deviceType": [
+              { "count": 300, "sum": { "visits": 130 }, "dimensions": { "date": "2026-10-16", "deviceType": "mobile" } },
+              { "count": 102, "sum": { "visits": 41 }, "dimensions": { "date": "2026-10-16", "deviceType": "desktop" } }
+            ]
+          }
+        ]
+      }
+    },
+    "errors": null
+  },
+  "vitals": {
+    "data": {
+      "viewer": {
+        "accounts": [
+          {
+            "vitals": [
+              {
+                "count": 288,
+                "dimensions": { "date": "2026-10-16" },
+                "quantiles": {
+                  "largestContentfulPaintP75": 1830000,
+                  "interactionToNextPaintP75": 96000,
+                  "cumulativeLayoutShiftP75": 0.02,
+                  "firstContentfulPaintP75": 1210000,
+                  "timeToFirstByteP75": 240000
+                }
+              },
+              {
+                "count": 260,
+                "dimensions": { "date": "2026-10-15" },
+                "quantiles": {
+                  "largestContentfulPaintP75": 1990000,
+                  "interactionToNextPaintP75": null,
+                  "cumulativeLayoutShiftP75": 0.04,
+                  "firstContentfulPaintP75": 1300000,
+                  "timeToFirstByteP75": 260000
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "errors": null
+  },
+  "error": {
+    "data": null,
+    "errors": [{ "message": "not authorized for that account", "path": ["viewer", "accounts"], "extensions": { "code": "authz" } }]
+  }
+}
