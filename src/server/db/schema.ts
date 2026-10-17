@@ -1,11 +1,24 @@
-import { sqliteTable, text } from 'drizzle-orm/sqlite-core'
+// The whole D1 schema (PLAN.md "Data model"), split by area under ./schema/ and re-exported here. Import tables,
+// row types and enum arrays from this module. drizzle-kit reads this file (drizzle.config.ts).
+//
+// Conventions: text ids (crypto.randomUUID()) except join tables; money in integer cents (AUD); instants as UTC ISO
+// text; dates YYYY-MM-DD and times HH:MM in Sydney local time; wp_id on imported rows; created_at/updated_at on
+// every table and updated_by on content tables. Better Auth's own tables (auth.ts) keep its integer-ms timestamps.
 
-// Phase 1 keeps the schema to one table so the migration pipeline can be proven end to end.
-// The full data model is planned in PLAN.md ("Data model") and lands phase by phase.
+export * from './schema/enums'
+export { nowIso } from './schema/columns'
+export * from './schema/auth'
+export * from './schema/competition'
+export * from './schema/content'
+export * from './schema/admin'
+export * from './schema/registrations'
+export * from './schema/relations'
 
-/** Site-wide settings the admin can edit (contact details, PayID, social links …), one row per key. */
-export const siteSettings = sqliteTable('site_settings', {
-  key: text('key').primaryKey(),
-  value: text('value', { mode: 'json' }).notNull(),
-  updatedAt: text('updated_at').notNull(),
-})
+import type { account, session, twoFactor, user, verification } from './schema/auth'
+
+export type User = typeof user.$inferSelect
+export type NewUser = typeof user.$inferInsert
+export type Session = typeof session.$inferSelect
+export type Account = typeof account.$inferSelect
+export type Verification = typeof verification.$inferSelect
+export type TwoFactor = typeof twoFactor.$inferSelect

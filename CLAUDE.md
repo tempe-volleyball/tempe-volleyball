@@ -44,7 +44,9 @@ src/layouts/         Page shells for public pages.
 src/lib/             Pure logic with tests. No bindings, no `cloudflare:*` imports, no DOM. The demo's scheduler,
                      ladder and finals code gets ported here (Phase 4).
 src/server/          Code that touches bindings: db/schema.ts + db/index.ts (Drizzle), cron.ts, health.ts; later
-                     auth/, email/, payments/.
+                     auth/, email/, payments/. db/schema.ts re-exports the tables in db/schema/ (one file per
+                     area; enums.ts holds the `as const` value lists). db/testing.ts gives tests an in-memory
+                     SQLite (node:sqlite) with every migration applied: `const { db } = createTestDb()`.
 migrations/          Generated SQL (+ drizzle meta/). Never edit an applied migration; add a new one.
 .github/workflows/   ci.yml (PR checks + preview), deploy.yml (staging -> production), backup.yml (nightly).
 docs/reference/      Screenshots of the old site, the design to match.  docs/baseline/  Lighthouse baseline.
