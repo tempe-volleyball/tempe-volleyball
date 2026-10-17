@@ -73,7 +73,8 @@ src/lib/content/     Content rules shared by admin and Worker: render.ts (editor
 src/lib/wp-import/   Pure parts of the WordPress importer: title parser (finals labels, duty, byes, skip weeks),
                      SportsPress result mapping, route conventions + old-URL mapping (routes.ts), SQL upserts,
                      upload-link rewriting, ladder reconciliation.
-scripts/             Node-only tools run with tsx: import-wp.ts (+ wp/: fetch, competition, content, media).
+scripts/             Node-only tools run with tsx: import-wp.ts (+ wp/: fetch, competition, content, media), menu-phase6.ts,
+                     content/ (the content map: drafts.ts text -> guarded content-map.sql; apply.ts, docs/content-map.md).
 src/server/          Code that touches bindings: db/schema.ts + db/index.ts (Drizzle; AppDb + runBatch work for D1
                      and the test DB), cron.ts, health.ts, http.ts (JSON route helpers), services.ts (per-isolate
                      db/mailer/auth from `cloudflare:workers`; only routes/middleware import it), later payments/.
