@@ -6,7 +6,11 @@ import type { LeagueCode } from '../../server/db/schema/enums'
 //   /                               home (pages.path '/')
 //   /<page-path>                    content pages (pages.path, no trailing slash)
 //   /leagues                        league index
-//   /leagues/<league-slug>          current season of a league: fixtures (#fixtures) and ladder (#ladder)
+//   /leagues/<league-slug>          a league and its current season: Fixtures / Ladder / Results tabs (#fixtures, #ladder, #results)
+//   /leagues/fixtures               this week's / upcoming games across leagues (?view=upcoming&league=&team=)
+//   /leagues/<league-slug>/calendar.ics, /leagues/<league-slug>/teams/<team-slug>.ics   iCal feeds
+//   /training/<slug>, /programs/<slug>, /events/<slug>   other programmes;  /<category-slug>  category pages
+//   /enrol                          everything open for enrolment
 //   /leagues/<league-slug>/<season-slug>   one season (archive), e.g. /leagues/tnl/tnl-q4-2026
 //   /news, /news/<post-slug>        news posts
 //   /media/<media-id>/<width>.webp  resized images; /media/<media-id>/original.<ext> the original file
@@ -76,6 +80,7 @@ export const LEAGUE_DATA_PAGES: Record<string, { code: LeagueCode; view: 'ladder
   sal: { code: 'SAL', view: 'fixtures' },
   'sunday-super-league-week-1-of-6': { code: 'TVSL', view: 'ladder' },
   'sunday-super-league-fixtures-and-results': { code: 'TVSL', view: 'fixtures' },
+  // The old "this week" page has a real successor now (see THIS_WEEK_TARGET below).
   'this-weeks-fixtures': null,
   'b-league-fixtures': null,
   'b-league-results': null,
@@ -92,8 +97,29 @@ export const LEAGUE_DATA_PAGES: Record<string, { code: LeagueCode; view: 'ladder
 /** WordPress pages that are replaced by a route rather than imported: the blog index and the "NEWS" list. */
 export const ROUTE_PAGES: Record<string, string> = { blog: NEWS_ROUTE, news: NEWS_ROUTE }
 
+/** The cross-league "This week" list (src/pages/leagues/fixtures.astro; FIXTURE_LIST_ROUTE in src/lib/fixture-lists.ts). */
+export const THIS_WEEK_TARGET = '/leagues/fixtures'
+
+/**
+ * The old enrolment pages (year-stamped, duplicated), all replaced by /enrol (docs/admin.md §3.6, §3.8). The importer
+ * writes these as `manual` redirects: they take over once the content map archives the pages (a published page
+ * always wins over a redirect), and an import never overwrites one Michael has edited.
+ */
+export const ENROL_ROUTE = '/enrol'
+export const ENROL_REDIRECTS = [
+  '/2023-enrolment',
+  '/2021-interest-in-playing',
+  '/new-player',
+  '/new-player-2023',
+  '/new-team-group',
+  '/new-team-group-2023',
+  '/returning-player',
+  '/returning-team',
+] as const
+
 /** Where an old league-data page should go. */
 export function leagueDataPageTarget(slug: string): string | null {
+  if (slug === 'this-weeks-fixtures') return THIS_WEEK_TARGET
   if (!(slug in LEAGUE_DATA_PAGES)) return null
   const t = LEAGUE_DATA_PAGES[slug]
   if (!t) return LEAGUES_ROUTE

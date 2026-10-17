@@ -1,0 +1,37 @@
+---
+import { prepareHtml } from '../../lib/content'
+import type { CategoryPage } from '../../server/programmes/public'
+import Breadcrumbs from './Breadcrumbs.astro'
+import ProgrammeCards from './ProgrammeCards.astro'
+
+// A category landing page (/mixed-leagues …; docs/admin.md §3.2): the intro Michael edits in Admin → Categories,
+// then a card per active programme in it. A new programme appears here on its own; a retired one leaves.
+type Props = { data: CategoryPage; titles?: Map<string, string> }
+const { data, titles } = Astro.props
+const { category, cards } = data
+const intro = category.intro?.html ?? ''
+---
+
+<Breadcrumbs items={[{ label: category.name }]} />
+<h1 class="page-title">{category.name}</h1>
+{category.status === 'retired' && (
+  <p role="status" class="bg-accent text-ink mb-6 px-4 py-3 font-semibold">
+    These programmes have finished.{' '}
+    <a class="underline" href="/enrol">
+      See what's open now.
+    </a>
+  </p>
+)}
+{intro && <div class="prose mb-10 max-w-3xl" set:html={prepareHtml(intro, titles ? { titles } : {})} />}
+{cards.length > 0 ? (
+  <ProgrammeCards cards={cards} />
+) : (
+  category.status !== 'retired' && (
+    <p>
+      Nothing is running in {category.name} right now.{' '}
+      <a class="text-link decoration-accent font-semibold underline decoration-2 underline-offset-2" href="/enrol">
+        See what's open for enrolment.
+      </a>
+    </p>
+  )
+)}

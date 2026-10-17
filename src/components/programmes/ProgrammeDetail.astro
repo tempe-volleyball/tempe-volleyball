@@ -1,0 +1,115 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro'
+import { DEFAULT_DESCRIPTION, documentTitle } from '../../lib/content'
+import { formatDateLong, formatTimeRange, nextStartsLine, summaryLine, venueText, WEEKDAYS } from '../../lib/programme-text'
+import { categoryPath } from '../../lib/programmes'
+import { KIND_LABEL } from '../../server/programmes/programmes'
+import { programmeSeo, publicTargetSpots, type ProgrammeInstance } from '../../server/programmes/public'
+import type { ProgrammeRoute } from '../../server/programmes/route'
+import NotFound from '../NotFound.astro'
+import Breadcrumbs from './Breadcrumbs.astro'
+import EnrolSection from './EnrolSection.astro'
+import ProgrammeIntro from './ProgrammeIntro.astro'
+
+// A training, development or event programme's page (docs/admin.md §3.3, §3.6): breadcrumb, when and where, the
+// description, its upcoming sessions, terms or dates with spots left while enrolment is open, and the enrol section.
+// Retired: "This … has finished" and what it ran. Data from programmeRoute() (src/server/programmes/route.ts).
+type Props = ProgrammeRoute
+const { site, page } = Astro.props
+
+const HEADINGS = { session: 'Upcoming sessions', term: 'Terms', event: 'Dates' } as const
+const PAST_HEADINGS = { session: 'Past sessions', term: 'Past terms', event: 'Past dates' } as const
+const STATUS = { scheduled: '', postponed: 'Postponed', cancelled: 'Cancelled' } as const
+
+const p = page?.programme
+const venueOf = (id: string | null) => site.venues.find((v) => v.id === (id ?? p?.defaultVenueId))
+const venue = venueOf(null)
+const nextStarts = p ? nextStartsLine(p, page?.nextInstanceDate) : ''
+const summary = p ? summaryLine(p, venue) : ''
+const seo = p ? programmeSeo(p, summary, nextStarts) : null
+const targets = new Map((page?.enrolment?.targets ?? []).map((t) => [`${t.kind}:${t.id}`, t]))
+const enrolmentOpen = targets.size > 0
+const instanceKind =
+  page?.upcoming[0]?.kind ?? page?.past[0]?.kind ?? (p?.kind === 'training' ? 'session' : p?.kind === 'development' ? 'term' : 'event')
+const noun = p ? KIND_LABEL[p.kind] : ''
+const closedText = `Enrolment for ${p?.name ?? 'this programme'} is closed right now.${nextStarts ? ` ${nextStarts}.` : ''}`
+// The Where column only when some date is somewhere other than the programme's usual venue (it's said above).
+const showWhere = !!page && [...page.upcoming, ...page.past].some((i) => i.venueId && i.venueId !== p?.defaultVenueId)
+const crumbs = p
+  ? [...(page?.category ? [{ label: page.category.name, href: categoryPath(page.category.slug) }] : []), { label: p.name }]
+  : []
+
+const when = (i: ProgrammeInstance) => {
+  const start = formatDateLong(i.startDate)
+  const range = i.endDate && i.endDate !== i.startDate ? `${start} to ${formatDateLong(i.endDate)}` : start
+  if (i.kind !== 'term') return range
+  const day = WEEKDAYS[i.weekday ?? p?.weekday ?? -1]
+  return day ? `${range} (${day}s)` : range
+}
+const times = (i: ProgrammeInstance) => formatTimeRange(i.startTime ?? p?.startTime, i.endTime ?? p?.endTime)
+const details = (i: ProgrammeInstance) =>
+  [i.title, i.ageGroup, i.movedFrom ? `Moved from ${formatDateLong(i.movedFrom)}` : '', i.note].filter(Boolean).join(' · ')
+---
+
+{p && page && seo ? (
+  <BaseLayout title={documentTitle(seo.title)} description={seo.description} site={site} canonicalPath={page.path}>
+    <Breadcrumbs items={crumbs} />
+    <h1 class="page-title">{p.name}</h1>
+    <ProgrammeIntro programme={p} venue={venue} nextStarts={nextStarts} enrolmentOpen={enrolmentOpen} noun={noun} />
+
+    {[
+      { list: p.status === 'retired' ? [] : page.upcoming, heading: HEADINGS[instanceKind], id: 'dates', upcoming: true },
+      { list: p.status === 'retired' ? page.past : [], heading: PAST_HEADINGS[instanceKind], id: 'past', upcoming: false },
+    ]
+      .filter((s) => s.upcoming || s.list.length > 0)
+      .map((s) => (
+        <section aria-labelledby={`${s.id}-heading`} class="mt-12">
+          <h2 id={`${s.id}-heading`} class="mb-4 text-2xl font-bold sm:text-3xl">
+            {s.heading}
+          </h2>
+          {s.list.length === 0 ? (
+            <p>{nextStarts ? `No dates are listed yet. ${nextStarts}.` : 'No dates are listed yet. Check back soon.'}</p>
+          ) : (
+            <div class="table-scroll" tabindex="0" role="region" aria-label={s.heading}>
+              <table class="data-table">
+                <caption>{`${p.name}: ${s.heading.toLowerCase()}`}</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Date</th>
+                    <th scope="col">Time</th>
+                    {showWhere && <th scope="col">Where</th>}
+                    <th scope="col">Details</th>
+                    {s.upcoming && enrolmentOpen && <th scope="col">Spots</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {s.list.map((i) => {
+                    const target = targets.get(`${i.kind}:${i.id}`)
+                    const status = STATUS[i.status]
+                    return (
+                      <tr>
+                        <td class="whitespace-nowrap">
+                          {when(i)}
+                          {status && <strong class="block text-xs uppercase">{status}</strong>}
+                        </td>
+                        <td class="whitespace-nowrap">{times(i)}</td>
+                        {showWhere && <td>{venueText(venueOf(i.venueId))}</td>}
+                        <td>{details(i)}</td>
+                        {s.upcoming && enrolmentOpen && <td class="whitespace-nowrap">{target ? publicTargetSpots(target) : '–'}</td>}
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      ))}
+
+    {p.status === 'active' && <EnrolSection enrolment={page.enrolment} name={p.name} closedText={closedText} />}
+  </BaseLayout>
+) : (
+  <BaseLayout title={documentTitle('Page not found')} description={DEFAULT_DESCRIPTION} site={site}>
+    <NotFound />
+  </BaseLayout>
+)}

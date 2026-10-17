@@ -11,6 +11,14 @@ export const PROGRAMME_PATH_PREFIX = {
   event: '/events',
 } as const satisfies Record<ProgrammeKind, string>
 
+/**
+ * Slugs no programme may take because a route lives there: /leagues/fixtures is the cross-league fixture list.
+ * (Checked for every kind, so a programme can change kind-specific pages later without a clash.)
+ */
+export const RESERVED_PROGRAMME_SLUGS = ['fixtures'] as const
+
+export const isReservedProgrammeSlug = (slug: string) => (RESERVED_PROGRAMME_SLUGS as readonly string[]).includes(slug)
+
 export const programmePath = (kind: ProgrammeKind, slug: string) => `${PROGRAMME_PATH_PREFIX[kind]}/${slug}`
 
 /** Category landing pages live at the root: /mixed-leagues. */

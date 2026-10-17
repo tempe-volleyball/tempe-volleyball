@@ -15,7 +15,7 @@ import { parseArgs } from 'node:util'
 import { UPLOAD_URL_RE, uploadKey, type ResolvedMedia } from '../src/lib/wp-import/html'
 import { chunkStatements, sqlLiteral, upsertStatements, type SqlValue } from '../src/lib/wp-import/sql'
 import { RECONCILIATION_REASON, buildCompetition } from './wp/competition'
-import { buildContent, contentPages, guardedMenuStatements, mediaRedirects } from './wp/content'
+import { buildContent, contentPages, guardedMenuStatements, manualRedirects, mediaRedirects } from './wp/content'
 import { CACHE_DIR, SITE, fetchCollection } from './wp/fetch'
 import { THEME_MEDIA_WP_IDS, libraryIndex, loadManifest, processMedia, saveManifest, type MediaItem, type R2Object } from './wp/media'
 import type { WpData, WpMedia } from './wp/types'
@@ -223,8 +223,10 @@ async function main() {
 
   console.info('Mapping pages, posts, menu and redirects…')
   const content = buildContent(data, comp, resolveMedia, mediaIdByWp)
-  const redirects = [...content.redirects]
-  const seen = new Set(redirects.map((r) => r.from_path))
+  const manual = manualRedirects()
+  const manualPaths = new Set(manual.map((r) => r.from_path))
+  const redirects = content.redirects.filter((r) => !manualPaths.has(r.from_path))
+  const seen = new Set([...redirects.map((r) => r.from_path), ...manualPaths])
   for (const r of mediaRedirects(items)) if (!seen.has(r.from_path)) redirects.push(r)
 
   // SQL, parents before children.
@@ -256,6 +258,8 @@ async function main() {
     // The menu only while nobody has edited it in the admin (then it's Michael's).
     ...guardedMenuStatements(content.menuItems),
     ...up('redirects', redirects, ['from_path'], { where: `"redirects"."source" = 'wp-import'`, update: ['to_path', 'status'] }),
+    // Ours, not WordPress's: inserted once, and only take over a row the importer itself wrote earlier.
+    ...up('redirects', manual, ['from_path'], { where: `"redirects"."source" = 'wp-import'`, update: ['to_path', 'status', 'source'] }),
     // Prune rows a previous run imported into these seasons that SportsPress no longer has.
     ...(seasonIds
       ? [

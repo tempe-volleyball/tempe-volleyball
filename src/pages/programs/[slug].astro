@@ -1,0 +1,10 @@
+---
+// A development programme's page, e.g. /programs/jdp (src/components/programmes/ProgrammeDetail.astro).
+import ProgrammeDetail from '../../components/programmes/ProgrammeDetail.astro'
+import { programmeRoute } from '../../server/programmes/route'
+
+const route = await programmeRoute(Astro, 'development')
+if (route instanceof Response) return route
+---
+
+<ProgrammeDetail {...route} />

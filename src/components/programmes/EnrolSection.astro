@@ -1,0 +1,25 @@
+---
+import EnrolmentForm from '../enrolment/EnrolmentForm'
+import type { EnrolmentFormProps } from '../../server/enrolment/public'
+
+// A programme page's enrol section (#enrol): the enrolment form island while something is open, else why not and
+// when next. The island hydrates only when it scrolls into view, so it costs nothing on first load.
+type Props = { enrolment: EnrolmentFormProps | null; name: string; closedText: string }
+const { enrolment, name, closedText } = Astro.props
+---
+
+<section id="enrol" aria-labelledby="enrol-heading" class="mt-14 scroll-mt-4">
+  <h2 id="enrol-heading" class="mb-4 text-2xl font-bold sm:text-3xl">
+    Enrol
+  </h2>
+  {enrolment && enrolment.targets.length > 0 ? (
+    <div class="max-w-2xl bg-white/60 p-5">
+      <EnrolmentForm client:visible {...enrolment} closedText={closedText} />
+      <noscript>
+        <p>The enrolment form needs JavaScript. Contact us and we'll enrol you in {name} by hand.</p>
+      </noscript>
+    </div>
+  ) : (
+    <p>{closedText}</p>
+  )}
+</section>

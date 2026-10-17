@@ -1,9 +1,11 @@
 ---
 // One season of a league (archived ones included), e.g. /leagues/tnl/tnl-q4-2026.
 import NotFound from '../../../components/NotFound.astro'
+import Breadcrumbs from '../../../components/programmes/Breadcrumbs.astro'
 import SeasonView from '../../../components/SeasonView.astro'
 import BaseLayout from '../../../layouts/BaseLayout.astro'
 import { DEFAULT_DESCRIPTION, documentTitle } from '../../../lib/content'
+import { sydneyDate } from '../../../lib/time'
 import { leagueRoute, normalisePath, seasonRoute } from '../../../lib/wp-import/routes'
 import { cachePublic, tags } from '../../../server/cache'
 import { publicSeasons } from '../../../server/competition/load'
@@ -14,7 +16,7 @@ const leagueSlug = (Astro.params.league ?? '').toLowerCase()
 const seasonSlug = (Astro.params.season ?? '').toLowerCase()
 const db = publicDb()
 const site = await loadSite(db)
-const league = site.leagues.find((l) => l.slug === leagueSlug)
+const league = site.leagues.find((l) => l.slug === leagueSlug && l.status !== 'draft')
 const summary = league && site.seasons.find((s) => s.slug === seasonSlug && s.leagueId === league.id && s.status !== 'draft')
 const current = site.current.find((c) => c.summary.id === summary?.id)
 
@@ -28,7 +30,7 @@ if (!view) {
   const redirect = await redirectFor(Astro, db, normalisePath(Astro.url.pathname))
   if (redirect) return redirect
   Astro.response.status = 404
-} else cachePublic(Astro.cache, tags.league(leagueSlug), tags.season(seasonSlug))
+} else cachePublic(Astro.cache, tags.league(leagueSlug), tags.programme(leagueSlug), tags.season(seasonSlug))
 ---
 
 {view ? (
@@ -38,7 +40,9 @@ if (!view) {
     site={site}
     canonicalPath={current ? leagueRoute(leagueSlug) : seasonRoute(leagueSlug, seasonSlug)}
   >
-    <SeasonView view={view} others={publicSeasons(site.seasons, view.league.id)} current={false} />
+    <SeasonView view={view} others={publicSeasons(site.seasons, view.league.id)} current={false} today={sydneyDate(new Date())}>
+      <Breadcrumbs slot="before" items={[{ label: view.league.name, href: leagueRoute(leagueSlug) }, { label: view.summary.name }]} />
+    </SeasonView>
   </BaseLayout>
 ) : (
   <BaseLayout title={documentTitle('Page not found')} description={DEFAULT_DESCRIPTION} site={site}>

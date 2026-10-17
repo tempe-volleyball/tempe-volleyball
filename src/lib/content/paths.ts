@@ -20,7 +20,15 @@ export const RESERVED_PREFIXES = [
   '/events',
 ] as const
 /** Exact paths owned by routes or files. */
-export const RESERVED_PATHS = ['/robots.txt', '/sitemap.xml', '/sitemap-index.xml', '/favicon.ico', '/favicon.svg', '/rss.xml'] as const
+export const RESERVED_PATHS = [
+  '/enrol/offer',
+  '/robots.txt',
+  '/sitemap.xml',
+  '/sitemap-index.xml',
+  '/favicon.ico',
+  '/favicon.svg',
+  '/rss.xml',
+] as const
 
 /** Prefixes the trailing-slash redirect leaves alone: APIs, files, the admin app and Cloudflare's own paths. */
 const SLASH_EXEMPT = ['/api', '/media', '/admin', '/_astro', '/_image', '/cdn-cgi'] as const

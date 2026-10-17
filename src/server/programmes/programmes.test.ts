@@ -116,6 +116,17 @@ describe('programmes', () => {
     await rejects(newLeague({ moreInfoUrl: 'javascript:alert(1)' }), 400, /More info/)
     await rejects(newLeague({ enrolmentOpensAt: '2026-11-01T00:00:00Z', enrolmentClosesAt: '2026-10-01T00:00:00Z' }), 400, /open before/)
     await rejects(createProgramme(db, admin, { kind: 'club', name: 'x', code: 'X', categoryId: 'cat_juniors', weekday: 1 }), 400)
+    // /leagues/fixtures is the cross-league fixture list.
+    await rejects(
+      createProgramme(db, admin, { kind: 'league', name: 'Fixtures', code: 'FIXTURES', categoryId: 'cat_mixed_leagues', weekday: 1 }),
+      400,
+      /used by the site/,
+    )
+    await rejects(
+      createProgramme(db, admin, { kind: 'training', name: 'x', code: 'X', slug: 'fixtures', categoryId: 'cat_juniors', weekday: 1 }),
+      400,
+      /used by the site/,
+    )
     expect(await db.select().from(programmes).all()).toEqual([])
   })
 

@@ -19,14 +19,14 @@ Status as of 2026-10-18: **Done** = built and on staging, **Partial** = some of 
 | **Leagues**                       | Leagues as records (TNL, FNL …) that own their seasons, with add, rename, retire and reactivate                                        | **Done**    | Admin → Leagues lists each league with its seasons; a league opens to Details, Enrolment and Seasons tabs: add, rename, change URL (leaves 301s for the league and its season pages), category, retire, reactivate, delete while it has no history. Training, Development and Events have their own sections (sessions, terms, dates). API: [api/programmes.md](api/programmes.md). |
 | **Seasons**                       | A league has quarterly seasons, each with its own settings                                                                             | **Done**    | Admin → Seasons: create, set up, publish, archive. Points per W/D/L and sets per match are per season.                                                                                                                                                                                                                                                                              |
 | **Teams and rollover**            | Teams carry over between seasons; one-click "roll over to next season"                                                                 | **Done**    | "New season" copies the latest season's teams and settings. Teams can be renamed and created. Still missing: a team list screen (merge duplicates, see a team's history).                                                                                                                                                                                                           |
-| **Venues and courts**             | Venues (Robyn Webster, MLC, Five Dock) separate from the courts inside them                                                            | **Done**    | Admin → Venues: name, URL, address, map link, directions; courts per venue with ordering and renames; delete only when unused. The public Where We Play page still needs to read them (public pages agent).                                                                                                                                                                         |
+| **Venues and courts**             | Venues (Robyn Webster, MLC, Five Dock) separate from the courts inside them                                                            | **Done**    | Admin → Venues: name, URL, address, map link, directions; courts per venue with ordering and renames; delete only when unused. Programme, category and fixture pages read them; the Where We Play content page still holds its own text (content map, or a venues block later).                                                                                                     |
 | **Matches**                       | Date, time, teams, court, match day, status, plus duty team, bye and finals placeholders as real fields                                | **Done**    | Duty, byes and placeholders are fields. Status is scheduled, played, forfeit, cancelled, **postponed** or **TBD**, with a public note, set per game on the Results tab and shown on the public fixtures. Not in the admin yet: moving one postponed game to another night (`matches.original_match_day_id`) and the `referee` field.                                                |
 | **Creating fixtures**             | The draw generator, with CSV import as a fallback                                                                                      | **Done**    | Generator (runs in the browser), plus **CSV import** for draft seasons: paste or pick a file, a preview listing every problem by line, then it becomes the draw (audited as `fixtures.import`). It meets the same checks as a generated draw. See docs/api/seasons.md.                                                                                                              |
 | **Match list**                    | Filters for team, venue, league, season and match day; results for a whole match day on one screen                                     | **Done**    | A season's Results tab shows a whole match day on one screen. Admin → **Matches** lists every game across leagues for a date range (Today, Next 7 days, this Thursday … buttons), filtered by league, season, team (playing or on duty), venue, court and status, each linking to its match day's results.                                                                          |
 | **Results**                       | Per-set points, sets and outcome worked out automatically, a manual override for forfeits and walkovers, draft → publish per match day | **Partial** | Per-set entry, draft → publish and undo are done. Forfeit is only a label on an ordinary score. The manual outcome override is in the schema (`match_results.outcome`, `note`) but not in the admin; the forfeit score rule waits on Michael (PLAN.md open question 7).                                                                                                             |
 | **Scoring rules**                 | Fixed ladder columns, with W/D/L points, sets per match and tie-break order per season                                                 | **Done**    | Points and sets per match are per season. **Tie-break order** is configurable per season (Setup → Ladder rules: set or points difference, ratio or totals, wins, head to head; name is always last), defaulting to the old order. The 1–1 rule (draw, or decided on points as SportsPress did) is still open.                                                                       |
 | **Ladders**                       | Automatic, with point adjustments plus a reason, hiding a withdrawn team, and automatic "Week X of Y" and "Updated" lines              | **Done**    | Automatic, adjustments with reasons, and the generated headings. **Withdrawn teams**: withdraw one from the Results tab with a reason, optionally cancelling its remaining games (undoable with Reinstate). Per season, the ladder marks it (last, "withdrawn") or hides it, its results count or are voided, and its cancelled games show as cancelled or as byes.                 |
-| **Fixture lists**                 | Filtered lists ("this week", "upcoming") and an iCal feed per team                                                                     | **Missing** | The league page shows the whole season. No "this week" view, no team pages, no iCal feeds.                                                                                                                                                                                                                                                                                          |
+| **Fixture lists**                 | Filtered lists ("this week", "upcoming") and an iCal feed per team                                                                     | **Done**    | `/leagues/fixtures`: this week (Mon–Sun, Sydney) or upcoming, across leagues or one, and one team's games and duties (GET filters, works without JS). League pages have Fixtures / Ladder / Results tabs. iCal feeds per league and per team (webcal links on the league page), following the current season. See §3.12.                                                            |
 | **Fixtures and ladders on pages** | "Ladder" and "Fixtures" blocks in the page editor that follow the current season (SportsPress used shortcodes)                         | **Done**    | Page editor → “+ Block…”: Ladder, Fixtures and Programme list blocks with a live preview and a settings dialog; they render on the public page from D1 at view time and purge with the data they show. See section 3.4 and [api/menu-and-blocks.md](api/menu-and-blocks.md).                                                                                                        |
 | **Bulk postpone or cancel**       | Postpone or cancel a whole night, with a choice to push the season back a week                                                         | **Done**    | Results tab → "Postpone or cancel the night" on a published season: postpone or cancel every game on it, or push this night and the rest of the season back a week (previewed with the lib's `pushBack()`, stepping over weeks off and holidays; results stay attached). One batch, audited, and undoable from the night or the new week off.                                       |
 | **Import and export**             | A one-time WordPress import, plus CSV export                                                                                           | **Done**    | `npm run import:wp` (staging so far; production in Phase 8) and a CSV download per season.                                                                                                                                                                                                                                                                                          |
@@ -233,7 +233,8 @@ The site takes enrolments itself, replacing the Google Forms. **Payment processi
   (once Resend is set up). Uses the existing `players`, `groups` and `registrations` tables; `products` maps onto
   sessions, terms, seasons and events.
 
-**Status: Done (server, admin and the form component); the public pages that show the form are the Public step.**
+**Status: Done**, public pages included: each programme page has an `#enrol` section with the form, and `/enrol` lists
+everything open (§3.13).
 Built: the form builder (Admin → Enrolments → Enrolment forms) with every field type, required, help text, reordering,
 per-entry-type and conditional questions, defaults per kind and a live preview; `POST /api/enrol` with Turnstile,
 validation against the form, exact caps by players and/or teams, waitlist, duplicate detection, D1 rate limits and
@@ -242,7 +243,7 @@ lapsed offers on; four email templates; Admin → Enrolments (per season, sessio
 the caps, search and filters, mark paid/unpaid with method and note, cancel, reinstate, move, promote and offer from
 the waitlist, free agents into teams, add by hand, CSV export); and the `<EnrolmentForm>` island for `/enrol` and
 programme pages. API: [docs/api/enrolment.md](api/enrolment.md). Left: real Turnstile keys for production (without
-them the form says enrolment is unavailable), the `/enrol` and programme pages, and Resend for the emails.
+them the form says enrolment is unavailable) and Resend for the emails.
 
 Decisions (each the more robust or more configurable option):
 
@@ -338,13 +339,14 @@ Programmes admin (build step 1), decisions taken the robust and configurable way
    management" and "venues and courts" from section 1).
 2. **Done:** menu and blocks: automatic category dropdowns, the Programme list block, Ladder and Fixtures blocks
    (decisions in section 3.12, API in [api/menu-and-blocks.md](api/menu-and-blocks.md)). The category landing pages
-   the dropdowns link to come with step 3.
-3. Public pages: category and programme pages, flat URLs with 301s, league page tabs.
+   the dropdowns link to are step 3.
+3. **Done:** public pages: category and programme pages, flat URLs with 301s, league page tabs, `/enrol`, fixture
+   lists and iCal feeds (section 3.13).
 4. Enrolment: forms, caps, waitlists, manual paid/unpaid, CSV export. **Done** (section 3.7); the pages showing the
    form come with step 3.
 5. Content map: rewrite the 37 imported pages into the new structure for Michael's review.
 6. The rest of section 1 (postponed/TBD, bulk postpone or cancel a night, cross-league match list, withdrawn teams,
-   tie-break order and CSV fixture import are done; fixture lists and iCal remain) and the analytics in section 2
+   tie-break order, CSV fixture import, fixture lists and iCal are done) and the analytics in section 2
    (built; waiting for credentials).
 
 Phase 7 then designs how the category, programme and enrolment pages look and does their SEO (structured data for
@@ -408,6 +410,55 @@ Build step 2, each taking the more robust and more configurable option:
   so what Michael sees is what the page shows.
 - **Attrs are normalised on save** (bounded lengths and counts, unknown fields dropped), and every value is escaped
   when rendered. Blocks are offered in the page editor only, not news posts.
+
+### 3.13 Public pages (build step 3)
+
+| URL                                                                | What                                                                                                                                                                                            | Route / data                                                                           |
+| ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `/<category>`                                                      | Breadcrumb, the category's intro (Admin → Categories), a card per active programme: summary line, next start, enrolment open or closed, links to the page and its `#enrol`                      | `src/pages/[...path].astro` → `loadCategoryPage()` (`src/server/programmes/public.ts`) |
+| `/leagues/<slug>`                                                  | Breadcrumb (category › league), when and where, "Next season starts …", the description, then **Fixtures / Ladder / Results** tabs, the season archive, the `#enrol` section and calendar links | `src/pages/leagues/[league]/index.astro`                                               |
+| `/training/<slug>`, `/programs/<slug>`, `/events/<slug>`           | Breadcrumb, when and where, description, upcoming sessions / terms / dates (postponed and cancelled marked, "moved from", spots left while open), then `#enrol` with the form                   | `ProgrammeDetail.astro` via `programmeRoute()` (`src/server/programmes/route.ts`)      |
+| `/enrol`                                                           | Everything open now, grouped by category (cards list each open session/term/season with spots left), then what isn't open yet with its next start                                               | `src/pages/enrol/index.astro` → `loadListings()`                                       |
+| `/leagues/fixtures?view=week\|upcoming&league=<slug>&team=<slug>`  | This week (Monday–Sunday, Sydney) or upcoming games, all leagues or one, or one team's games, byes and duties; grouped by night, one table per league                                           | `src/pages/leagues/fixtures.astro`                                                     |
+| `/leagues/<slug>/calendar.ics`, `/leagues/<slug>/teams/<team>.ics` | iCal feeds of the league's current season, or one team's games and duties in it                                                                                                                 | `src/server/competition/feed-route.ts`, `calendar.ts`, `src/lib/ical.ts`               |
+
+Decisions (each the more robust or more configurable option):
+
+- **Tabs degrade to sections.** Without JavaScript the three sections stack with their headings; a 1 KB inline script
+  turns them into ARIA tabs (arrow keys, Home/End). The page opens on the **fixtures before the first game night**
+  (and while there's no draw) and on the **ladder** from then on (`defaultLeagueTab()`, `src/lib/fixture-lists.ts`).
+  `#fixtures`, `#ladder` and `#results` (old links too) open their tab, and clicking a tab updates the hash so links
+  can be shared. A night moves from Fixtures to Results once its date passes or its results are published.
+- **Generated text, hand-editable.** Cards and pages use the same text as the admin (`src/lib/programme-text.ts`): the
+  programme's own summary line, schedule label and "next starts" text win over the generated ones; the SEO title and
+  description fields win over the generated `<title>` and meta description. The `/enrol` intro is editable: publish
+  a page at `/enrol` in Admin → Pages and its title and body show above the list.
+- **Lifecycle.** Drafts are 404s everywhere. Retired programmes keep their page with "This … has finished" and what
+  they ran (past seasons, sessions, terms or events); they leave category pages, `/enrol` and the feeds. A slug of
+  another kind 301s to the right prefix (`/training/tnl` → `/leagues/tnl`); an old slug follows the 301 the
+  programmes admin wrote.
+- **Spots left** come from the enrolment loaders (live counts against the caps); pages are edge-cached for 5 minutes,
+  so the number can lag a few minutes. The server's cap check is exact, so a late entry joins the waitlist.
+- **The form hydrates on scroll** (`client:visible`) and only where something is open, so programme pages stay at
+  Lighthouse mobile 99–100 performance and 100 accessibility (checked locally on the built Worker; SEO shows 69
+  only because non-production pages are `noindex`).
+- **Fixture lists use GET parameters** on one URL under `/leagues` (no content page can take it, and "fixtures" is a
+  reserved programme slug). Unknown league or team values fall back to everything, never an empty page. The old
+  `/this-weeks-fixtures` page now redirects here.
+- **iCal:** times in UTC (`…Z`) converted from Sydney local time, so no VTIMEZONE is needed and every client shows the
+  right local time; `X-WR-TIMEZONE:Australia/Sydney` hints the display zone. UIDs are `<match id>@tempevb.com`, so an
+  edit updates the event rather than duplicating it. Cancelled games stay in as `STATUS:CANCELLED` (calendars remove
+  them); postponed and TBD ones are `TENTATIVE`. Feeds follow the **current** season, so one subscription lasts
+  season after season; between seasons a feed is empty rather than a 404, so calendar apps keep it. Clients are asked
+  to refresh every 6 hours.
+- **Old enrolment pages → `/enrol`:** `/2023-enrolment`, `/2021-interest-in-playing`, `/new-player(-2023)`,
+  `/new-team-group(-2023)`, `/returning-player` and `/returning-team` are `manual` redirects written by the importer
+  (`ENROL_REDIRECTS` in `src/lib/wp-import/routes.ts`), never overwriting one Michael has edited. They take over as
+  soon as the content map archives each page (a published page always wins over a redirect).
+- **Cache tags** match the purge helpers: programme pages carry `programme:<slug>` (+ `league:<slug>`),
+  `category:<slug>` (the breadcrumb), `venues` and `page:<path>` (which the enrolment admin purges); category pages
+  `category:<slug>`, `programmes`, `venues`; `/enrol` `page:/enrol`, `programmes`, `venues`; fixture lists and feeds
+  `league:<slug>` (and SITE, like every page).
 
 ## 4. Admin UI/UX
 

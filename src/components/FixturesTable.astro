@@ -4,8 +4,8 @@ import type { FixtureRow } from '../server/competition/adapter'
 
 // Fixtures and results, columns as on the old site: Date, Match, Time, Results, Court, Match Day, Duty (no Duty
 // column for leagues without team duty, i.e. TVSL).
-type Props = { rows: FixtureRow[]; caption?: string; showDuty?: boolean }
-const { rows, caption, showDuty = true } = Astro.props
+type Props = { rows: FixtureRow[]; caption?: string; showDuty?: boolean; emptyText?: string }
+const { rows, caption, showDuty = true, emptyText = "The draw hasn't been published yet." } = Astro.props
 const cols = showDuty ? 7 : 6
 ---
 
@@ -26,7 +26,7 @@ const cols = showDuty ? 7 : 6
     <tbody>
       {rows.length === 0 ? (
         <tr>
-          <td colspan={cols}>The draw hasn't been published yet.</td>
+          <td colspan={cols}>{emptyText}</td>
         </tr>
       ) : (
         rows.map((r) =>

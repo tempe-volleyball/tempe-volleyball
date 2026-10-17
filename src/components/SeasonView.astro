@@ -1,4 +1,5 @@
 ---
+import { defaultLeagueTab, FIXTURE_LIST_ROUTE, LEAGUE_TAB_LABELS, LEAGUE_TABS, splitFixtures, type LeagueTab } from '../lib/fixture-lists'
 import { ladderTitle, ladderUpdatedLabel, ladderWeekLabel } from '../lib/fixtures'
 import { seasonRoute } from '../lib/wp-import/routes'
 import { fixtureRows } from '../server/competition/adapter'
@@ -7,51 +8,166 @@ import type { LeagueSeason } from '../server/site'
 import FixturesTable from './FixturesTable.astro'
 import LadderTable from './LadderTable.astro'
 
-// One season: ladder (#ladder) with the generated "Week N of M" / "Updated dd/mm/yyyy", then fixtures and results
-// (#fixtures), then links to the league's other seasons.
-type Props = { view: LeagueSeason; others: SeasonSummary[]; current: boolean }
-const { view, others, current } = Astro.props
+// One season as Fixtures / Ladder / Results tabs (docs/admin.md §3.5), then links to the league's other seasons.
+// The tab it opens on is the fixtures before the first game night and the ladder from then on; #fixtures, #ladder
+// and #results (old links included) open that tab instead. Without JavaScript the three sections simply stack.
+// Slots: "before" goes above the H1 (breadcrumbs), the default slot under the subtitle (description, enrol link).
+export type CalendarLinks = { league: { webcal: string; https: string }; teams: { name: string; webcal: string; https: string }[] }
+type Props = { view: LeagueSeason; others: SeasonSummary[]; current: boolean; today: string; calendar?: CalendarLinks | undefined }
+const { view, others, current, today, calendar } = Astro.props
 const { league, summary, competition } = view
 const week = ladderWeekLabel(competition.weeks)
 const updated = ladderUpdatedLabel(competition.weeks)
 // "Ladder – Week 4 of 9", or "Final standings – Week 10 of 10" once the round robin is all published.
 const ladderHeading = `${ladderTitle(competition.weeks)}${week ? ` – ${week}` : ''}`
 const rows = fixtureRows(competition, view.data.matches)
+const { upcoming, played } = splitFixtures(rows, competition.weeks, today)
 const hasFinals = competition.weeks.some((w) => w.kind === 'semi' || w.kind === 'final')
+const initial: LeagueTab = current ? defaultLeagueTab(competition.weeks, today) : 'ladder'
+const showDuty = view.data.season.dutyEnabled
+const linkClass = 'text-link decoration-accent font-semibold underline decoration-2 underline-offset-2'
 ---
 
+<slot name="before" />
 <h1 class="page-title">
   {league.name}
   {current ? '' : ` – ${summary.name}`}
 </h1>
-<p class="-mt-4 mb-10 text-lg">
-  {current ? `${summary.name}. ` : summary.status === 'archived' ? 'Past season. ' : ''}
-  <a class="text-link decoration-accent font-semibold underline decoration-2 underline-offset-2" href="#fixtures">
-    Fixtures and results
-  </a>
-  {' · '}
-  <a class="text-link decoration-accent font-semibold underline decoration-2 underline-offset-2" href="#ladder">
-    Ladder
-  </a>
-</p>
+<p class="-mt-4 mb-6 text-lg">{current ? `${summary.name}.` : summary.status === 'archived' ? 'Past season.' : ''}</p>
+<slot />
 
-<section id="ladder" aria-labelledby="ladder-heading" class="mb-14 scroll-mt-4">
-  <h2 id="ladder-heading" class="mb-4 text-2xl font-bold sm:text-3xl">
-    {ladderHeading}
-  </h2>
-  <LadderTable rows={view.ladder} caption={`${summary.name} Ladder`} />
-  <div class="mt-3 flex flex-wrap justify-between gap-2 text-sm">
-    <p>{hasFinals ? 'Round-robin matches only; finals are in the fixtures.' : ''}</p>
-    {updated && <p class="font-semibold">{updated}</p>}
+<div class="league-tabs mt-8" data-default={initial}>
+  <div role="tablist" aria-label={`${summary.name}`} class="mb-6 flex flex-wrap gap-1 border-b-4 border-brand" hidden>
+    {LEAGUE_TABS.map((t) => (
+      <button
+        type="button"
+        role="tab"
+        id={`tab-${t}`}
+        data-tab={t}
+        aria-controls={t}
+        aria-selected={t === initial ? 'true' : 'false'}
+        tabindex={t === initial ? 0 : -1}
+        class="font-display px-4 py-2.5 text-base font-bold uppercase aria-selected:bg-brand aria-selected:text-white not-aria-selected:bg-white/60 not-aria-selected:hover:bg-white sm:px-6 sm:text-lg"
+      >
+        {LEAGUE_TAB_LABELS[t]}
+      </button>
+    ))}
   </div>
-</section>
 
-<section id="fixtures" aria-labelledby="fixtures-heading" class="mb-14 scroll-mt-4">
-  <h2 id="fixtures-heading" class="mb-4 text-2xl font-bold sm:text-3xl">
-    Fixtures and Results
-  </h2>
-  <FixturesTable rows={rows} caption={`${summary.name} Fixtures and Results`} showDuty={view.data.season.dutyEnabled} />
-</section>
+  <section id="fixtures" aria-labelledby="fixtures-heading" class="mb-14 scroll-mt-4">
+    <h2 id="fixtures-heading" class="mb-4 text-2xl font-bold sm:text-3xl">
+      Fixtures
+    </h2>
+    <FixturesTable
+      rows={upcoming}
+      caption={`${summary.name} Fixtures`}
+      showDuty={showDuty}
+      emptyText={rows.length === 0 ? "The draw hasn't been published yet." : 'No more games this season. See the results.'}
+    />
+    {calendar && (
+      <div class="mt-4 text-sm">
+        <p>
+          Add the {league.code} games to your calendar:{' '}
+          <a class={linkClass} href={calendar.league.webcal}>
+            subscribe<span class="sr-only"> to the {league.name} calendar</span>
+          </a>{' '}
+          or{' '}
+          <a class={linkClass} href={calendar.league.https}>
+            download<span class="sr-only"> the {league.name} calendar</span>
+          </a>
+        </p>
+        {calendar.teams.length > 0 && (
+          <details class="mt-2">
+            <summary class="cursor-pointer font-semibold">One team's games and duties</summary>
+            <ul class="mt-2 grid gap-x-6 gap-y-1 sm:grid-cols-2 lg:grid-cols-3">
+              {calendar.teams.map((t) => (
+                <li>
+                  <a class={linkClass} href={t.webcal}>
+                    {t.name}
+                  </a>
+                  {' · '}
+                  <a class="underline underline-offset-2" href={t.https}>
+                    .ics<span class="sr-only"> file for {t.name}</span>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+        <p class="mt-2">
+          <a class={linkClass} href={`${FIXTURE_LIST_ROUTE}?league=${league.slug}`}>
+            This week's {league.code} games
+          </a>
+        </p>
+      </div>
+    )}
+  </section>
+
+  <section id="ladder" aria-labelledby="ladder-heading" class="mb-14 scroll-mt-4">
+    <h2 id="ladder-heading" class="mb-4 text-2xl font-bold sm:text-3xl">
+      {ladderHeading}
+    </h2>
+    <LadderTable rows={view.ladder} caption={`${summary.name} Ladder`} />
+    <div class="mt-3 flex flex-wrap justify-between gap-2 text-sm">
+      <p>{hasFinals ? 'Round-robin matches only; finals are in the fixtures and results.' : ''}</p>
+      {updated && <p class="font-semibold">{updated}</p>}
+    </div>
+  </section>
+
+  <section id="results" aria-labelledby="results-heading" class="mb-14 scroll-mt-4">
+    <h2 id="results-heading" class="mb-4 text-2xl font-bold sm:text-3xl">
+      Results
+    </h2>
+    <FixturesTable rows={played} caption={`${summary.name} Results`} showDuty={showDuty} emptyText="No results yet." />
+  </section>
+
+  <script is:inline>
+    ;(() => {
+      const root = document.currentScript.parentElement
+      const list = root.querySelector('[role=tablist]')
+      const tabs = [...list.querySelectorAll('[data-tab]')]
+      const ids = tabs.map((t) => t.dataset.tab)
+      const show = (id, focus) => {
+        for (const t of tabs) {
+          const on = t.dataset.tab === id
+          t.setAttribute('aria-selected', String(on))
+          t.tabIndex = on ? 0 : -1
+          const panel = document.getElementById(t.dataset.tab)
+          panel.hidden = !on
+          if (on && focus) t.focus()
+        }
+      }
+      const fromHash = () => {
+        const h = location.hash.slice(1)
+        return ids.includes(h) ? h : null
+      }
+      for (const t of tabs) {
+        const panel = document.getElementById(t.dataset.tab)
+        panel.setAttribute('role', 'tabpanel')
+        panel.setAttribute('aria-labelledby', t.id)
+        panel.tabIndex = 0
+      }
+      list.hidden = false
+      show(fromHash() || root.dataset.default)
+      tabs.forEach((t, i) => {
+        t.addEventListener('click', () => {
+          show(t.dataset.tab)
+          history.replaceState(null, '', '#' + t.dataset.tab)
+        })
+        t.addEventListener('keydown', (e) => {
+          const to = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: ids.length - 1 }[e.key]
+          if (to === undefined) return
+          e.preventDefault()
+          show(ids[(to + ids.length) % ids.length], true)
+        })
+      })
+      addEventListener('hashchange', () => {
+        const h = fromHash()
+        if (h) show(h)
+      })
+    })()
+  </script>
+</div>
 
 {others.length > 0 && (
   <section aria-labelledby="seasons-heading">
