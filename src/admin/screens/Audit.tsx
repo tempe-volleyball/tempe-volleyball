@@ -11,6 +11,15 @@ const ACTIONS: Record<string, string> = {
   'invite.revoke': 'Cancelled invite',
   'invite.accept': 'Accepted invite',
   'user.remove': 'Removed user',
+  'page.publish': 'Published page',
+  'page.unpublish': 'Unpublished page',
+  'page.delete': 'Deleted page',
+  'post.publish': 'Published post',
+  'post.unpublish': 'Unpublished post',
+  'post.delete': 'Deleted post',
+  'media.delete': 'Deleted file',
+  'menu.update': 'Changed menu',
+  'settings.update': 'Changed setting',
 }
 
 const describe = (row: AuditRow) => {
@@ -21,6 +30,12 @@ const describe = (row: AuditRow) => {
     return `${email}: ${String(before.role ?? '?')} → ${String(after.role ?? '?')}`
   if (row.action.startsWith('invite.')) return `${email}${after.role || before.role ? ` as ${String(after.role ?? before.role)}` : ''}`
   if (row.action === 'user.remove') return `${email} (${String(before.role ?? '')})`
+  if (row.action.startsWith('page.')) return `${String(after.title ?? before.title ?? '')} (${String(after.path ?? before.path ?? '')})`
+  if (row.action.startsWith('post.'))
+    return `${String(after.title ?? before.title ?? '')} (/news/${String(after.slug ?? before.slug ?? '')})`
+  if (row.action === 'media.delete') return String(before.filename ?? row.targetId ?? '')
+  if (row.action === 'menu.update') return `${String(before.items ?? 0)} → ${String(after.items ?? 0)} items`
+  if (row.action === 'settings.update') return row.targetId ?? ''
   return row.targetType ? `${row.targetType} ${row.targetId ?? ''}` : ''
 }
 

@@ -67,3 +67,17 @@ export const purgeSite = (cache: RouteCache) => purgeTags(cache, [tags.site])
 
 /** A news post changed: the post and the news index (and the home page, should it list news later). */
 export const purgePost = (cache: RouteCache, slug: string) => purgeTags(cache, [tags.post(slug), tags.news, tags.page('/')])
+
+/** What an admin content change (src/server/content/*) needs purged. */
+export type PurgeTargets = { tags?: string[] }
+
+/** The outcome reported back to the admin: 'failed' means the live site may lag until the cache entry expires. */
+export type PurgeOutcome = 'purged' | 'disabled' | 'failed' | 'nothing'
+
+/** purgeTags() for the admin's content routes. Never throws. */
+export async function purge(cache: RouteCache, targets: PurgeTargets): Promise<PurgeOutcome> {
+  const list = targets.tags ?? []
+  if (list.length === 0) return 'nothing'
+  if (!cache.enabled) return 'disabled'
+  return (await purgeTags(cache, list)).ok ? 'purged' : 'failed'
+}

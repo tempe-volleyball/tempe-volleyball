@@ -4,7 +4,12 @@ import type { Me } from './api'
 import { authClient } from './auth-client'
 import { AcceptInvite } from './screens/AcceptInvite'
 import { Audit } from './screens/Audit'
+import { Media } from './screens/Media'
+import { Menu } from './screens/Menu'
+import { PageEditor, PageList } from './screens/Pages'
+import { PostEditor, PostList } from './screens/Posts'
 import { Security } from './screens/Security'
+import { Settings } from './screens/Settings'
 import { SignIn } from './screens/SignIn'
 import { Users } from './screens/Users'
 import { Button, Card, RoleBadge } from './ui'
@@ -38,6 +43,11 @@ function Shell({ me, children }: { me: Me; children: React.ReactNode }) {
       <nav className="bg-brand" aria-label="Admin">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center px-4">
           {!me.totpRequired && <NavLink href="/">Home</NavLink>}
+          {!me.totpRequired && <NavLink href="/pages">Pages</NavLink>}
+          {!me.totpRequired && <NavLink href="/news">News</NavLink>}
+          {!me.totpRequired && <NavLink href="/menu">Menu</NavLink>}
+          {!me.totpRequired && <NavLink href="/media">Media</NavLink>}
+          {!me.totpRequired && <NavLink href="/settings">Settings</NavLink>}
           {!me.totpRequired && me.canManageUsers && <NavLink href="/users">Admin users</NavLink>}
           {!me.totpRequired && me.canManageUsers && <NavLink href="/audit">Audit log</NavLink>}
           <NavLink href="/security">Security</NavLink>
@@ -60,8 +70,32 @@ function Home({ me }: { me: Me }) {
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">Hello, {me.user.name || me.user.email}</h1>
       <Card title="Admin">
-        <p className="text-sm">Pages, menus, media, seasons and results editing are on their way. For now you can:</p>
+        <p className="text-sm">Seasons and results editing are on their way. For now you can:</p>
         <ul className="mt-3 list-disc space-y-1 pl-5 text-sm">
+          <li>
+            <Link href="/pages" className="text-brand underline">
+              Edit pages
+            </Link>{' '}
+            and{' '}
+            <Link href="/news" className="text-brand underline">
+              news posts
+            </Link>
+          </li>
+          <li>
+            <Link href="/menu" className="text-brand underline">
+              Change the menu
+            </Link>
+          </li>
+          <li>
+            <Link href="/media" className="text-brand underline">
+              Upload images and files
+            </Link>
+          </li>
+          <li>
+            <Link href="/settings" className="text-brand underline">
+              Update contact details, the announcement banner and other settings
+            </Link>
+          </li>
           {me.canManageUsers && (
             <li>
               <Link href="/users" className="text-brand underline">
@@ -110,6 +144,29 @@ function SignedIn({ me }: { me: Me }) {
       <Switch>
         <Route path="/">
           <Home me={me} />
+        </Route>
+        <Route path="/pages">
+          <PageList />
+        </Route>
+        <Route path="/pages/new">
+          <PageEditor id={null} />
+        </Route>
+        <Route path="/pages/:id">{(p) => <PageEditor key={p.id} id={p.id} />}</Route>
+        <Route path="/news">
+          <PostList />
+        </Route>
+        <Route path="/news/new">
+          <PostEditor id={null} />
+        </Route>
+        <Route path="/news/:id">{(p) => <PostEditor key={p.id} id={p.id} />}</Route>
+        <Route path="/menu">
+          <Menu />
+        </Route>
+        <Route path="/media">
+          <Media />
+        </Route>
+        <Route path="/settings">
+          <Settings me={me} />
         </Route>
         <Route path="/users">
           <Users me={me} />

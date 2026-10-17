@@ -2,6 +2,7 @@
 // Every /admin/* URL renders this shell; the React app's router (src/admin/App.tsx) picks the screen. The
 // middleware has already checked the session and redirected if needed, so locals.user is trustworthy here.
 import '../../styles/global.css'
+import '../../styles/content.css'
 import App from '../../admin/App'
 import type { Me } from '../../admin/api'
 import { assignableRoles, canManageUsers } from '../../lib/roles'

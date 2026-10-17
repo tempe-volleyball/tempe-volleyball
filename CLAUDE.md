@@ -52,7 +52,9 @@ src/worker.ts        Worker entry: Astro's fetch handler + scheduled() (crons). 
 src/middleware.ts    Runs on every SSR request: admin guard (server/auth/guard.ts) for /admin/* and /api/admin/*,
                      noindex unless production on www.tempevb.com.
 src/admin/           The admin React app (one client:only island at /admin/*, wouter router with base /admin):
-                     sign-in, TOTP enrolment, admin users, audit log. src/pages/admin/[...path].astro mounts it.
+                     sign-in, TOTP enrolment, admin users, audit log, and content: pages (+ revisions), news,
+                     menu (dnd-kit), media library, site settings. editor/ is the TipTap editor (lazy-loaded);
+                     media/upload.ts resizes images to WebP in the browser. src/pages/admin/[...path].astro mounts it.
 src/pages/           Routes. api/health.ts is the deploy smoke test. robots.txt.ts disallows all outside production.
                      Public: index (home page row), [...path] (content pages by pages.path, else the redirects table
                      → 301, else 404), leagues/ (index, [league] = current season #ladder/#fixtures, [league]/[season]
@@ -64,6 +66,10 @@ src/lib/fixtures/    The demo's fixtures logic, ported (Phase 4): types, schedul
                      analysis (validate, teamStats), results (ladder, ratio, set scores, finals resolver, ladder
                      heading), edit, competition, export, clashes (court clashes across leagues), demo (sample
                      season). index.ts re-exports the public API. No storage: DB adapters live in src/server/.
+src/lib/content/     Content rules shared by admin and Worker: render.ts (editor JSON -> sanitised HTML; the
+                     server-side sanitiser), paths.ts (page paths, slugs, reserved prefixes), menu.ts (validate /
+                     build the two-level tree), media.ts (widths, upload names, URLs), settings.ts (site_settings
+                     keys, defaults, validation, per-key roles).
 src/lib/wp-import/   Pure parts of the WordPress importer: title parser (finals labels, duty, byes, skip weeks),
                      SportsPress result mapping, route conventions + old-URL mapping (routes.ts), SQL upserts,
                      upload-link rewriting, ladder reconciliation.
@@ -79,6 +85,8 @@ src/server/          Code that touches bindings: db/schema.ts + db/index.ts (Dri
                      auth/: auth.ts (Better Auth runtime config), options.ts (schema-shaping plugins),
                      passwordless-2fa.ts (TOTP challenge after email-code/magic-link sign-in, which Better Auth's
                      twoFactor doesn't do itself), roles.ts (all role/invite/audit rules), guard.ts, bootstrap.ts.
+                     content/: pages, posts, menu, media (R2 streaming), settings: validation, batched writes,
+                     audit, 301s on path changes. cache.ts: edge-cache tags + purge() after publishes.
                      email/: createMailer().sendEmail(to, template, data) via email_outbox + 95/day cap + Resend. db/schema.ts re-exports the tables in db/schema/ (one file per
                      area; enums.ts holds the `as const` value lists). db/testing.ts gives tests an in-memory
                      SQLite (node:sqlite) with every migration applied: `const { db } = createTestDb()`.
@@ -119,6 +127,15 @@ docs/reference/      Screenshots of the old site, the design to match.  docs/bas
   `PaymentProvider` interface. Don't call Resend or Stripe directly from routes.
 - **SEO:** real URLs (no `#/` routes on public pages), one H1 per page, a title and meta description on every page, and
   canonical URLs on `https://www.tempevb.com` (`site` in `astro.config.mjs`). Only production on `www.tempevb.com` is indexable (`src/lib/indexing.ts`); everything else, including production on `*.workers.dev`, sends `noindex`.
+- **Page and post bodies:** the server never stores HTML from the browser. The editor sends TipTap JSON blocks and
+  `renderBlocks()` (src/lib/content/render.ts) writes `body.html` from an allowlist. A new editor node or mark needs a
+  case there too, or it's dropped on save. Imported bodies have `blocks: []` and HTML from the importer's sanitiser.
+- **Edge cache purges from the admin:** content mutations in src/server/content/ return the cache tags they touch
+  (`site` for menu, settings and page path/status changes; `page:<path>`; `news`, `page:/` and `post:<slug>`), and
+  the route calls `purge(context.cache, …)`, which reports the outcome back to the admin.
+- **D1 batch gotcha:** inside `runBatch`, use query builders, not ``db.run(sql`…${param}`)``: drizzle's D1 batch can't bind
+  a raw statement's parameters (it crashes with "reading 'bind'"), and the node:sqlite test DB doesn't catch it.
+  D1 also caps bound parameters at 100 per statement, so chunk multi-row inserts.
 - **Don't touch the tempevb.com domain or DNS** until the cutover in Phase 6 is explicitly approved.
 
 ## Domain rules
