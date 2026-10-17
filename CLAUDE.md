@@ -38,7 +38,7 @@ To test the cron handler locally: `npx wrangler dev --test-scheduled`, then
 
 ```
 src/worker.ts        Worker entry: Astro's fetch handler + scheduled() (crons). wrangler.jsonc "main" points here.
-src/middleware.ts    Runs on every SSR request (noindex outside production; auth guard later).
+src/middleware.ts    Runs on every SSR request (noindex unless production on www.tempevb.com; auth guard later).
 src/pages/           Routes. api/health.ts is the deploy smoke test. robots.txt.ts disallows all outside production.
 src/layouts/         Page shells for public pages.
 src/lib/             Pure logic with tests. No bindings, no `cloudflare:*` imports, no DOM. The demo's scheduler,
@@ -81,7 +81,7 @@ docs/reference/      Screenshots of the old site, the design to match.  docs/bas
 - **Providers stay swappable:** email goes through `sendEmail()` (outbox + daily cap) and payments through the
   `PaymentProvider` interface. Don't call Resend or Stripe directly from routes.
 - **SEO:** real URLs (no `#/` routes on public pages), one H1 per page, a title and meta description on every page, and
-  canonical URLs on `https://www.tempevb.com` (`site` in `astro.config.mjs`). Non-production sends `noindex`.
+  canonical URLs on `https://www.tempevb.com` (`site` in `astro.config.mjs`). Only production on `www.tempevb.com` is indexable (`src/lib/indexing.ts`); everything else, including production on `*.workers.dev`, sends `noindex`.
 - **Don't touch the tempevb.com domain or DNS** until the cutover in Phase 6 is explicitly approved.
 
 ## Domain rules

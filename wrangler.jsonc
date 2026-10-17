@@ -10,12 +10,19 @@
   "main": "./src/worker.ts",
   "compatibility_date": "2026-10-12",
   "compatibility_flags": ["global_fetch_strictly_public", "nodejs_compat"],
-  "assets": { "directory": "./dist", "binding": "ASSETS" },
-  "observability": { "enabled": true },
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+  },
+  "observability": {
+    "enabled": true,
+  },
   "workers_dev": true,
   "preview_urls": true,
-
-  "vars": { "SITE_ENV": "development", "SITE_URL": "http://localhost:4321" },
+  "vars": {
+    "SITE_ENV": "development",
+    "SITE_URL": "http://localhost:4321",
+  },
   "d1_databases": [
     {
       "binding": "DB",
@@ -24,37 +31,73 @@
       "migrations_dir": "migrations",
     },
   ],
-  "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "tempevb-media-local" }],
-
+  "r2_buckets": [
+    {
+      "binding": "MEDIA",
+      "bucket_name": "tempevb-media-local",
+    },
+    {
+      "bucket_name": "tempevb-media-staging",
+      "binding": "tempevb_media_staging",
+    },
+    {
+      "bucket_name": "tempevb-media-production",
+      "binding": "tempevb_media_production",
+    },
+    {
+      "bucket_name": "tempevb-backups",
+      "binding": "tempevb_backups",
+    },
+  ],
   "env": {
     "staging": {
       "name": "tempe-volleyball-staging",
-      "vars": { "SITE_ENV": "staging", "SITE_URL": "https://tempe-volleyball-staging.REPLACE_SUBDOMAIN.workers.dev" },
+      "vars": {
+        "SITE_ENV": "staging",
+        "SITE_URL": "https://tempe-volleyball-staging.tempevb.workers.dev",
+      },
       "d1_databases": [
         {
           "binding": "DB",
           "database_name": "tempevb-staging",
-          "database_id": "REPLACE_WITH_STAGING_D1_ID",
+          "database_id": "f75c373f-8779-4953-b4e6-730e25b1d017",
           "migrations_dir": "migrations",
         },
       ],
-      "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "tempevb-media-staging" }],
+      "r2_buckets": [
+        {
+          "binding": "MEDIA",
+          "bucket_name": "tempevb-media-staging",
+        },
+      ],
       // Hourly: expire invites and unpaid registrations, drain the email queue. Times are UTC.
-      "triggers": { "crons": ["0 * * * *"] },
+      "triggers": {
+        "crons": ["0 * * * *"],
+      },
     },
     "production": {
       "name": "tempe-volleyball-production",
-      "vars": { "SITE_ENV": "production", "SITE_URL": "https://tempe-volleyball-production.REPLACE_SUBDOMAIN.workers.dev" },
+      "vars": {
+        "SITE_ENV": "production",
+        "SITE_URL": "https://tempe-volleyball-production.tempevb.workers.dev",
+      },
       "d1_databases": [
         {
           "binding": "DB",
           "database_name": "tempevb-production",
-          "database_id": "REPLACE_WITH_PRODUCTION_D1_ID",
+          "database_id": "cf370e1d-7d34-4808-9ffc-56ba3fed1ad7",
           "migrations_dir": "migrations",
         },
       ],
-      "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "tempevb-media-production" }],
-      "triggers": { "crons": ["0 * * * *"] },
+      "r2_buckets": [
+        {
+          "binding": "MEDIA",
+          "bucket_name": "tempevb-media-production",
+        },
+      ],
+      "triggers": {
+        "crons": ["0 * * * *"],
+      },
     },
   },
 }

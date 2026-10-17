@@ -1,9 +1,10 @@
 import { defineMiddleware } from 'astro:middleware'
 import { env } from 'cloudflare:workers'
+import { isIndexable } from './lib/indexing'
 
-// Until the DNS cutover, nothing outside production may be indexed (staging, previews, *.workers.dev).
-export const onRequest = defineMiddleware(async (_context, next) => {
+// Only production on www.tempevb.com may be indexed (not staging, previews, or *.workers.dev).
+export const onRequest = defineMiddleware(async (context, next) => {
   const response = await next()
-  if (env.SITE_ENV !== 'production') response.headers.set('X-Robots-Tag', 'noindex, nofollow')
+  if (!isIndexable(context.url, env.SITE_ENV)) response.headers.set('X-Robots-Tag', 'noindex, nofollow')
   return response
 })

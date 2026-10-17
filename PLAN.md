@@ -4,8 +4,8 @@ Replace www.tempevb.com (WordPress 7.1.2 + SportsPress 2.7.31, "Premier" theme) 
 public site, the admin at `/admin`, and the API at `/api`. It must cost $0 to run, apart from Stripe's per-payment fee and
 the existing domain renewal.
 
-Status: **Phase 1 (skeleton) done, not yet deployed.** It's waiting on the accounts listed under
-[Setup needed from Jeremy](#setup-needed-from-jeremy).
+Status: **Phase 1 (skeleton) deployed** to `https://tempe-volleyball-staging.tempevb.workers.dev` and
+`https://tempe-volleyball-production.tempevb.workers.dev` (Cloudflare account `6a3ae071f30ac4126317d2920b7ce299`). GitHub setup is still to do.
 
 ## Contents
 

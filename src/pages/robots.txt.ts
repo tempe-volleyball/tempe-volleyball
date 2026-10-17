@@ -1,8 +1,9 @@
 import type { APIRoute } from 'astro'
 import { env } from 'cloudflare:workers'
+import { isIndexable } from '../lib/indexing'
 
-// Only production may be crawled. Staging and preview URLs on *.workers.dev are blocked.
-export const GET: APIRoute = () => {
-  const body = env.SITE_ENV === 'production' ? 'User-agent: *\nAllow: /\n' : 'User-agent: *\nDisallow: /\n'
+// Disallow everything except production on www.tempevb.com.
+export const GET: APIRoute = ({ url }) => {
+  const body = isIndexable(url, env.SITE_ENV) ? 'User-agent: *\nAllow: /\n' : 'User-agent: *\nDisallow: /\n'
   return new Response(body, { headers: { 'Content-Type': 'text/plain; charset=utf-8' } })
 }
