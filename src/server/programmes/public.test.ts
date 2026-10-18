@@ -311,6 +311,8 @@ describe('text helpers', () => {
       'Next season starts Thursday 14 January 2027',
     )
     expect(s.title).toBe('Thursday Night League Ladder, Fixtures and Results')
+    // A league with no public season (say, retired with only a draft) promises no ladder.
+    expect(programmeSeo(p, '', '', { hasSeasons: false }).title).toBe('Thursday Night League')
     expect(s.description).toBe(
       'Thursday Night League (TNL) @ Robyn Webster Sports Centre, Tempe, Thursdays 8–10pm. Next season starts Thursday 14 January 2027',
     )

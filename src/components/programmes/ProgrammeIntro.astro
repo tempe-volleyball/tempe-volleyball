@@ -13,9 +13,11 @@ type Props = {
   enrolmentOpen: boolean
   /** "league", "training programme" … for the retired notice. */
   noun: string
+  /** Whether past seasons (or sessions, terms, dates) are listed below, which the retired notice points to. */
+  hasHistory?: boolean
   titles?: Map<string, string>
 }
-const { programme: p, venue, nextStarts, enrolmentOpen, noun, titles } = Astro.props
+const { programme: p, venue, nextStarts, enrolmentOpen, noun, titles, hasHistory = true } = Astro.props
 const when = scheduleText(p)
 const where = venueText(venue)
 const retired = p.status === 'retired'
@@ -24,7 +26,7 @@ const html = p.description?.html ?? ''
 
 {retired && (
   <p role="status" class="bg-accent text-ink mb-6 px-4 py-3 font-semibold">
-    This {noun} has finished. {p.kind === 'league' ? 'Its past seasons are below.' : 'What it ran is listed below.'}
+    This {noun} has finished.{hasHistory ? (p.kind === 'league' ? ' Its past seasons are below.' : ' What it ran is listed below.') : ''}
   </p>
 )}
 {(when || where) && !retired && (

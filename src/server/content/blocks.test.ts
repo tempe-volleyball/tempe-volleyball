@@ -191,7 +191,7 @@ describe('data blocks on pages', () => {
     const html = body.html
     // Programme list: active Mixed Leagues programmes only (FNL's own summary line wins), each linked.
     expect(html).toContain(
-      '<li><a href="/leagues/tnl">Next Thursday Night League (TNL) @ Robyn Webster Sports Centre, Tempe (Thursdays 8–10pm)</a></li>',
+      '<li><a href="/leagues/tnl">Thursday Night League (TNL) @ Robyn Webster Sports Centre, Tempe, Thursdays 8–10pm</a></li>',
     )
     expect(html).toContain('<li><a href="/leagues/fnl">Fridays at Tempe</a></li>')
     expect(html).not.toContain('Monday')
@@ -211,6 +211,17 @@ describe('data blocks on pages', () => {
     stats.reset()
     expect(await renderBody(db, site, page.body, NOW)).toEqual({ html: '<p>Hello</p>', tags: [] })
     expect(stats.queries).toBe(0)
+  })
+
+  it('renders a Venues block from the Site with no extra queries, tagged so venue edits purge it', async () => {
+    const page = await createPage(db, editor, { title: 'Where we play', path: '/where-we-play', blocks: [{ type: 'venues', attrs: {} }] })
+    const site = await loadSite(db)
+    stats.reset()
+    const body = await renderBody(db, site, page.body, NOW)
+    expect(stats.queries).toBe(0)
+    expect(body.html).toContain('<h2>Robyn Webster Sports Centre</h2>')
+    expect(body.html).toContain('<p class="venue-address">Holbeach Ave, Tempe NSW 2044</p>')
+    expect(body.tags).toContain('venues')
   })
 
   it('shows a league between seasons from its latest archived season', async () => {
@@ -245,7 +256,7 @@ describe('data blocks on pages', () => {
     expect(p.lines.map((l) => [l.id, l.hidden, l.source])).toEqual([
       ['tnl', false, 'override'],
       ['fnl', true, 'summary'],
-      ['scrim', false, 'template'],
+      ['scrim', false, 'generated'],
     ])
     expect(p.lines[0]!.changed).toEqual(['venue'])
     expect(p.html).not.toContain('Fridays')

@@ -19,16 +19,15 @@ import { leagueRoute, normalisePath, seasonRoute } from '../../../lib/wp-import/
 import { cachePublic, tags } from '../../../server/cache'
 import { publicSeasons } from '../../../server/competition/load'
 import { loadProgrammePage, programmePageTags, programmeSeo } from '../../../server/programmes/public'
-import { publicDb, redirectFor } from '../../../server/public'
+import { publicDb, publicSite, redirectFor } from '../../../server/public'
 import { getTurnstileKeys } from '../../../server/services'
-import { loadSite } from '../../../server/site'
 
 const slug = (Astro.params.league ?? '').toLowerCase()
 const db = publicDb()
 const now = new Date()
 const today = sydneyDate(now)
 const [site, lookup] = await Promise.all([
-  loadSite(db),
+  publicSite(db),
   loadProgrammePage(db, 'league', slug, { turnstileSiteKey: getTurnstileKeys()?.siteKey ?? null, now }),
 ])
 if (lookup && 'redirect' in lookup) return Astro.redirect(lookup.redirect, 301)
@@ -44,8 +43,8 @@ const view = league && league.status === 'active' ? site.current.find((c) => c.l
 const venue = league?.defaultVenueId ? site.venues.find((v) => v.id === league.defaultVenueId) : undefined
 const nextStarts = league ? nextStartsLine(league, page?.nextInstanceDate) : ''
 const summary = league ? summaryLine(league, venue) : ''
-const seo = league ? programmeSeo(league, summary, nextStarts) : null
 const archive = league ? publicSeasons(site.seasons, league.id) : []
+const seo = league ? programmeSeo(league, summary, nextStarts, { hasSeasons: !!view || archive.length > 0 }) : null
 const crumbs = league
   ? [...(page?.category ? [{ label: page.category.name, href: categoryPath(page.category.slug) }] : []), { label: league.name }]
   : []
@@ -80,7 +79,14 @@ if (league && page)
       <>
         <Breadcrumbs items={crumbs} />
         <h1 class="page-title">{league.name}</h1>
-        <ProgrammeIntro programme={league} venue={venue} nextStarts={nextStarts} enrolmentOpen={enrolmentOpen} noun="league" />
+        <ProgrammeIntro
+          programme={league}
+          venue={venue}
+          nextStarts={nextStarts}
+          enrolmentOpen={enrolmentOpen}
+          noun="league"
+          hasHistory={archive.length > 0}
+        />
         {league.status === 'active' && <p class="mt-6">No season has been published for this league yet.</p>}
         {archive.length > 0 && (
           <section aria-labelledby="seasons-heading" class="mt-10">

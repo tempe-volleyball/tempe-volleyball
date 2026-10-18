@@ -5,11 +5,13 @@ import {
   renderFixtures,
   renderLadder,
   renderProgrammeList,
+  renderVenues,
   parseDataBlock,
   type LeagueBlockData,
   type ParsedDataBlock,
   type ProgrammeLine,
   type ProgrammeListData,
+  type VenuesBlockData,
 } from '../../lib/content/data-blocks'
 import { hasDataBlocks, renderBlocks, type JsonNode } from '../../lib/content/render'
 import { isTeam, ladderTitle, ladderUpdatedLabel, ladderWeekLabel, makeResolver } from '../../lib/fixtures'
@@ -29,14 +31,16 @@ import { invalid } from './common'
 //    league between seasons (its latest is archived) gets that season loaded in the same extra batch.
 //  - Programme lists read Site.programmes / categories / venues (also from loadSite) plus the next start dates
 //    (4 grouped queries, nextInstanceQueries).
-// The page is cache-tagged with what it shows (tags.programmes and tags.venues for programme lists, tags.league for
-// ladders and fixtures), and page_data_refs (rewritten on save) lets data changes purge it by path as well.
+//  - Venues blocks read Site.venues and Site.programmes (no queries at all).
+// The page is cache-tagged with what it shows (tags.programmes and tags.venues for programme lists and venues,
+// tags.league for ladders and fixtures), and page_data_refs (rewritten on save) lets data changes purge it by path.
 
 type Batchable = Parameters<typeof runBatch>[1][number]
 
 export type BlockContext = {
   programmes: ProgrammeListData | null
   leagues: Map<string, LeagueBlockData>
+  venues: VenuesBlockData
   /** YYYY-MM-DD, Sydney. */
   today: string
 }
@@ -71,7 +75,7 @@ export function leagueBlockData(view: LeagueSeason): LeagueBlockData {
 }
 
 const leagueIdsOf = (parsed: ParsedDataBlock[]) => [
-  ...new Set(parsed.flatMap((b) => (b.type === 'programmeList' || !b.attrs.leagueId ? [] : [b.attrs.leagueId]))),
+  ...new Set(parsed.flatMap((b) => ((b.type === 'ladder' || b.type === 'fixtures') && b.attrs.leagueId ? [b.attrs.leagueId] : []))),
 ]
 
 /**
@@ -114,6 +118,7 @@ export async function loadBlockContext(db: AppDb, site: Site, blocks: readonly J
   return {
     today,
     leagues,
+    venues: { venues: site.venues, programmes: site.programmes },
     programmes: wantsProgrammes
       ? {
           programmes: site.programmes,
@@ -137,6 +142,8 @@ export function renderDataBlock(node: JsonNode, ctx: BlockContext): string {
       return renderLadder(b.attrs, ctx.leagues.get(b.attrs.leagueId))
     case 'fixtures':
       return renderFixtures(b.attrs, ctx.leagues.get(b.attrs.leagueId), ctx.today)
+    case 'venues':
+      return renderVenues(b.attrs, ctx.venues)
   }
 }
 
@@ -152,7 +159,7 @@ export function blockTags(blocks: readonly JsonNode[], site: Pick<Site, 'leagues
   const slugs = new Map(site.leagues.map((l) => [l.id, l.slug]))
   const out = new Set<string>()
   for (const b of parsed) {
-    if (b.type === 'programmeList') {
+    if (b.type === 'programmeList' || b.type === 'venues') {
       out.add(tags.programmes)
       out.add(tags.venues)
     } else {
@@ -200,6 +207,8 @@ export type BlockChoices = {
   programmes: { id: string; kind: string; code: string; name: string; status: string; categoryId: string | null }[]
   /** Leagues with their current season and its teams (for the Fixtures block's team filter). */
   leagues: { id: string; code: string; name: string; status: string; season: string | null; teams: { id: string; name: string }[] }[]
+  /** Every venue, in venue order (for the Venues block). */
+  venues: { id: string; name: string }[]
 }
 
 /** What the block editor's pickers offer: one batch on top of loadSite(). */
@@ -233,6 +242,7 @@ export async function blockChoices(db: AppDb, site: Site): Promise<BlockChoices>
         teams: v ? v.data.teams.map((t) => ({ id: t.id, name: t.name })) : [],
       }
     }),
+    venues: site.venues.map((v) => ({ id: v.id, name: v.name })),
   }
 }
 
@@ -254,6 +264,7 @@ export async function previewBlock(db: AppDb, site: Site, block: unknown, now = 
   let note: string | null = null
   if (!html) {
     if (parsed.type === 'programmeList') note = 'No programmes match, so nothing shows (fill in “Text when empty” to show a message).'
+    else if (parsed.type === 'venues') note = 'No venues to show: add them in Admin → Venues, or pick others in Settings.'
     else if (!parsed.attrs.leagueId) note = 'Choose a league.'
     else if (!site.leagues.some((l) => l.id === parsed.attrs.leagueId)) note = 'That league no longer exists.'
     else note = 'This league has no published season yet, so nothing shows until one is published.'

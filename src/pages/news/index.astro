@@ -3,11 +3,11 @@ import BaseLayout from '../../layouts/BaseLayout.astro'
 import { documentTitle, formatPostDate } from '../../lib/content'
 import { postRoute } from '../../lib/wp-import/routes'
 import { cachePublic, tags } from '../../server/cache'
-import { publicDb } from '../../server/public'
-import { listPosts, loadSite } from '../../server/site'
+import { publicDb, publicSite } from '../../server/public'
+import { listPosts } from '../../server/site'
 
 const db = publicDb()
-const [site, posts] = await Promise.all([loadSite(db), listPosts(db)])
+const [site, posts] = await Promise.all([publicSite(db), listPosts(db)])
 cachePublic(Astro.cache, tags.news)
 ---
 

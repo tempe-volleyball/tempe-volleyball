@@ -1,0 +1,10 @@
+---
+// /training (every active training programme), by category, with an editable intro from a page at the same path
+// (src/server/programmes/route.ts kindIndexRoute, src/components/programmes/KindIndex.astro).
+import KindIndex from '../../components/programmes/KindIndex.astro'
+import { kindIndexRoute } from '../../server/programmes/route'
+
+const route = await kindIndexRoute(Astro, 'training')
+---
+
+<KindIndex {...route} />

@@ -2,25 +2,33 @@ import type { APIContext } from 'astro'
 import { eq } from 'drizzle-orm'
 import { buildCalendar, ICAL_CONTENT_TYPE } from '../../lib/ical'
 import { SITE_NAME } from '../../lib/site'
+import { leagueCalendarPath, teamCalendarPath } from '../../lib/fixture-lists'
 import { leagueRoute } from '../../lib/wp-import/routes'
 import { cachePublic, tags } from '../cache'
 import { teams } from '../db/schema'
-import { publicDb } from '../public'
-import { loadSite } from '../site'
+import { publicDb, publicSite } from '../public'
+import { renamedLeagueSlug } from '../site'
 import { seasonCalendarEvents } from './calendar'
 
 // The iCal feed routes: /leagues/<league>/calendar.ics (every game of the league's current season) and
 // /leagues/<league>/teams/<team>.ics (one team's games and duties). They follow the current season, so a
 // subscription made once keeps working season after season; between seasons a feed is valid but empty rather than
 // a 404, so calendar apps don't drop it. Cached like the league page and purged with it (tags.league, SITE).
+// A league whose URL changed keeps its subscribers: the old feed URLs 301 to the new ones (renamedLeagueSlug).
 
 const notFound = () => new Response('No such calendar.\n', { status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8' } })
 
 export async function calendarFeed(context: APIContext, leagueSlug: string, teamSlug: string | null): Promise<Response> {
   const db = publicDb()
-  const site = await loadSite(db)
+  const site = await publicSite(db)
   const league = site.leagues.find((l) => l.slug === leagueSlug && l.status !== 'draft')
-  if (!league) return notFound()
+  if (!league) {
+    const renamed = await renamedLeagueSlug(db, leagueSlug)
+    if (!renamed) return notFound()
+    cachePublic(context.cache, tags.programme(renamed))
+    const to = teamSlug ? teamCalendarPath(renamed, teamSlug) : leagueCalendarPath(renamed)
+    return new Response(null, { status: 301, headers: { Location: to } })
+  }
   const view = site.current.find((c) => c.league.id === league.id && c.summary.status === 'published')
   let team: { id: string; name: string; slug: string } | undefined = teamSlug
     ? view?.data.teams.find((t) => t.slug === teamSlug)

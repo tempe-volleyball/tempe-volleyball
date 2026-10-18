@@ -9,13 +9,13 @@ import { sydneyDate } from '../../../lib/time'
 import { leagueRoute, normalisePath, seasonRoute } from '../../../lib/wp-import/routes'
 import { cachePublic, tags } from '../../../server/cache'
 import { publicSeasons } from '../../../server/competition/load'
-import { publicDb, redirectFor } from '../../../server/public'
-import { loadSeason, loadSite, seasonView, type LeagueSeason } from '../../../server/site'
+import { publicDb, publicSite, redirectFor } from '../../../server/public'
+import { loadSeason, seasonView, type LeagueSeason } from '../../../server/site'
 
 const leagueSlug = (Astro.params.league ?? '').toLowerCase()
 const seasonSlug = (Astro.params.season ?? '').toLowerCase()
 const db = publicDb()
-const site = await loadSite(db)
+const site = await publicSite(db)
 const league = site.leagues.find((l) => l.slug === leagueSlug && l.status !== 'draft')
 const summary = league && site.seasons.find((s) => s.slug === seasonSlug && s.leagueId === league.id && s.status !== 'draft')
 const current = site.current.find((c) => c.summary.id === summary?.id)

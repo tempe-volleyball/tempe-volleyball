@@ -8,8 +8,6 @@ type Props = { cards: ProgrammeCard[]; headingLevel?: 2 | 3; showTargets?: boole
 const { cards, headingLevel = 2, showTargets = false } = Astro.props
 const H = headingLevel === 2 ? 'h2' : 'h3'
 const button = 'bg-brand hover:bg-brand-dark inline-block px-3 py-2 font-semibold text-white'
-// "Next season starts Thursday 15 January 2027" -> "Season starts Thursday 15 January 2027" beside a "Next" label.
-const nextText = (s: string) => s.replace(/^Next (\w)/, (_, ch: string) => ch.toUpperCase())
 ---
 
 <ul class="grid gap-6 md:grid-cols-2">
@@ -21,6 +19,8 @@ const nextText = (s: string) => s.replace(/^Next (\w)/, (_, ch: string) => ch.to
         </a>
       </H>
       <p class="mt-1">{c.summary}</p>
+      {/* The same "Next season starts …" sentence as the programme page (hand-written text shows as typed). */}
+      {c.nextStarts && <p class="mt-2 font-semibold">{c.nextStarts}</p>}
       <dl class="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
         {c.summaryCustom && c.schedule && (
           <>
@@ -32,12 +32,6 @@ const nextText = (s: string) => s.replace(/^Next (\w)/, (_, ch: string) => ch.to
           <>
             <dt class="font-semibold">Where</dt>
             <dd>{c.venue}</dd>
-          </>
-        )}
-        {c.nextStarts && (
-          <>
-            <dt class="font-semibold">Next</dt>
-            <dd>{nextText(c.nextStarts)}</dd>
           </>
         )}
         <dt class="font-semibold">Enrolment</dt>

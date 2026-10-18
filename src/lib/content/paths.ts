@@ -30,6 +30,15 @@ export const RESERVED_PATHS = [
   '/rss.xml',
 ] as const
 
+/**
+ * Routes whose editable intro is a published page at the very same path (docs/admin.md §3.13): /enrol, and the
+ * kind index pages /training, /programs and /events. A page may live exactly there (not under the prefixes), and
+ * no category may take these slugs, since the route would hide its landing page.
+ */
+export const INTRO_PAGE_PATHS = ['/enrol', '/training', '/programs', '/events'] as const
+
+export const isIntroPagePath = (path: string) => (INTRO_PAGE_PATHS as readonly string[]).includes(path)
+
 /** Prefixes the trailing-slash redirect leaves alone: APIs, files, the admin app and Cloudflare's own paths. */
 const SLASH_EXEMPT = ['/api', '/media', '/admin', '/_astro', '/_image', '/cdn-cgi'] as const
 
@@ -85,6 +94,7 @@ export function checkPagePath(input: string): PathCheck {
   if (!segments.every((s) => SEGMENT.test(s)))
     return { ok: false, message: 'Use lower-case letters, numbers and single hyphens between slashes, like /about/rules.' }
   if ((RESERVED_PATHS as readonly string[]).includes(path)) return { ok: false, message: `${path} is used by the site itself.` }
+  if (isIntroPagePath(path)) return { ok: true, path }
   const reserved = RESERVED_PREFIXES.find((p) => path === p || path.startsWith(`${p}/`))
   if (reserved) return { ok: false, message: `Paths under ${reserved} are used by the site itself.` }
   return { ok: true, path }

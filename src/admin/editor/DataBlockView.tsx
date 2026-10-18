@@ -2,8 +2,8 @@ import { NodeViewWrapper, type NodeViewProps } from '@tiptap/react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import {
-  DEFAULT_PROGRAMME_LINE_TEMPLATE,
   PROGRAMME_TEMPLATE_PLACEHOLDERS,
+  SUGGESTED_PROGRAMME_LINE_TEMPLATE,
   blockDisplays,
   enrolmentFilters,
   fixtureRanges,
@@ -11,8 +11,15 @@ import {
   type LadderAttrs,
   type ProgrammeLineSource,
   type ProgrammeListAttrs,
+  type VenuesAttrs,
 } from '../../lib/content/blocks'
-import { parseFixturesAttrs, parseLadderAttrs, parseProgrammeListAttrs, type ProgrammeLine } from '../../lib/content/data-blocks'
+import {
+  parseFixturesAttrs,
+  parseLadderAttrs,
+  parseProgrammeListAttrs,
+  parseVenuesAttrs,
+  type ProgrammeLine,
+} from '../../lib/content/data-blocks'
 import { programmeKinds } from '../../server/db/schema/enums'
 import { api } from '../api'
 import { Button, Checkbox, Dialog, Field, Notice, Select, errorMessage } from '../ui'
@@ -22,12 +29,13 @@ import type { DataBlockType } from './data-blocks'
 // a warning when overridden lines have changed underneath, and a settings dialog. The dialog lives in a portal so
 // ProseMirror never sees its keystrokes.
 
-const LABELS: Record<DataBlockType, string> = { programmeList: 'Programme list', ladder: 'Ladder', fixtures: 'Fixtures' }
+const LABELS: Record<DataBlockType, string> = { programmeList: 'Programme list', ladder: 'Ladder', fixtures: 'Fixtures', venues: 'Venues' }
 
 type Choices = {
   categories: { id: string; name: string; status: string }[]
   programmes: { id: string; kind: string; code: string; name: string; status: string; categoryId: string | null }[]
   leagues: { id: string; code: string; name: string; status: string; season: string | null; teams: { id: string; name: string }[] }[]
+  venues: { id: string; name: string }[]
 }
 type Preview = { html: string; lines: ProgrammeLine[]; note: string | null }
 
@@ -112,6 +120,12 @@ function summary(type: DataBlockType, attrs: Record<string, unknown>, choices: C
     ]
     return parts.filter(Boolean).join(' · ')
   }
+  if (type === 'venues') {
+    const a = parseVenuesAttrs(attrs)
+    return a.venueIds.length
+      ? a.venueIds.map((id) => choices?.venues.find((v) => v.id === id)?.name ?? '?').join(', ')
+      : 'Every venue, in venue order'
+  }
   const a = type === 'ladder' ? parseLadderAttrs(attrs) : parseFixturesAttrs(attrs)
   const league = choices?.leagues.find((l) => l.id === a.leagueId)
   const what = type === 'fixtures' ? ` · ${(a as FixturesAttrs).range.replace('_', ' ')}` : ''
@@ -124,7 +138,7 @@ export function DataBlockView({ node, updateAttributes, deleteNode, selected }: 
   const choices = useChoices()
   const { preview, error } = usePreview(type, attrs)
   // A new Ladder or Fixtures block has no league yet: open its settings straight away.
-  const [editing, setEditing] = useState(type !== 'programmeList' && !attrs.leagueId)
+  const [editing, setEditing] = useState((type === 'ladder' || type === 'fixtures') && !attrs.leagueId)
   const changed = preview?.lines.filter((l) => l.changed.length > 0) ?? []
 
   return (
@@ -197,7 +211,13 @@ function SettingsDialog({
   onApply: (attrs: Record<string, unknown>) => void
 }) {
   const [draft, setDraft] = useState<Record<string, unknown>>(() =>
-    type === 'programmeList' ? parseProgrammeListAttrs(attrs) : type === 'ladder' ? parseLadderAttrs(attrs) : parseFixturesAttrs(attrs),
+    type === 'programmeList'
+      ? parseProgrammeListAttrs(attrs)
+      : type === 'ladder'
+        ? parseLadderAttrs(attrs)
+        : type === 'venues'
+          ? parseVenuesAttrs(attrs)
+          : parseFixturesAttrs(attrs),
   )
   const { preview, error } = usePreview(type, draft)
   return (
@@ -215,6 +235,13 @@ function SettingsDialog({
         {choices && type === 'ladder' && (
           <LadderSettings
             attrs={draft as LadderAttrs}
+            choices={choices}
+            onChange={(a) => setDraft(a as unknown as Record<string, unknown>)}
+          />
+        )}
+        {choices && type === 'venues' && (
+          <VenuesSettings
+            attrs={draft as VenuesAttrs}
             choices={choices}
             onChange={(a) => setDraft(a as unknown as Record<string, unknown>)}
           />
@@ -325,12 +352,12 @@ function ProgrammeListSettings({
         </Select>
       </div>
       <Field
-        label="Line template"
+        label="Line template (optional)"
         value={attrs.template ?? ''}
-        placeholder={DEFAULT_PROGRAMME_LINE_TEMPLATE}
+        placeholder={`e.g. ${SUGGESTED_PROGRAMME_LINE_TEMPLATE}`}
         maxLength={300}
         onChange={(e) => set({ template: e.target.value || null })}
-        hint={`Blank = ${DEFAULT_PROGRAMME_LINE_TEMPLATE}. Placeholders: ${PROGRAMME_TEMPLATE_PLACEHOLDERS.map((p) => `{${p}}`).join(' ')}. Empty values tidy themselves away.`}
+        hint={`Blank = the same summary line as category pages and /enrol. Placeholders: ${PROGRAMME_TEMPLATE_PLACEHOLDERS.map((p) => `{${p}}`).join(' ')}. Empty values tidy themselves away.`}
       />
       <div className="grid gap-4 sm:grid-cols-2">
         <Field
@@ -351,7 +378,7 @@ function ProgrammeListSettings({
         <Checkbox label="Link each line to its programme page" checked={attrs.linkLines} onChange={(v) => set({ linkLines: v })} />
         <Checkbox
           label="Use each programme’s own summary line"
-          hint="Off = every line uses this template."
+          hint="Off = every line uses this block’s template (or the generated summary line)."
           checked={attrs.useSummaryLines}
           onChange={(v) => set({ useSummaryLines: v })}
         />
@@ -360,7 +387,8 @@ function ProgrammeListSettings({
       <div>
         <h3 className="mb-1 text-sm font-bold">Lines</h3>
         <p className="mb-2 text-xs text-black/60">
-          New programmes join on their own. Your own text wins over the programme’s summary line, which wins over the template.
+          New programmes join on their own. Your own text wins over the programme’s summary line, which wins over this block’s template,
+          which wins over the generated summary line.
         </p>
         {!lines ? (
           <p className="text-sm text-black/60">Loading…</p>
@@ -398,7 +426,9 @@ function ProgrammeListSettings({
                         ? 'Your text'
                         : l.source === 'summary'
                           ? 'The programme’s summary line'
-                          : 'From the template'}
+                          : l.source === 'template'
+                            ? 'From this block’s template'
+                            : 'Generated summary line'}
                       {l.hidden ? ' · hidden on this page' : ''}
                     </span>
                     {l.changed.length > 0 && (
@@ -498,6 +528,78 @@ function LeagueSelect({ value, choices, onChange }: { value: string; choices: Ch
 const rowsValue = (v: string): number | null => {
   const n = Number(v)
   return v && Number.isInteger(n) && n > 0 ? n : null
+}
+
+function VenuesSettings({ attrs, choices, onChange }: { attrs: VenuesAttrs; choices: Choices; onChange: (a: VenuesAttrs) => void }) {
+  const set = (p: Partial<VenuesAttrs>) => onChange({ ...attrs, ...p })
+  const chosen = attrs.venueIds
+  const move = (id: string, by: -1 | 1) => {
+    const ids = [...chosen]
+    const i = ids.indexOf(id)
+    const j = i + by
+    if (i < 0 || j < 0 || j >= ids.length) return
+    ;[ids[i], ids[j]] = [ids[j]!, ids[i]!]
+    set({ venueIds: ids })
+  }
+  return (
+    <div className="space-y-5">
+      <p className="text-sm text-black/70">
+        Names, addresses, map links and directions come from Admin → Venues, so a change there shows here on its own.
+      </p>
+      <Group legend="Venues (none ticked = every venue, in venue order)">
+        {choices.venues.map((v) => (
+          <Checkbox
+            key={v.id}
+            label={v.name}
+            checked={chosen.includes(v.id)}
+            onChange={(on) => set({ venueIds: toggle(chosen, v.id, on) })}
+          />
+        ))}
+      </Group>
+      {chosen.length > 1 && (
+        <Group legend="Order">
+          <ul className="space-y-1 text-sm">
+            {chosen.map((id, i) => (
+              <li key={id} className="flex items-center gap-2">
+                <button
+                  type="button"
+                  aria-label="Move up"
+                  disabled={i === 0}
+                  className="px-1 disabled:opacity-30"
+                  onClick={() => move(id, -1)}
+                >
+                  ▲
+                </button>
+                <button
+                  type="button"
+                  aria-label="Move down"
+                  disabled={i === chosen.length - 1}
+                  className="px-1 disabled:opacity-30"
+                  onClick={() => move(id, 1)}
+                >
+                  ▼
+                </button>
+                {choices.venues.find((v) => v.id === id)?.name ?? 'A deleted venue'}
+              </li>
+            ))}
+          </ul>
+        </Group>
+      )}
+      <Field
+        label="Heading (optional)"
+        value={attrs.title ?? ''}
+        maxLength={120}
+        onChange={(e) => set({ title: e.target.value || null })}
+        hint="With a heading, each venue is a sub-heading under it."
+      />
+      <div className="flex flex-wrap gap-6">
+        <Checkbox label="Address" checked={attrs.showAddress} onChange={(v) => set({ showAddress: v })} />
+        <Checkbox label="Map link" checked={attrs.showMap} onChange={(v) => set({ showMap: v })} />
+        <Checkbox label="Directions" checked={attrs.showDirections} onChange={(v) => set({ showDirections: v })} />
+        <Checkbox label="Who plays here" checked={attrs.showProgrammes} onChange={(v) => set({ showProgrammes: v })} />
+      </div>
+    </div>
+  )
 }
 
 function LadderSettings({ attrs, choices, onChange }: { attrs: LadderAttrs; choices: Choices; onChange: (a: LadderAttrs) => void }) {

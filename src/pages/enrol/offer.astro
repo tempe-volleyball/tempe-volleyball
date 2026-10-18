@@ -6,10 +6,9 @@ import OfferResponse from '../../components/enrolment/OfferResponse'
 import BaseLayout from '../../layouts/BaseLayout.astro'
 import { documentTitle } from '../../lib/content'
 import { cachePublic, tags } from '../../server/cache'
-import { publicDb } from '../../server/public'
-import { loadSite } from '../../server/site'
+import { publicDb, publicSite } from '../../server/public'
 
-const site = await loadSite(publicDb())
+const site = await publicSite(publicDb())
 cachePublic(Astro.cache, tags.page('/enrol/offer'))
 Astro.response.headers.set('X-Robots-Tag', 'noindex, nofollow')
 ---

@@ -51,6 +51,10 @@ describe('page paths', () => {
     expect(checkPagePath('/newsletter').ok).toBe(true)
     expect(checkPagePath('/administration').ok).toBe(true)
   })
+  it('allows the intro page of /enrol and the kind index pages, but nothing under the kind prefixes', () => {
+    for (const p of ['/enrol', '/training', '/programs', '/events']) expect.soft(checkPagePath(p)).toEqual({ ok: true, path: p })
+    for (const p of ['/training/scrim', '/programs/adp', '/events/cup']) expect.soft(checkPagePath(p)).toMatchObject({ ok: false })
+  })
   it('slugify', () => {
     expect(slugify('Junior Dev Program (JDP)!')).toBe('junior-dev-program-jdp')
     expect(slugify('Scrim & Coached Training')).toBe('scrim-and-coached-training')

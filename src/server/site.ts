@@ -28,6 +28,7 @@ import {
   type SeasonSummary,
 } from './competition/load'
 import { menuCategoryColumns, menuRowColumns } from './content/menu'
+import { LEAGUES_ROUTE } from '../lib/wp-import/routes'
 
 // What every public page shows around its content (menu, ladder widgets, venues) plus each league's current
 // season, loaded in one db.batch() whatever the page.
@@ -132,10 +133,9 @@ export function seasonView(data: SeasonData, summary: SeasonSummary): LeagueSeas
   return { league: data.league, summary, data, competition, ladder: ladderRows(competition, data.adjustments) }
 }
 
-export async function loadSite(db: AppDb): Promise<Site> {
+const siteStatements = (db: AppDb) => {
   const [leagueQ, courtQ] = baseQueries(db)
-  const sq = seasonQueries(db, { status: 'published' })
-  const res = await runBatch(db, [
+  return [
     menuQuery(db),
     leagueQ,
     courtQ,
@@ -144,13 +144,16 @@ export async function loadSite(db: AppDb): Promise<Site> {
     db.select({ key: siteSettings.key, value: siteSettings.value }).from(siteSettings),
     programmeQuery(db),
     categoryQuery(db),
-    ...sq,
-  ])
+    ...seasonQueries(db, { status: 'published' }),
+  ]
+}
+
+function assembleSite(res: unknown[]): Site {
   const [menuRows, leagueRows, courtRows, seasonList, venueRows, settingRows, programmeRows, categoryRows, ...seasonRows] =
     res as unknown as [
       (MenuRow & { pagePath: string | null })[],
       League[],
-      Awaited<typeof courtQ>,
+      Awaited<ReturnType<typeof baseQueries>[1]>,
       SeasonSummary[],
       Venue[],
       { key: string; value: unknown }[],
@@ -180,6 +183,68 @@ export async function loadSite(db: AppDb): Promise<Site> {
     venues: venueRows,
     current,
     settings: readSettings(settingRows),
+  }
+}
+
+/** Everything around a public page, straight from D1 (one batch). Admin routes use this; public routes use a memo. */
+export async function loadSite(db: AppDb): Promise<Site> {
+  return assembleSite(await runBatch(db, siteStatements(db)))
+}
+
+// ── The per-isolate memo (docs/admin.md §3.14) ─────────────────────────────────
+
+/**
+ * The site_settings row every admin write bumps (src/middleware.ts), so a memoised Site knows it's stale. Not a
+ * setting: readSettings() and the Settings screen ignore keys they don't know.
+ */
+export const SITE_VERSION_KEY = 'site_version'
+
+/** How long an isolate reuses a Site whose version still matches. Bounds staleness from writes that skip the bump. */
+export const SITE_MEMO_MS = 60_000
+
+const versionQuery = (db: AppDb) =>
+  db.select({ value: siteSettings.value }).from(siteSettings).where(eq(siteSettings.key, SITE_VERSION_KEY)).limit(1)
+
+const versionOf = (rows: { value: unknown }[]) => {
+  const v = rows[0]?.value
+  return typeof v === 'string' ? v : ''
+}
+
+/** Upserts a new site version: run it after any write that could change what loadSite() returns. */
+export const bumpSiteVersion = (db: AppDb, at = new Date()) =>
+  db
+    .insert(siteSettings)
+    .values({ key: SITE_VERSION_KEY, value: crypto.randomUUID(), updatedAt: at.toISOString() })
+    .onConflictDoUpdate({ target: siteSettings.key, set: { value: sql`excluded.value`, updatedAt: at.toISOString() } })
+
+export type SiteMemo = { load(db: AppDb): Promise<Site>; clear(): void }
+
+/**
+ * loadSite() memoised per isolate: while the copy is younger than `maxAgeMs`, a request costs one indexed one-row
+ * query (the site version) instead of the whole batch; a changed version, or an older copy, reloads it (the version
+ * rides in the same batch). Concurrent misses share one load. The Site is shared between requests, so callers must
+ * treat it as read-only (they do: every route filters, maps and toSorted()s).
+ */
+export function createSiteMemo({ maxAgeMs = SITE_MEMO_MS, clock = Date.now }: { maxAgeMs?: number; clock?: () => number } = {}): SiteMemo {
+  let entry: { version: string; at: number; site: Site } | null = null
+  let inflight: Promise<Site> | null = null
+  const reload = async (db: AppDb) => {
+    const started = clock()
+    const [version, ...rest] = await runBatch(db, [versionQuery(db), ...siteStatements(db)])
+    const site = assembleSite(rest)
+    entry = { version: versionOf(version as { value: unknown }[]), at: started, site }
+    return site
+  }
+  return {
+    async load(db) {
+      const e = entry
+      if (e && clock() - e.at < maxAgeMs && versionOf(await versionQuery(db)) === e.version) return e.site
+      inflight ??= reload(db).finally(() => (inflight = null))
+      return inflight
+    },
+    clear() {
+      entry = null
+    },
   }
 }
 
@@ -244,6 +309,18 @@ export const findRedirect = async (db: AppDb, path: string) =>
       .where(eq(redirects.fromPath, path))
       .limit(1)
   )[0]
+
+/**
+ * A league's slug now, from an old one: the 301 the programmes admin left for `/leagues/<old>` (moveTreeStatements
+ * keeps it pointing straight at the current URL, possibly with a #tab). Null when there's none or it leads elsewhere.
+ * Lets the calendar feeds and the fixture list's ?league= follow a renamed league (their sub-paths aren't in the table).
+ */
+export async function renamedLeagueSlug(db: AppDb, oldSlug: string): Promise<string | null> {
+  if (!/^[a-z0-9-]{1,100}$/.test(oldSlug)) return null
+  const r = await findRedirect(db, `${LEAGUES_ROUTE}/${oldSlug}`)
+  const m = r && new RegExp(`^${LEAGUES_ROUTE}/([a-z0-9-]+)(?:#.*)?$`).exec(r.toPath)
+  return m && m[1] !== oldSlug ? m[1]! : null
+}
 
 /** Counts a redirect hit (run it in waitUntil; it's a write, so skip it for bots if this ever gets busy). */
 export const countRedirectHit = (db: AppDb, id: string, at = new Date()) =>

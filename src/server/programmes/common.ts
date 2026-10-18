@@ -1,5 +1,5 @@
 import { and, eq, inArray, like, or, sql } from 'drizzle-orm'
-import { checkPagePath, checkSlug } from '../../lib/content/paths'
+import { checkPagePath, checkSlug, isIntroPagePath } from '../../lib/content/paths'
 import { checkBlocks, renderBlocks, safeHref } from '../../lib/content/render'
 import { tags, type PurgeTargets } from '../cache'
 import type { AppDb } from '../db'
@@ -116,6 +116,7 @@ export function categorySlug(v: unknown): string {
   const s = slug(v)
   const checked = checkPagePath(`/${s}`)
   if (!checked.ok) throw invalid(`URL: ${checked.message}`)
+  if (isIntroPagePath(checked.path)) throw invalid(`URL: /${s} is used by the site itself.`)
   return s
 }
 
@@ -131,7 +132,8 @@ export async function assertNoPageAt(db: AppDb, path: string) {
  * The batch statements for moving a public URL and everything under it (a programme's season, term or event pages)
  * from `from` to `to`, leaving 301s, as pages do (moveRedirectStatements in src/server/content/common.ts):
  *  - drop redirects from `to` or under it (content lives there now; also breaks loops when moved back);
- *  - repoint redirects that led to `from` or under it, so there are no chains;
+ *  - repoint redirects that led to `from`, under it or to one of its #tabs (`/results` -> `/leagues/tnl#fixtures`),
+ *    so there are no chains;
  *  - upsert `from` -> `to` and `from/<child>` -> `to/<child>` for each child slug.
  * Three statements plus one per chunk of children. Slugs are [a-z0-9-], so LIKE needs no escaping.
  */
@@ -149,7 +151,7 @@ export function moveTreeStatements(db: AppDb, move: { from: string; to: string }
     db
       .update(redirects)
       .set({ toPath: sql`${to} || substr(${redirects.toPath}, ${from.length + 1})`, updatedAt: at, updatedBy: actor.id })
-      .where(or(eq(redirects.toPath, from), like(redirects.toPath, `${from}/%`))),
+      .where(or(eq(redirects.toPath, from), like(redirects.toPath, `${from}/%`), like(redirects.toPath, `${from}#%`))),
     ...chunkByParams(rows).map((chunk) =>
       db
         .insert(redirects)

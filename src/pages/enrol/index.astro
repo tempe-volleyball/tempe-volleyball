@@ -11,11 +11,11 @@ import { documentTitle, metaDescription } from '../../lib/content'
 import { cachePublic, tags } from '../../server/cache'
 import { renderBody } from '../../server/content/blocks'
 import { groupByCategory, loadListings } from '../../server/programmes/public'
-import { publicDb } from '../../server/public'
-import { loadSite, lookupPath } from '../../server/site'
+import { publicDb, publicSite } from '../../server/public'
+import { lookupPath } from '../../server/site'
 
 const db = publicDb()
-const [site, found, listings] = await Promise.all([loadSite(db), lookupPath(db, '/enrol'), loadListings(db)])
+const [site, found, listings] = await Promise.all([publicSite(db), lookupPath(db, '/enrol'), loadListings(db)])
 
 const open = listings.programmes.filter((c) => c.enrolmentOpen)
 const groups = groupByCategory(listings, open)

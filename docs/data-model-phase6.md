@@ -219,12 +219,13 @@ deletes ended windows). `hit()` in `src/server/ratelimit.ts` upserts each key at
 
 ## Page blocks (no table; `src/lib/content/blocks.ts`)
 
-Blocks are TipTap atom nodes in `pages.body.blocks`: `programmeList`, `ladder` and `fixtures`, with attrs
-`ProgrammeListAttrs`, `LadderAttrs` and `FixturesAttrs` and defaults `DEFAULT_*_ATTRS`. A programme list has a filter
-(categoryIds, kinds, enrolmentOpenOnly), a template (`DEFAULT_PROGRAMME_LINE_TEMPLATE`, with
+Blocks are TipTap atom nodes in `pages.body.blocks`: `programmeList`, `ladder`, `fixtures` and `venues`, with attrs
+`ProgrammeListAttrs`, `LadderAttrs`, `FixturesAttrs` and `VenuesAttrs` and defaults `DEFAULT_*_ATTRS`. A programme
+list has a filter (categoryIds, kinds, enrolmentOpenOnly), an optional template (null = the generated summary line;
 `PROGRAMME_TEMPLATE_PLACEHOLDERS`), order, hidden ids and overrides. An override is `{ text, source, editedAt }`;
 `source` is a `ProgrammeLineSource` snapshot, and `changedSourceFields(then, now)` finds what changed since the edit.
-The text used is the override, then the programme's `summary_line`, then the template.
+The text used is the override, then the programme's `summary_line`, then the template if set, then the generated
+summary line.
 
 ### `page_data_refs` (new)
 

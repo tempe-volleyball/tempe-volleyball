@@ -5,12 +5,12 @@ import BaseLayout from '../../layouts/BaseLayout.astro'
 import { DEFAULT_DESCRIPTION, documentTitle, formatPostDate, metaDescription } from '../../lib/content'
 import { normalisePath, postRoute } from '../../lib/wp-import/routes'
 import { cachePublic, tags } from '../../server/cache'
-import { publicDb, redirectFor } from '../../server/public'
-import { findPost, loadSite, pageTitles } from '../../server/site'
+import { publicDb, publicSite, redirectFor } from '../../server/public'
+import { findPost, pageTitles } from '../../server/site'
 
 const slug = Astro.params.slug ?? ''
 const db = publicDb()
-const [site, post, titles] = await Promise.all([loadSite(db), findPost(db, slug), pageTitles(db)])
+const [site, post, titles] = await Promise.all([publicSite(db), findPost(db, slug), pageTitles(db)])
 
 if (!post) {
   const redirect = await redirectFor(Astro, db, normalisePath(Astro.url.pathname))

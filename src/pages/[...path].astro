@@ -13,12 +13,12 @@ import { normalisePath } from '../lib/wp-import/routes'
 import { cachePublic, tags } from '../server/cache'
 import { renderBody } from '../server/content/blocks'
 import { categoryPageTags, loadCategoryPage, type CategoryPage } from '../server/programmes/public'
-import { followRedirect, publicDb } from '../server/public'
-import { loadSite, lookupPath } from '../server/site'
+import { followRedirect, publicDb, publicSite } from '../server/public'
+import { lookupPath } from '../server/site'
 
 const path = normalisePath(`/${Astro.params.path ?? ''}`)
 const db = publicDb()
-const [site, found] = await Promise.all([loadSite(db), lookupPath(db, path)])
+const [site, found] = await Promise.all([publicSite(db), lookupPath(db, path)])
 
 // Category slugs are one segment (/mixed-leagues), so only one-segment paths without a page look for one.
 const categorySlug = !found.page && /^\/[a-z0-9-]+$/.test(path) ? path.slice(1) : null
