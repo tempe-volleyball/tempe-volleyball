@@ -18,9 +18,22 @@ export type TemplateData = {
   /** Full: on the waitlist. `position` is 1-based (null if unknown). */
   'enrolment.waitlisted': EnrolmentEmail & { position: number | null; teamName?: string | null }
   /** A freed spot, held until expiresAt (UTC ISO). The link accepts or declines it, so it's sensitive. */
-  'enrolment.offer': EnrolmentEmail & { url: string; expiresAt: string; teamName?: string | null }
+  'enrolment.offer': EnrolmentEmail & {
+    url: string
+    expiresAt: string
+    teamName?: string | null
+    /** Which offer this is, so the mailer can start the hold when the email actually goes (mailer.ts OfferHold). */
+    hold?: { type: 'registration' | 'group'; id: string; offeredAt: string; hours: number }
+  }
   /** Cancelled by the organiser, declined, or an offer that lapsed. */
   'enrolment.cancelled': EnrolmentEmail & { reason?: string | null; teamName?: string | null }
+  /**
+   * A public entry waiting for its address to be confirmed: the link (sensitive) holds no spot until it's clicked,
+   * before expiresAt (UTC ISO). No reference yet: it's only given once the address is confirmed.
+   */
+  'enrolment.confirm_email': Omit<EnrolmentEmail, 'reference'> & { url: string; expiresAt: string; teamName?: string | null }
+  /** Someone submitted the form again for an entry that already exists: its reference and where it stands. */
+  'enrolment.already': EnrolmentEmail & { state: 'confirmed' | 'waitlist' | 'offered'; position?: number | null; teamName?: string | null }
 }
 
 /** What every enrolment email shows: who, what (programme and session/term/season/event) and the reference. */
@@ -36,13 +49,21 @@ export const templateNames = [
   'enrolment.waitlisted',
   'enrolment.offer',
   'enrolment.cancelled',
+  'enrolment.confirm_email',
+  'enrolment.already',
 ] as const satisfies readonly TemplateName[]
 
 /**
  * Templates whose payload is a secret (codes, sign-in links, invite links). Their payload is kept only while the
  * email can still be sent, cleared on every final state, and never logged in production.
  */
-export const SENSITIVE_TEMPLATES: ReadonlySet<TemplateName> = new Set(['auth.otp', 'auth.magic_link', 'admin.invite', 'enrolment.offer'])
+export const SENSITIVE_TEMPLATES: ReadonlySet<TemplateName> = new Set([
+  'auth.otp',
+  'auth.magic_link',
+  'admin.invite',
+  'enrolment.offer',
+  'enrolment.confirm_email',
+])
 
 /**
  * Sign-in emails. Always send-now-or-never (the code expires in minutes), never stored with their payload, limited
@@ -74,7 +95,8 @@ const sydneyWhen = (iso: string) =>
   new Intl.DateTimeFormat('en-AU', { timeZone: 'Australia/Sydney', dateStyle: 'full', timeStyle: 'short' }).format(new Date(iso))
 
 /** "TNL Q4 2026" or "Scrim & Coached Training: Tue 21 Oct", without repeating the programme name. */
-const whatText = (d: EnrolmentEmail) => (d.target && d.target !== d.programme ? `${d.programme}: ${d.target}` : d.programme)
+const whatText = (d: Pick<EnrolmentEmail, 'programme' | 'target'>) =>
+  d.target && d.target !== d.programme ? `${d.programme}: ${d.target}` : d.programme
 
 const refLine = (d: EnrolmentEmail) => `Your reference is ${d.reference}.`
 const refHtml = (d: EnrolmentEmail) =>
@@ -133,6 +155,36 @@ const enrolmentRenderers: { [K in Extract<TemplateName, `enrolment.${string}`>]:
       html: layout(
         `<p>Hi ${escapeHtml(d.name)},</p><p>A spot has opened up in <b>${escapeHtml(what)}</b>${escapeHtml(teamPart(d.teamName))} and it's yours if you want it.</p>` +
           `${refHtml(d)}${button(d.url, 'Accept or decline')}<p>The offer is held until <b>${escapeHtml(until)}</b>; after that it goes to the next person on the waitlist.</p>`,
+      ),
+    }
+  },
+  'enrolment.confirm_email': (d) => {
+    const what = whatText(d)
+    const until = sydneyWhen(d.expiresAt)
+    const why = "We ask so that nobody can take a spot with someone else's email address."
+    return {
+      subject: `Confirm your enrolment: ${what}`,
+      text: `Hi ${d.name},\n\nThanks for enrolling in ${what}${teamPart(d.teamName)}. Please confirm your email address to finish; until then no spot is held for you.\n\nConfirm here:\n${d.url}\n\nThe link works until ${until}. ${why}\n\n${IGNORE}\n`,
+      html: layout(
+        `<p>Hi ${escapeHtml(d.name)},</p><p>Thanks for enrolling in <b>${escapeHtml(what)}</b>${escapeHtml(teamPart(d.teamName))}. Please confirm your email address to finish; until then no spot is held for you.</p>` +
+          `${button(d.url, 'Confirm my enrolment')}<p>The link works until <b>${escapeHtml(until)}</b>. ${escapeHtml(why)}</p><p style="color:#555;font-size:13px">${IGNORE}</p>`,
+      ),
+    }
+  },
+  'enrolment.already': (d) => {
+    const what = whatText(d)
+    const where =
+      d.state === 'waitlist'
+        ? `You're on the waitlist${d.position ? ` (number ${d.position})` : ''}.`
+        : d.state === 'offered'
+          ? "You've been offered a spot: use the link in the offer email to accept it."
+          : 'Your spot is confirmed.'
+    return {
+      subject: `You're already enrolled: ${what}`,
+      text: `Hi ${d.name},\n\nSomeone (probably you) just filled in the form for ${what}${teamPart(d.teamName)} again, but you're already entered, so nothing has changed. ${where} ${refLine(d)}\n\n${QUESTIONS}\n`,
+      html: layout(
+        `<p>Hi ${escapeHtml(d.name)},</p><p>Someone (probably you) just filled in the form for <b>${escapeHtml(what)}</b>${escapeHtml(teamPart(d.teamName))} again, but you're already entered, so nothing has changed. ${escapeHtml(where)}</p>` +
+          `${refHtml(d)}<p style="color:#555;font-size:13px">${QUESTIONS}</p>`,
       ),
     }
   },

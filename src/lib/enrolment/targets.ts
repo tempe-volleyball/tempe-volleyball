@@ -1,4 +1,5 @@
 import type { ProductKind, ProgrammeKind } from '../../server/db/schema/enums'
+import { formatTimeRange } from '../time'
 
 // What someone enrols in: a league season, a training session, a development term or an event (docs/admin.md
 // §3.7). Each has exactly one products row, which holds its caps and overrides. Shared by the server, the admin and
@@ -40,24 +41,36 @@ export function formatDate(date: string, opts: { year?: boolean } = {}): string 
   return `${DAYS[d.getUTCDay()]} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}${opts.year === false ? '' : ` ${d.getUTCFullYear()}`}`
 }
 
-/** "18:30" → "6:30pm", "20:00" → "8pm". */
-export function formatTime(time: string | null | undefined): string {
-  const m = /^(\d{2}):(\d{2})$/.exec(time ?? '')
-  if (!m) return ''
-  const h = Number(m[1])
-  const suffix = h >= 12 ? 'pm' : 'am'
-  const h12 = h % 12 === 0 ? 12 : h % 12
-  return `${h12}${m[2] === '00' ? '' : `:${m[2]}`}${suffix}`
-}
-
-export const formatTimes = (start: string | null | undefined, end: string | null | undefined) => {
-  const s = formatTime(start)
-  const e = formatTime(end)
-  return s && e ? `${s}–${e}` : s
-}
+export { formatTime } from '../time'
+/** "6–8pm", "11am–1pm" (the shared formatter in src/lib/time.ts). */
+export const formatTimes = formatTimeRange
 
 /** "Wed 21 Oct 2026, 6:30–8pm: Serving" for a session. */
 export function sessionLabel(s: { date: string; startTime: string | null; endTime: string | null; title: string | null }): string {
-  const times = formatTimes(s.startTime, s.endTime)
+  const times = formatTimeRange(s.startTime, s.endTime)
   return `${formatDate(s.date)}${times ? `, ${times}` : ''}${s.title ? `: ${s.title}` : ''}`
+}
+
+/** What a product's target row says about it (any of the four), as targetLabelColumns selects it. */
+export type TargetLabelParts = {
+  seasonName: string | null
+  sessionDate: string | null
+  sessionStart: string | null
+  sessionEnd: string | null
+  sessionTitle: string | null
+  termName: string | null
+  eventName: string | null
+  /** products.name: the fallback for a product with no target row (a Phase 5 product). */
+  productName: string
+}
+
+/**
+ * The one label for an enrolment target, used by the form, the admin, the offer and confirm pages and every email:
+ * "TNL Q4 2026", "Thu 22 Oct 2026, 6–8pm", "Term 4 2026", "Tempe Cup 2026". Built from the target row each time,
+ * never from products.name, so an edited session time or title shows everywhere at once.
+ */
+export function targetLabel(p: TargetLabelParts): string {
+  if (p.seasonName) return p.seasonName
+  if (p.sessionDate) return sessionLabel({ date: p.sessionDate, startTime: p.sessionStart, endTime: p.sessionEnd, title: p.sessionTitle })
+  return p.termName ?? p.eventName ?? p.productName
 }

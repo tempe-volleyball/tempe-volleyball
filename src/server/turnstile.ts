@@ -4,6 +4,10 @@
 // Keys: TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY (secrets, `wrangler secret put … --env <env>`). Development and
 // staging fall back to Cloudflare's always-pass test keys, so forms work without setup there. Production has no
 // fallback: without real keys the public form shows "enrolment is unavailable" and the API refuses (fail closed).
+// Production also refuses the test keys if someone sets them by mistake (they'd let any bot through).
+//
+// With real keys, the siteverify answer's hostname must be the host the form posted to (the page's own), so a token
+// solved on another site that embeds our key isn't accepted.
 
 export const TURNSTILE_VERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify'
 
@@ -14,26 +18,36 @@ export type TurnstileEnv = { SITE_ENV: string; TURNSTILE_SITE_KEY?: string | und
 
 export type TurnstileKeys = { siteKey: string; secretKey: string; test: boolean }
 
-/** The keys to use, or null in production when they aren't set. */
+/** Cloudflare's published test secrets (always pass, always fail, token already spent). */
+const TEST_SECRET = /^[123]x0000000000000000000000000000000AA$/
+const TEST_SITE_KEY = /^[123]x00000000000000000000(AA|BB)$/
+
+/** The keys to use, or null in production when they aren't set (or are Cloudflare's test keys). */
 export function turnstileKeys(env: TurnstileEnv): TurnstileKeys | null {
-  if (env.TURNSTILE_SITE_KEY && env.TURNSTILE_SECRET_KEY)
-    return {
-      siteKey: env.TURNSTILE_SITE_KEY,
-      secretKey: env.TURNSTILE_SECRET_KEY,
-      test: env.TURNSTILE_SECRET_KEY === TURNSTILE_TEST_KEYS.secretKey,
+  if (env.TURNSTILE_SITE_KEY && env.TURNSTILE_SECRET_KEY) {
+    const test = TEST_SECRET.test(env.TURNSTILE_SECRET_KEY) || TEST_SITE_KEY.test(env.TURNSTILE_SITE_KEY)
+    if (test && env.SITE_ENV === 'production') {
+      console.warn('[turnstile] test keys refused in production; set the real TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY')
+      return null
     }
+    return { siteKey: env.TURNSTILE_SITE_KEY, secretKey: env.TURNSTILE_SECRET_KEY, test }
+  }
   if (env.SITE_ENV === 'development' || env.SITE_ENV === 'staging') return { ...TURNSTILE_TEST_KEYS, test: true }
   return null
 }
 
 export type TurnstileResult = { ok: true } | { ok: false; reason: string }
 
-/** Checks a widget token with Cloudflare. Network failures fail closed. */
+/**
+ * Checks a widget token with Cloudflare. Network failures fail closed. With `hostname`, the token must have been
+ * solved on that host (pass null with the test keys, whose answers say example.com).
+ */
 export async function verifyTurnstile(
   secretKey: string,
   token: unknown,
   ip: string | null,
   doFetch: typeof fetch = fetch,
+  opts: { hostname?: string | null } = {},
 ): Promise<TurnstileResult> {
   if (typeof token !== 'string' || !token || token.length > 2048) return { ok: false, reason: 'missing-input-response' }
   const body = new FormData()
@@ -42,8 +56,12 @@ export async function verifyTurnstile(
   if (ip) body.append('remoteip', ip)
   try {
     const res = await doFetch(TURNSTILE_VERIFY_URL, { method: 'POST', body })
-    const data = (await res.json().catch(() => ({}))) as { success?: boolean; 'error-codes'?: string[] }
-    if (data.success === true) return { ok: true }
+    const data = (await res.json().catch(() => ({}))) as { success?: boolean; hostname?: string; 'error-codes'?: string[] }
+    if (data.success === true) {
+      if (opts.hostname && data.hostname?.toLowerCase() !== opts.hostname.toLowerCase())
+        return { ok: false, reason: `hostname ${data.hostname ?? 'missing'}` }
+      return { ok: true }
+    }
     return { ok: false, reason: data['error-codes']?.join(',') || `status ${res.status}` }
   } catch (e) {
     return { ok: false, reason: `fetch failed: ${e instanceof Error ? e.message : String(e)}` }

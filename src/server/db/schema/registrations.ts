@@ -68,6 +68,8 @@ export const products = sqliteTable(
     waitlistOfferHours: integer('waitlist_offer_hours'),
     allowTeamEntries: integer('allow_team_entries', { mode: 'boolean' }),
     allowFreeAgents: integer('allow_free_agents', { mode: 'boolean' }),
+    /** Null = the programme's enrolment_email_confirm (null there = on when capped). */
+    emailConfirm: integer('email_confirm', { mode: 'boolean' }),
   },
   (t) => [
     uniqueIndex('products_slug_unique').on(t.slug),
@@ -166,7 +168,10 @@ export const registrations = sqliteTable(
     status: text('status', { enum: registrationStatuses }).notNull().default('pending_payment'),
     /** Short unique reference shown to the player and used as the PayID description, e.g. "TVB-7K3Q". */
     reference: text('reference').notNull(),
-    /** UTC ISO; an unpaid hold past this is expired by the cron. */
+    /**
+     * UTC ISO; the cron expires the entry past this. Phase 6: the deadline for confirming the email of a
+     * pending_email entry (Phase 5: an unpaid hold).
+     */
     holdExpiresAt: text('hold_expires_at'),
     answers: text('answers', { mode: 'json' }).$type<RegistrationAnswers>().notNull().default({}),
     /** The player confirmed they hold a Volleyball NSW membership (paid externally via Revolutionise). */
@@ -262,6 +267,11 @@ export const emailOutbox = sqliteTable(
     providerId: text('provider_id'),
     error: text('error'),
     ...timestamps(),
+    /**
+     * Sent because of an admin action, the cron or a confirmed email address, not straight from an anonymous form:
+     * it may use the share of the daily cap kept back for these (mailer.ts PRIORITY_RESERVE).
+     */
+    priority: integer('priority', { mode: 'boolean' }).notNull().default(false),
   },
   (t) => [
     index('email_outbox_status_send_after_idx').on(t.status, t.sendAfter),

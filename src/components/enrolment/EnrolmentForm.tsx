@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { ENTRY_TYPE_LABELS } from '../../lib/enrolment/defaults'
 import type { FormEntryType, FormField } from '../../lib/enrolment/forms'
 import { visibleFields } from '../../lib/enrolment/validate'
@@ -6,8 +6,12 @@ import type { EnrolmentFormProps, PublicTarget } from '../../server/enrolment/pu
 
 // The public enrolment form: one React island that renders a form definition (docs/api/enrolment.md "Public form
 // component"). Pages get its props from loadEnrolmentForm() in src/server/enrolment/public.ts and render
-//   <EnrolmentForm client:load {...props} />
+//   <EnrolmentForm client:visible {...props} />
 // The admin form builder renders it with `preview` (no Turnstile, nothing is sent).
+//
+// Hydration: the server renders the form with its fieldset disabled and a "Getting the form ready…" line, and it's
+// enabled once React has hydrated. So nothing typed before hydration can be silently wiped (client:visible keeps
+// the island's JavaScript off the first load; on a slow phone that gap is long enough to start typing).
 //
 // Privacy: answers are only ever POSTed as JSON to the endpoint; nothing goes in the URL, local storage or analytics.
 
@@ -24,15 +28,22 @@ type Answers = Record<string, unknown>
 type Errors = Record<string, string>
 
 type Result = {
-  status: 'confirmed' | 'waitlist'
-  reference: string
+  /** pending_email: check your inbox. emailed: an entry that already exists; its details went by email. */
+  status: 'confirmed' | 'waitlist' | 'pending_email' | 'emailed'
+  reference: string | null
   position: number | null
   teamName: string | null
   amountCents: number | null
   message: string | null
   programme: string
   target: string
+  confirmHours?: number
 }
+
+/** Hydration, as an external store: the server snapshot is false, the client's true. */
+const noSubscribe = () => () => {}
+const isClient = () => true
+const isServer = () => false
 
 const aud = (cents: number) => new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(cents / 100)
 
@@ -393,6 +404,8 @@ export default function EnrolmentForm(props: EnrolmentFormComponentProps) {
   const [resetKey, setResetKey] = useState(0)
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<Result | null>(null)
+  // False in the server-rendered HTML and while hydrating (the server snapshot), true once hydrated.
+  const ready = useSyncExternalStore(noSubscribe, isClient, isServer)
   const formRef = useRef<HTMLFormElement>(null)
   const resultRef = useRef<HTMLDivElement>(null)
 
@@ -418,13 +431,39 @@ export default function EnrolmentForm(props: EnrolmentFormComponentProps) {
       </p>
     )
 
+  const whatOf = (r: Result) => (r.target === r.programme ? r.programme : `${r.programme}: ${r.target}`)
+
+  if (result && (result.status === 'pending_email' || result.status === 'emailed'))
+    return (
+      <div ref={resultRef} tabIndex={-1} role="status" className="rounded border border-green-300 bg-green-50 p-5 outline-none">
+        <h3 className="font-display text-lg font-bold">Check your email</h3>
+        {result.status === 'pending_email' ? (
+          <>
+            <p className="mt-2">
+              We've emailed a link to <strong>{person.email}</strong> to finish your enrolment in {whatOf(result)}
+              {result.teamName ? ` (team ${result.teamName})` : ''}. <strong>No spot is held until you click it</strong>
+              {result.confirmHours ? `, and the link works for ${result.confirmHours} hours` : ''}.
+            </p>
+            <p className="mt-2 text-sm text-black/70">
+              If you've entered before, the email has your reference instead. Nothing there? Check your spam folder, or contact us.
+            </p>
+          </>
+        ) : (
+          <p className="mt-2">
+            We've emailed <strong>{person.email}</strong> about your entry in {whatOf(result)}. Nothing there? Check your spam folder, or
+            contact us.
+          </p>
+        )}
+      </div>
+    )
+
   if (result)
     return (
       <div ref={resultRef} tabIndex={-1} role="status" className="rounded border border-green-300 bg-green-50 p-5 outline-none">
         <h3 className="font-display text-lg font-bold">{result.status === 'confirmed' ? "You're enrolled!" : "You're on the waitlist"}</h3>
         <p className="mt-2">
           {result.status === 'confirmed'
-            ? `You're in ${result.target === result.programme ? result.programme : `${result.programme}: ${result.target}`}${result.teamName ? ` with ${result.teamName}` : ''}.`
+            ? `You're in ${whatOf(result)}${result.teamName ? ` with ${result.teamName}` : ''}.`
             : `${result.target} is full, so you're on the waitlist${result.position ? ` (number ${result.position})` : ''}. If a spot opens up we'll email you an offer.`}
         </p>
         <p className="mt-2">
@@ -488,119 +527,127 @@ export default function EnrolmentForm(props: EnrolmentFormComponentProps) {
 
   const team = entryType === 'team'
   return (
-    <form ref={formRef} onSubmit={(e) => void submit(e)} noValidate className="space-y-5">
-      {targets.length > 1 && (
-        <fieldset>
-          <legend className="mb-1 font-semibold">Choose</legend>
-          <div className="space-y-1">
-            {targets.map((t) => (
-              <label
-                key={t.id}
-                className={`flex items-start gap-2 rounded border px-3 py-2 ${t.id === targetId ? 'border-brand bg-brand/5' : 'border-black/15'} ${t.full ? 'opacity-60' : ''}`}
-              >
-                <input
-                  type="radio"
-                  name={`${idBase}-target`}
-                  className="accent-brand mt-1"
-                  checked={t.id === targetId}
-                  disabled={t.full}
-                  onChange={() => setTargetId(t.id)}
-                />
-                <span>
-                  <span className="font-semibold">{t.label}</span>
-                  {targetNote(t) && <span className="block text-sm text-black/70">{targetNote(t)}</span>}
-                </span>
-              </label>
-            ))}
-          </div>
-        </fieldset>
-      )}
-      {targets.length === 1 && target && (
-        <p className="font-semibold">
-          {target.label}
-          {targetNote(target) && <span className="block text-sm font-normal text-black/70">{targetNote(target)}</span>}
+    <form ref={formRef} onSubmit={(e) => void submit(e)} noValidate className="space-y-5" aria-busy={!ready}>
+      {!ready && (
+        <p role="status" className="text-sm text-black/70">
+          Getting the form ready…
         </p>
       )}
-
-      {target && target.entryTypes.length > 1 && (
-        <fieldset>
-          <legend className="mb-1 font-semibold">How are you entering?</legend>
-          <div className="flex flex-wrap gap-4">
-            {target.entryTypes.map((t) => (
-              <label key={t} className="flex items-center gap-2">
-                <input
-                  type="radio"
-                  name={`${idBase}-entry`}
-                  className="accent-brand"
-                  checked={entryType === t}
-                  onChange={() => setEntryType(t)}
-                />
-                {t === 'team' ? 'Enter a team' : ENTRY_TYPE_LABELS[t]}
-              </label>
-            ))}
-          </div>
-        </fieldset>
-      )}
-
-      <fieldset className="space-y-3">
-        <legend className="font-display text-brand mb-2 text-lg font-bold">
-          {team ? "Captain's details" : programme.kind === 'development' ? "Player's details" : 'Your details'}
-        </legend>
-        <div className="grid gap-3 sm:grid-cols-2">
-          {PERSON_FIELDS.map(([key, label, type, autoComplete]) => (
-            <div key={key}>
-              <Label htmlFor={`${idBase}-${key}`} required>
-                {programme.kind === 'development' && (key === 'email' || key === 'phone')
-                  ? `Parent or guardian's ${label.toLowerCase()}`
-                  : label}
-              </Label>
-              <input
-                id={`${idBase}-${key}`}
-                type={type}
-                autoComplete={autoComplete}
-                required
-                aria-invalid={!!errors[key]}
-                aria-describedby={errors[key] ? `${idBase}-${key}-error` : undefined}
-                className={inputClass(!!errors[key])}
-                value={person[key] ?? ''}
-                onChange={(e) => {
-                  setPerson((p) => ({ ...p, [key]: e.target.value }))
-                  if (errors[key]) setErrors((errs) => without(errs, key))
-                }}
-              />
-              <ErrorText id={`${idBase}-${key}-error`} error={errors[key]} />
+      {/* Disabled until hydrated, so nothing can be typed that hydration would clear. */}
+      <fieldset disabled={!ready} className="m-0 min-w-0 space-y-5 border-0 p-0">
+        {targets.length > 1 && (
+          <fieldset>
+            <legend className="mb-1 font-semibold">Choose</legend>
+            <div className="space-y-1">
+              {targets.map((t) => (
+                <label
+                  key={t.id}
+                  className={`flex items-start gap-2 rounded border px-3 py-2 ${t.id === targetId ? 'border-brand bg-brand/5' : 'border-black/15'} ${t.full ? 'opacity-60' : ''}`}
+                >
+                  <input
+                    type="radio"
+                    name={`${idBase}-target`}
+                    className="accent-brand mt-1"
+                    checked={t.id === targetId}
+                    disabled={t.full}
+                    onChange={() => setTargetId(t.id)}
+                  />
+                  <span>
+                    <span className="font-semibold">{t.label}</span>
+                    {targetNote(t) && <span className="block text-sm text-black/70">{targetNote(t)}</span>}
+                  </span>
+                </label>
+              ))}
             </div>
-          ))}
-        </div>
+          </fieldset>
+        )}
+        {targets.length === 1 && target && (
+          <p className="font-semibold">
+            {target.label}
+            {targetNote(target) && <span className="block text-sm font-normal text-black/70">{targetNote(target)}</span>}
+          </p>
+        )}
+
+        {target && target.entryTypes.length > 1 && (
+          <fieldset>
+            <legend className="mb-1 font-semibold">How are you entering?</legend>
+            <div className="flex flex-wrap gap-4">
+              {target.entryTypes.map((t) => (
+                <label key={t} className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name={`${idBase}-entry`}
+                    className="accent-brand"
+                    checked={entryType === t}
+                    onChange={() => setEntryType(t)}
+                  />
+                  {t === 'team' ? 'Enter a team' : ENTRY_TYPE_LABELS[t]}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        )}
+
+        <fieldset className="space-y-3">
+          <legend className="font-display text-brand mb-2 text-lg font-bold">
+            {team ? "Captain's details" : programme.kind === 'development' ? "Player's details" : 'Your details'}
+          </legend>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {PERSON_FIELDS.map(([key, label, type, autoComplete]) => (
+              <div key={key}>
+                <Label htmlFor={`${idBase}-${key}`} required>
+                  {programme.kind === 'development' && (key === 'email' || key === 'phone')
+                    ? `Parent or guardian's ${label.toLowerCase()}`
+                    : label}
+                </Label>
+                <input
+                  id={`${idBase}-${key}`}
+                  type={type}
+                  autoComplete={autoComplete}
+                  required
+                  aria-invalid={!!errors[key]}
+                  aria-describedby={errors[key] ? `${idBase}-${key}-error` : undefined}
+                  className={inputClass(!!errors[key])}
+                  value={person[key] ?? ''}
+                  onChange={(e) => {
+                    setPerson((p) => ({ ...p, [key]: e.target.value }))
+                    if (errors[key]) setErrors((errs) => without(errs, key))
+                  }}
+                />
+                <ErrorText id={`${idBase}-${key}-error`} error={errors[key]} />
+              </div>
+            ))}
+          </div>
+        </fieldset>
+
+        {fields.map((f) => (
+          <Question
+            key={f.key}
+            field={f}
+            value={answers[f.key]}
+            error={errors[f.key]}
+            onChange={(v) => setAnswer(f.key, v)}
+            idBase={idBase}
+          />
+        ))}
+
+        {!preview && turnstileSiteKey && <Turnstile siteKey={turnstileSiteKey} onToken={setToken} resetKey={resetKey} />}
+
+        {notice && (
+          <p role="alert" className="rounded border border-red-300 bg-red-50 px-4 py-3 text-red-800">
+            {notice}
+          </p>
+        )}
+
+        <button
+          type="submit"
+          disabled={busy || preview}
+          className="bg-brand hover:bg-brand-dark rounded px-6 py-3 font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {busy ? 'Sending…' : target?.waitlistOnly ? 'Join the waitlist' : team ? 'Enter the team' : 'Enrol'}
+        </button>
+        {preview && <p className="text-sm text-black/60">Preview: nothing is sent.</p>}
       </fieldset>
-
-      {fields.map((f) => (
-        <Question
-          key={f.key}
-          field={f}
-          value={answers[f.key]}
-          error={errors[f.key]}
-          onChange={(v) => setAnswer(f.key, v)}
-          idBase={idBase}
-        />
-      ))}
-
-      {!preview && turnstileSiteKey && <Turnstile siteKey={turnstileSiteKey} onToken={setToken} resetKey={resetKey} />}
-
-      {notice && (
-        <p role="alert" className="rounded border border-red-300 bg-red-50 px-4 py-3 text-red-800">
-          {notice}
-        </p>
-      )}
-
-      <button
-        type="submit"
-        disabled={busy || preview}
-        className="bg-brand hover:bg-brand-dark rounded px-6 py-3 font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
-      >
-        {busy ? 'Sending…' : target?.waitlistOnly ? 'Join the waitlist' : team ? 'Enter the team' : 'Enrol'}
-      </button>
-      {preview && <p className="text-sm text-black/60">Preview: nothing is sent.</p>}
     </form>
   )
 }

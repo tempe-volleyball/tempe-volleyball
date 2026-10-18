@@ -1,8 +1,9 @@
 import { and, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm'
+import type { SQLiteSelect } from 'drizzle-orm/sqlite-core'
 import { effectiveCap, enrolmentOpen, inherit } from '../../lib/programmes'
 import { defaultFields } from '../../lib/enrolment/defaults'
 import { activeFields, type FormField } from '../../lib/enrolment/forms'
-import { PRODUCT_KIND, sessionLabel, type TargetKind, type TargetRef } from '../../lib/enrolment/targets'
+import { PRODUCT_KIND, sessionLabel, targetLabel, type TargetKind, type TargetRef } from '../../lib/enrolment/targets'
 import { runBatch, type AppDb } from '../db'
 import {
   developmentTerms,
@@ -67,6 +68,8 @@ export type ProgrammeInfo = {
   allowFreeAgents: boolean
   waitlistEnabled: boolean
   waitlistOfferHours: number
+  /** Null = automatic (on when capped). */
+  enrolmentEmailConfirm: boolean | null
   ageMin: number | null
   ageMax: number | null
 }
@@ -89,6 +92,7 @@ export const programmeColumns = {
   allowFreeAgents: programmes.allowFreeAgents,
   waitlistEnabled: programmes.waitlistEnabled,
   waitlistOfferHours: programmes.waitlistOfferHours,
+  enrolmentEmailConfirm: programmes.enrolmentEmailConfirm,
   ageMin: programmes.ageMin,
   ageMax: programmes.ageMax,
 }
@@ -112,6 +116,44 @@ const productColumn = {
   term: products.termId,
   event: products.eventId,
 } as const
+
+/**
+ * The columns targetLabel() reads, for any query that has `products` in it and joins the four target tables with
+ * joinTargetRows(). Aliased, so they can't collide with other joined columns inside a db.batch().
+ */
+export const targetLabelColumns = {
+  lblProduct: sql<string>`${products.name}`.as('lbl_product'),
+  lblSeason: sql<string | null>`${seasons.name}`.as('lbl_season'),
+  lblSessionDate: sql<string | null>`${programmeSessions.date}`.as('lbl_session_date'),
+  lblSessionStart: sql<string | null>`${programmeSessions.startTime}`.as('lbl_session_start'),
+  lblSessionEnd: sql<string | null>`${programmeSessions.endTime}`.as('lbl_session_end'),
+  lblSessionTitle: sql<string | null>`${programmeSessions.title}`.as('lbl_session_title'),
+  lblTerm: sql<string | null>`${developmentTerms.name}`.as('lbl_term'),
+  lblEvent: sql<string | null>`${events.name}`.as('lbl_event'),
+}
+
+/** Joins a product's season, session, term or event (one of them matches), for targetLabelColumns. */
+export const joinTargetRows = <T extends SQLiteSelect>(q: T) =>
+  q
+    .leftJoin(seasons, eq(seasons.id, products.seasonId))
+    .leftJoin(programmeSessions, eq(programmeSessions.id, products.sessionId))
+    .leftJoin(developmentTerms, eq(developmentTerms.id, products.termId))
+    .leftJoin(events, eq(events.id, products.eventId))
+
+type LabelRow = { [K in keyof typeof targetLabelColumns]: (typeof targetLabelColumns)[K]['_']['type'] }
+
+/** The shared target label (lib/enrolment/targets.ts targetLabel) from a row with targetLabelColumns. */
+export const labelOfRow = (r: LabelRow) =>
+  targetLabel({
+    productName: r.lblProduct,
+    seasonName: r.lblSeason,
+    sessionDate: r.lblSessionDate,
+    sessionStart: r.lblSessionStart,
+    sessionEnd: r.lblSessionEnd,
+    sessionTitle: r.lblSessionTitle,
+    termName: r.lblTerm,
+    eventName: r.lblEvent,
+  })
 
 /** Which target a product is for. */
 export function refOfProduct(p: Pick<Product, 'seasonId' | 'sessionId' | 'termId' | 'eventId'>): TargetRef | null {
@@ -247,19 +289,25 @@ export type Effective = {
   formId: string | null
   /** What each person owes (AUD cents); null = no fee. */
   amountCents: number | null
+  /** Public entries hold no spot until the person clicks the link emailed to them (docs/admin.md §3.7). */
+  emailConfirm: boolean
 }
 
 /** The settings that apply to one target: the product's overrides, else the programme's defaults. */
 export function effective(programme: ProgrammeInfo, product: Product | null): Effective {
+  const capPlayers = effectiveCap(product?.capacity, programme.capPlayers)
+  const capTeams = effectiveCap(product?.capacityTeams, programme.capTeams)
   return {
-    capPlayers: effectiveCap(product?.capacity, programme.capPlayers),
-    capTeams: effectiveCap(product?.capacityTeams, programme.capTeams),
+    capPlayers,
+    capTeams,
     waitlistEnabled: inherit(product?.waitlistEnabled, programme.waitlistEnabled),
     offerHours: inherit(product?.waitlistOfferHours, programme.waitlistOfferHours),
     allowTeamEntries: inherit(product?.allowTeamEntries, programme.allowTeamEntries),
     allowFreeAgents: inherit(product?.allowFreeAgents, programme.allowFreeAgents),
     formId: product?.formId ?? programme.enrolmentFormId,
     amountCents: product ? product.priceCents || null : programme.priceCents || null,
+    // Instance override → programme setting → automatic: on when anything is capped (a spot is worth taking).
+    emailConfirm: product?.emailConfirm ?? programme.enrolmentEmailConfirm ?? (capPlayers !== null || capTeams !== null),
   }
 }
 
@@ -316,19 +364,36 @@ const nextRegistrationPosition = (productId: string) =>
 const nextGroupPosition = (productId: string) =>
   sql`(select coalesce(max(g4.waitlist_position), 0) + 1 from groups g4 where g4.product_id = ${productId} and g4.status = 'waitlist')`
 
+/** Why a confirmed-email entry that found no room (waitlist off) was cancelled. */
+export const FULL_ON_CONFIRM = 'Full when the email address was confirmed'
+
 /**
  * The statements that settle a just-inserted (spot-holding) entry against the caps, for the same batch. With the
- * waitlist on, an entry over the cap moves to the end of the waitlist; with it off, the entry is deleted (the caller
- * reads the row back to see which happened).
+ * waitlist on, an entry over the cap moves to the end of the waitlist; with it off, the entry is deleted, or with
+ * `refuse: 'cancel'` kept as cancelled (an entry that already existed: a confirmed email address). The caller reads
+ * the row back to see which happened.
  */
 export function settleStatements(
   db: AppDb,
   entry: { productId: string; registrationId: string; groupId: string | null },
   eff: Pick<Effective, 'capPlayers' | 'capTeams' | 'waitlistEnabled'>,
+  opts: { refuse?: 'delete' | 'cancel'; at?: string } = {},
 ) {
   const { productId, registrationId, groupId } = entry
+  const at = opts.at ?? new Date().toISOString()
   if (groupId) {
     const wait = teamMustWait(productId, groupId, eff)
+    if (!eff.waitlistEnabled && opts.refuse === 'cancel')
+      return [
+        db
+          .update(groups)
+          .set({ status: 'cancelled', cancelledAt: at })
+          .where(and(eq(groups.id, groupId), wait)),
+        db
+          .update(registrations)
+          .set({ status: 'cancelled', cancelledAt: at, cancelReason: FULL_ON_CONFIRM })
+          .where(and(eq(registrations.id, registrationId), sql`(select status from groups g5 where g5.id = ${groupId}) = 'cancelled'`)),
+      ]
     return eff.waitlistEnabled
       ? [
           db
@@ -347,6 +412,13 @@ export function settleStatements(
         ]
   }
   const wait = individualMustWait(productId, registrationId, eff.capPlayers)
+  if (!eff.waitlistEnabled && opts.refuse === 'cancel')
+    return [
+      db
+        .update(registrations)
+        .set({ status: 'cancelled', cancelledAt: at, cancelReason: FULL_ON_CONFIRM })
+        .where(and(eq(registrations.id, registrationId), wait)),
+    ]
   return eff.waitlistEnabled
     ? [
         db
@@ -355,6 +427,28 @@ export function settleStatements(
           .where(and(eq(registrations.id, registrationId), wait)),
       ]
     : [db.delete(registrations).where(and(eq(registrations.id, registrationId), wait))]
+}
+
+/**
+ * An entry's place on its waitlist, 1-based, counted in waitlist order (position, then entry time). Stored positions
+ * are only an ordering key and keep gaps when someone leaves the list, so this rank is what people and the admin are
+ * shown ("number 2"), never the stored number. A read-only scalar subquery, safe inside a batch.
+ */
+export function waitlistRankSql(kind: 'registration' | 'group', productId: string, id: string): SQL {
+  return kind === 'group'
+    ? sql`(select count(*) from groups gw, groups gm where gm.id = ${id} and gw.product_id = ${productId} and gw.status = 'waitlist' and (coalesce(gw.waitlist_position, 1000000000) < coalesce(gm.waitlist_position, 1000000000) or (coalesce(gw.waitlist_position, 1000000000) = coalesce(gm.waitlist_position, 1000000000) and (gw.created_at < gm.created_at or (gw.created_at = gm.created_at and gw.id <= gm.id)))))`
+    : sql`(select count(*) from registrations rw, registrations rm where rm.id = ${id} and rw.product_id = ${productId} and rw.status = 'waitlist' and (rw.group_id is null or rw.free_agent = 1) and (coalesce(rw.waitlist_position, 1000000000) < coalesce(rm.waitlist_position, 1000000000) or (coalesce(rw.waitlist_position, 1000000000) = coalesce(rm.waitlist_position, 1000000000) and (rw.created_at < rm.created_at or (rw.created_at = rm.created_at and rw.id <= rm.id)))))`
+}
+
+/** The same rank in JavaScript, for lists already loaded (the admin's view): id -> 1-based place. */
+export function waitlistRanks<T extends { id: string; status: string; waitlistPosition: number | null; createdAt: string }>(rows: T[]) {
+  const ranks = new Map<string, number>()
+  const key = (r: T) => r.waitlistPosition ?? 1_000_000_000
+  rows
+    .filter((r) => r.status === 'waitlist')
+    .toSorted((a, b) => key(a) - key(b) || a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
+    .forEach((r, i) => ranks.set(r.id, i + 1))
+  return ranks
 }
 
 // ── Offers ────────────────────────────────────────────────────────────────────
@@ -370,19 +464,24 @@ export type OfferMade = {
   teamName: string | null
   offeredAt: string
   expiresAt: string
+  /** How long the offer is held once its email goes (the programme's or instance's offer hours). */
+  hours: number
   /** The programme and target names, for the email (offersMadeAt fills them in). */
   what?: { programme: string; target: string }
 }
 
-/** The product with its programme's settings (one query), for offers and admin actions. */
+/** The product with its programme's settings and its target's label (one query), for offers and admin actions. */
 export async function loadProduct(db: AppDb, productId: string) {
-  const row = await db
-    .select({ product: products, programme: programmeColumns })
-    .from(products)
-    .innerJoin(programmes, eq(programmes.id, products.programmeId))
+  const row = await joinTargetRows(
+    db
+      .select({ product: products, programme: programmeColumns, ...targetLabelColumns })
+      .from(products)
+      .innerJoin(programmes, eq(programmes.id, products.programmeId))
+      .$dynamic(),
+  )
     .where(eq(products.id, productId))
     .get()
-  return row ?? null
+  return row ? { product: row.product, programme: row.programme, label: labelOfRow(row) } : null
 }
 
 /**
@@ -401,6 +500,7 @@ export async function offerNext(db: AppDb, productId: string, now: Date, max = O
   const playerRoom = sql`coalesce(${eff.capPlayers} - ${holdingPlayers(productId)}, ${NO_CAP})`
   const teamRoom = sql`min(coalesce(${eff.capTeams} - ${holdingTeams(productId)}, ${NO_CAP}), coalesce(${eff.capPlayers} - ${holdingPlayers(productId)}, ${NO_CAP}))`
   const offered = { status: 'offered' as const, offeredAt: at, offerExpiresAt: expires, waitlistPosition: null }
+  const hours = Math.max(1, eff.offerHours)
   const [individuals, , captains] = (await runBatch(db, [
     db
       .update(registrations)
@@ -430,29 +530,32 @@ export async function offerNext(db: AppDb, productId: string, now: Date, max = O
   ])) as { id: string }[][]
   // Exactly the rows this call offered (another call in the same millisecond can't be counted twice).
   const ids = [...individuals!, ...captains!].map((x) => x.id)
-  return ids.length === 0 ? [] : offersMadeAt(db, productId, at, ids)
+  return ids.length === 0 ? [] : offersMadeAt(db, productId, at, hours, ids)
 }
 
 /** The offers made on one product at one instant (optionally only these registrations), with what the emails need (one query). */
-export async function offersMadeAt(db: AppDb, productId: string, at: string, ids?: string[]): Promise<OfferMade[]> {
-  const rows = await db
-    .select({
-      registrationId: registrations.id,
-      reference: registrations.reference,
-      freeAgent: registrations.freeAgent,
-      groupId: registrations.groupId,
-      groupName: groups.name,
-      expiresAt: registrations.offerExpiresAt,
-      email: players.email,
-      firstName: players.firstName,
-      programme: programmes.name,
-      target: products.name,
-    })
-    .from(registrations)
-    .innerJoin(players, eq(players.id, registrations.playerId))
-    .innerJoin(products, eq(products.id, registrations.productId))
-    .innerJoin(programmes, eq(programmes.id, products.programmeId))
-    .leftJoin(groups, eq(groups.id, registrations.groupId))
+export async function offersMadeAt(db: AppDb, productId: string, at: string, hours: number, ids?: string[]): Promise<OfferMade[]> {
+  const rows = await joinTargetRows(
+    db
+      .select({
+        registrationId: registrations.id,
+        reference: registrations.reference,
+        freeAgent: registrations.freeAgent,
+        groupId: registrations.groupId,
+        groupName: groups.name,
+        expiresAt: registrations.offerExpiresAt,
+        email: players.email,
+        firstName: players.firstName,
+        programme: sql<string>`${programmes.name}`.as('programme_name'),
+        ...targetLabelColumns,
+      })
+      .from(registrations)
+      .innerJoin(players, eq(players.id, registrations.playerId))
+      .innerJoin(products, eq(products.id, registrations.productId))
+      .innerJoin(programmes, eq(programmes.id, products.programmeId))
+      .leftJoin(groups, eq(groups.id, registrations.groupId))
+      .$dynamic(),
+  )
     .where(
       and(
         eq(registrations.productId, productId),
@@ -474,7 +577,8 @@ export async function offersMadeAt(db: AppDb, productId: string, at: string, ids
       teamName: team ? r.groupName : null,
       offeredAt: at,
       expiresAt: r.expiresAt ?? at,
-      what: { programme: r.programme, target: r.target },
+      hours,
+      what: { programme: r.programme, target: labelOfRow(r) },
     }
   })
 }
@@ -496,6 +600,8 @@ export async function offerEmail(
     url: offerUrl(deps.siteUrl, token),
     expiresAt: offer.expiresAt,
     teamName: offer.teamName,
+    // The mailer starts the hold from the moment this email goes (mailer.ts OfferHold).
+    hold: { type: offer.type, id: offer.id, offeredAt: offer.offeredAt, hours: offer.hours },
   }
 }
 

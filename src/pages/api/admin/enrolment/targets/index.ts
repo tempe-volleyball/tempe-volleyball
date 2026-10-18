@@ -7,7 +7,7 @@ import { getServices } from '../../../../../server/services'
 export const GET: APIRoute = ({ locals, request, url }) =>
   handle(async () => {
     const { db } = getServices()
-    await requireRole(locals.user, 'admin', request, db)
+    await requireRole(locals.user, 'admin', request, db, { fresh: true })
     const programmeId = url.searchParams.get('programmeId') ?? undefined
     return json({ targets: await listTargets(db, { all: url.searchParams.get('all') === '1', programmeId }) })
   })

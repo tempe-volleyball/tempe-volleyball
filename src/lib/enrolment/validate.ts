@@ -212,6 +212,29 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/
 
 export const normaliseEmail = (v: unknown) => oneLine(v).toLowerCase()
 export const isEmail = (v: string) => v.length <= 254 && EMAIL.test(v)
+
+/** Mail providers that ignore dots in the local part (j.smith@gmail.com is jsmith@gmail.com). */
+const DOTLESS_DOMAINS = new Set(['gmail.com', 'googlemail.com'])
+
+/**
+ * The mailbox an address delivers to, for rate limits (never stored or emailed): lower-cased, with any +tag
+ * dropped, and dots dropped for Gmail (googlemail.com counts as gmail.com). So victim+1@gmail.com and
+ * v.ictim@googlemail.com count against the same limit as victim@gmail.com.
+ */
+export function canonicalMailbox(email: string): string {
+  const e = email.trim().toLowerCase()
+  const at = e.lastIndexOf('@')
+  if (at <= 0) return e
+  let local = e.slice(0, at)
+  let domain = e.slice(at + 1)
+  const plus = local.indexOf('+')
+  if (plus > 0) local = local.slice(0, plus)
+  if (DOTLESS_DOMAINS.has(domain)) {
+    local = local.replaceAll('.', '')
+    domain = 'gmail.com'
+  }
+  return `${local}@${domain}`
+}
 /** Australian or international numbers: 6–15 digits with spaces, dashes, dots, brackets and a leading +. */
 export const isPhone = (v: string) =>
   /^\+?[\d\s().-]+$/.test(v) && (v.match(/\d/g)?.length ?? 0) >= 6 && (v.match(/\d/g)?.length ?? 0) <= 15

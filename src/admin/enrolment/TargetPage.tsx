@@ -21,6 +21,7 @@ const STATUS_STYLE: Record<string, string> = {
   pending_payment: 'bg-accent/30 text-ink',
   waitlist: 'bg-accent/30 text-ink',
   offered: 'bg-brand/15 text-brand',
+  pending_email: 'bg-amber-100 text-amber-900',
   cancelled: 'bg-black/10 text-black/60',
   expired: 'bg-black/10 text-black/60',
   refunded: 'bg-black/10 text-black/60',
@@ -29,10 +30,12 @@ const STATUS_LABEL: Record<string, string> = {
   waitlist: 'Waitlist',
   offered: 'Offered',
   confirmed: 'Confirmed',
+  pending_email: 'Awaiting email',
   cancelled: 'Cancelled',
   expired: 'Lapsed',
 }
 
+/** `position` is the waitlist rank (1, 2, 3 …), not the stored position, which keeps gaps. */
 function Status({ status, position, expires }: { status: string; position?: number | null; expires?: string | null }) {
   return (
     <span className="inline-flex flex-wrap items-center gap-1">
@@ -40,7 +43,9 @@ function Status({ status, position, expires }: { status: string; position?: numb
         {STATUS_LABEL[status] ?? status.replace('_', ' ')}
         {status === 'waitlist' && position ? ` #${position}` : ''}
       </span>
-      {status === 'offered' && expires && <span className="text-xs text-black/60">until {formatWhen(expires)}</span>}
+      {(status === 'offered' || status === 'pending_email') && expires && (
+        <span className="text-xs text-black/60">until {formatWhen(expires)}</span>
+      )}
     </span>
   )
 }
@@ -168,6 +173,9 @@ export function TargetPage({ kind, id }: { kind: string; id: string }) {
         <Stat label="Waitlist" value={summary.counts.waitlist + summary.counts.teamsWaitlist} />
         <Stat label="Offered" value={summary.counts.offered} />
         <Stat label="Unpaid" value={summary.counts.unpaid} />
+        {(summary.counts.pending > 0 || summary.counts.teamsPending > 0 || detail.effective.emailConfirm) && (
+          <Stat label="Awaiting email" value={summary.counts.pending + summary.counts.teamsPending} />
+        )}
       </div>
 
       <Settings detail={detail} onSaved={(msg) => (setFlash(msg), void load())} />
@@ -193,7 +201,11 @@ export function TargetPage({ kind, id }: { kind: string; id: string }) {
                   <li key={g.id} className={`py-3 text-sm ${g.status === 'cancelled' ? 'opacity-60' : ''}`}>
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-semibold">{g.name}</span>
-                      <Status status={g.status} position={g.waitlistPosition} expires={g.offerExpiresAt} />
+                      <Status
+                        status={g.status}
+                        position={g.waitlistRank}
+                        expires={g.status === 'pending_email' ? (captain?.confirmBy ?? null) : g.offerExpiresAt}
+                      />
                       {captain && (
                         <span className="text-black/70">
                           Captain {captain.player.firstName} {captain.player.lastName} · {captain.reference}
@@ -272,8 +284,9 @@ export function TargetPage({ kind, id }: { kind: string; id: string }) {
             <option value="confirmed">Confirmed</option>
             <option value="offered">Offered</option>
             <option value="waitlist">Waitlist</option>
+            <option value="pending_email">Awaiting email confirmation</option>
             <option value="cancelled">Cancelled</option>
-            <option value="expired">Lapsed offers</option>
+            <option value="expired">Lapsed (offers and unconfirmed emails)</option>
           </Select>
           <Select label="Payment" value={paid} onChange={(e) => setPaid(e.target.value)}>
             <option value="">Any</option>
@@ -436,6 +449,8 @@ function Stat({ label, value }: { label: string; value: React.ReactNode }) {
 // ── Rows and their actions ────────────────────────────────────────────────────
 
 const REG_ACTION_LABELS = {
+  verify: 'Confirm their email (by hand)',
+  resend_confirm: 'Resend the confirm-email link',
   mark_paid: 'Mark paid…',
   mark_unpaid: 'Mark unpaid',
   offer: 'Offer the spot (email)',
@@ -451,6 +466,9 @@ const REG_ACTION_LABELS = {
 type RegAction = keyof typeof REG_ACTION_LABELS
 
 const REG_CONFIRM: Record<RegAction, (name: string) => string> = {
+  verify: (n) =>
+    `Confirm ${n}'s email address for them (say they told you by phone)? Their entry then counts against the caps: a spot if there's room, otherwise the end of the waitlist. They'll get the usual email.`,
+  resend_confirm: (n) => `Email ${n} the confirm link again? Their deadline restarts from now.`,
   mark_paid: () => '',
   mark_unpaid: (n) => `Mark ${n} as not paid? The payment note is cleared.`,
   offer: (n) => `Email ${n} an offer for a spot? It's held for them for the offer time, even if that takes the count over the cap.`,
@@ -468,12 +486,13 @@ const REG_CONFIRM: Record<RegAction, (name: string) => string> = {
 function regActions(r: RegistrationRow): RegAction[] {
   const a: RegAction[] = []
   if (r.entryType !== 'team') {
+    if (r.status === 'pending_email') a.push('verify', 'resend_confirm', 'confirm')
     if (r.status === 'waitlist') a.push('offer', 'confirm')
     if (r.status === 'offered') a.push('resend_offer', 'confirm')
   }
   if (LIVE(r.status)) a.push(r.paidAt ? 'mark_unpaid' : 'mark_paid')
   if (r.entryType === 'free_agent' && LIVE(r.status)) a.push('place')
-  if (r.entryType !== 'team' && LIVE(r.status)) a.push('move')
+  if (r.entryType !== 'team' && LIVE(r.status) && r.status !== 'pending_email') a.push('move')
   a.push('edit')
   if (r.entryType !== 'team') a.push(LIVE(r.status) ? 'cancel' : 'reinstate')
   if (r.entryType !== 'team') a.push('delete')
@@ -523,7 +542,7 @@ function RegRow({
           </td>
         )}
         <td className="px-3 py-2">
-          <Status status={r.status} position={r.waitlistPosition} expires={r.offerExpiresAt} />
+          <Status status={r.status} position={r.waitlistRank} expires={r.status === 'pending_email' ? r.confirmBy : r.offerExpiresAt} />
         </td>
         <td className="px-3 py-2 text-xs">
           {r.paidAt ? (
@@ -590,6 +609,8 @@ const Item = ({ label, value }: { label: string; value: string }) => (
 )
 
 const GROUP_ACTION_LABELS = {
+  verify: "Confirm the captain's email (by hand)",
+  resend_confirm: 'Resend the confirm-email link',
   offer: 'Offer the spot (email the captain)',
   confirm: 'Confirm now',
   resend_offer: 'Resend the offer email',
@@ -601,6 +622,9 @@ const GROUP_ACTION_LABELS = {
 type GroupActionName = keyof typeof GROUP_ACTION_LABELS
 
 const GROUP_CONFIRM: Record<GroupActionName, (name: string) => string> = {
+  verify: (n) =>
+    `Confirm ${n}'s captain's email address for them? The entry then counts against the caps: a spot if there's room, otherwise the end of the waitlist.`,
+  resend_confirm: (n) => `Email ${n}'s captain the confirm link again? Their deadline restarts from now.`,
   offer: (n) => `Email ${n}'s captain an offer for a spot?`,
   confirm: (n) => `Give ${n} a spot now, even if that takes the count over the cap?`,
   resend_offer: (n) => `Send ${n}'s captain the offer email again?`,
@@ -612,6 +636,7 @@ const GROUP_CONFIRM: Record<GroupActionName, (name: string) => string> = {
 
 function GroupActions({ group: g, onPick }: { group: GroupRow; onPick: (a: GroupActionName) => void }) {
   const list: GroupActionName[] = []
+  if (g.status === 'pending_email') list.push('verify', 'resend_confirm', 'confirm')
   if (g.status === 'waitlist') list.push('offer', 'confirm')
   if (g.status === 'offered') list.push('resend_offer', 'confirm')
   list.push('rename')
@@ -647,22 +672,27 @@ const toLocalInput = (iso: string | null) => {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
+/** "On", "Off" or "" (inherit) for a nullable boolean override. */
+const triValue = (b: boolean | null | undefined) => (b === null || b === undefined ? '' : String(b))
+
 function Settings({ detail, onSaved }: { detail: Detail; onSaved: (msg: string) => void }) {
+  // A target with no product row yet (a season nobody has entered) shows the programme's defaults; saving creates it.
   const { product, programme } = detail
   const [openPanel, setOpenPanel] = useState(false)
   const [forms, setForms] = useState<FormsList['forms'] | null>(null)
   const [v, setV] = useState(() => ({
-    capacity: product.capacity === null ? '' : String(product.capacity),
-    capacityTeams: product.capacityTeams === null ? '' : String(product.capacityTeams),
-    price: (product.priceCents / 100).toFixed(2),
-    formId: product.formId ?? '',
-    waitlistEnabled: product.waitlistEnabled === null ? '' : String(product.waitlistEnabled),
-    waitlistOfferHours: product.waitlistOfferHours === null ? '' : String(product.waitlistOfferHours),
-    allowTeamEntries: product.allowTeamEntries === null ? '' : String(product.allowTeamEntries),
-    allowFreeAgents: product.allowFreeAgents === null ? '' : String(product.allowFreeAgents),
-    opensAt: toLocalInput(product.opensAt),
-    closesAt: toLocalInput(product.closesAt),
-    active: product.active,
+    capacity: product?.capacity == null ? '' : String(product.capacity),
+    capacityTeams: product?.capacityTeams == null ? '' : String(product.capacityTeams),
+    price: ((product ? product.priceCents : (programme.priceCents ?? 0)) / 100).toFixed(2),
+    formId: product?.formId ?? '',
+    waitlistEnabled: triValue(product?.waitlistEnabled),
+    waitlistOfferHours: product?.waitlistOfferHours == null ? '' : String(product.waitlistOfferHours),
+    allowTeamEntries: triValue(product?.allowTeamEntries),
+    allowFreeAgents: triValue(product?.allowFreeAgents),
+    emailConfirm: triValue(product?.emailConfirm),
+    opensAt: toLocalInput(product?.opensAt ?? null),
+    closesAt: toLocalInput(product?.closesAt ?? null),
+    active: product?.active ?? true,
   }))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -681,10 +711,11 @@ function Settings({ detail, onSaved }: { detail: Detail; onSaved: (msg: string) 
     try {
       const num = numOrNull
       const tri = triState
-      const r = await api<{ offered: number; cache: string }>(`/api/admin/enrolment/products/${product.id}`, {
+      const ref = detail.summary.ref
+      const r = await api<{ offered: number; cache: string }>(`/api/admin/enrolment/targets/${ref.kind}/${ref.id}`, {
         method: 'PATCH',
         body: {
-          baseUpdatedAt: product.updatedAt,
+          baseUpdatedAt: product?.updatedAt ?? '',
           capacity: num(v.capacity),
           capacityTeams: teamsKind ? num(v.capacityTeams) : null,
           priceCents: Math.round(Number(v.price || '0') * 100),
@@ -693,6 +724,7 @@ function Settings({ detail, onSaved }: { detail: Detail; onSaved: (msg: string) 
           waitlistOfferHours: num(v.waitlistOfferHours),
           allowTeamEntries: teamsKind ? tri(v.allowTeamEntries) : null,
           allowFreeAgents: teamsKind ? tri(v.allowFreeAgents) : null,
+          emailConfirm: tri(v.emailConfirm),
           opensAt: v.opensAt ? new Date(v.opensAt).toISOString() : null,
           closesAt: v.closesAt ? new Date(v.closesAt).toISOString() : null,
           active: v.active,
@@ -719,8 +751,9 @@ function Settings({ detail, onSaved }: { detail: Detail; onSaved: (msg: string) 
       <p className="text-sm text-black/70">
         Player cap {eff.capPlayers ?? 'none'}
         {teamsKind ? ` · team cap ${eff.capTeams ?? 'none'}` : ''} · {eff.amountCents ? formatAud(eff.amountCents) : 'no fee'} · waitlist{' '}
-        {yesNo(eff.waitlistEnabled)}, offers held {eff.offerHours}h · form: {detail.form.name}
-        {product.active ? '' : ' · not taking enrolments'}
+        {yesNo(eff.waitlistEnabled)}, offers held {eff.offerHours}h · email confirmation {yesNo(eff.emailConfirm)} · form:{' '}
+        {detail.form.name}
+        {product && !product.active ? ' · not taking enrolments' : ''}
       </p>
       {openPanel && (
         <form
@@ -774,6 +807,18 @@ function Settings({ detail, onSaved }: { detail: Detail; onSaved: (msg: string) 
               onChange={set('waitlistOfferHours')}
               hint={`(${programme.waitlistOfferHours})`}
             />
+            <Select
+              label="Confirm email before holding a spot"
+              value={v.emailConfirm}
+              onChange={set('emailConfirm')}
+              hint="Public entries wait for the person to click an emailed link; until then they hold no spot."
+            >
+              <option value="">
+                ({programme.enrolmentEmailConfirm === null ? 'automatic: on when capped' : yesNo(programme.enrolmentEmailConfirm)})
+              </option>
+              <option value="true">On</option>
+              <option value="false">Off: hold the spot straight away</option>
+            </Select>
             <Select label="Form" value={v.formId} onChange={set('formId')}>
               <option value="">(the programme's)</option>
               {forms?.map((f) => (

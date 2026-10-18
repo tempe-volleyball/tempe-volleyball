@@ -286,7 +286,7 @@ describe('text helpers', () => {
   it('describes spots', () => {
     const c = (players: number | null, teams: number | null, n = 0, waitlist = 0) => ({
       caps: { players, teams },
-      counts: { players: n, teams: 0, waitlist, offered: 0, teamsWaitlist: 0, unpaid: 0 },
+      counts: { players: n, teams: 0, waitlist, offered: 0, teamsWaitlist: 0, pending: 0, teamsPending: 0, unpaid: 0 },
     })
     expect(spotsText(c(null, null))).toBe('')
     expect(spotsText(c(10, null, 9))).toBe('1 spot left')

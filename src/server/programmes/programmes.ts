@@ -365,6 +365,7 @@ const ENROLMENT_FIELDS = [
   'allowFreeAgents',
   'waitlistEnabled',
   'waitlistOfferHours',
+  'enrolmentEmailConfirm',
 ] as const satisfies readonly (keyof Programme)[]
 
 /** Every field the admin can edit (status has its own endpoint, kind is fixed). */
@@ -441,6 +442,9 @@ export function parseProgrammeFields(input: ProgrammeInput): Patch {
   if (has(input, 'allowFreeAgents')) out.allowFreeAgents = bool(input.allowFreeAgents, 'Free agents')
   if (has(input, 'waitlistEnabled')) out.waitlistEnabled = bool(input.waitlistEnabled, 'Waitlist')
   if (has(input, 'waitlistOfferHours')) out.waitlistOfferHours = int(input.waitlistOfferHours, 'Offer time (hours)', 1, L.offerHours)
+  // Null = automatic (on when capped), true = always, false = never.
+  if (has(input, 'enrolmentEmailConfirm'))
+    out.enrolmentEmailConfirm = input.enrolmentEmailConfirm === null ? null : bool(input.enrolmentEmailConfirm, 'Email confirmation')
   return out
 }
 

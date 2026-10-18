@@ -260,6 +260,12 @@ the waitlist, free agents into teams, add by hand, CSV export); and the `<Enrolm
 programme pages. API: [docs/api/enrolment.md](api/enrolment.md). Left: real Turnstile keys for production (without
 them the form says enrolment is unavailable) and Resend for the emails.
 
+Hardened after the Phase 6 QA and security review: email confirmation before a spot is held, no "already enrolled"
+answer on the page, per-mailbox email limits and a share of the daily email cap kept for offers, offer holds that start
+when the email goes, rate limits that can't be used to lock someone out, capped request bodies, sanitised error logs,
+fresh role checks and an audit row on every CSV download, waitlist places shown as ranks, one label and time format
+for each target everywhere, and outbox retention.
+
 Decisions (each the more robust or more configurable option):
 
 - **Caps are checked inside the insert's batch**, not before it, so the last spot can't be taken twice. Over the cap,
@@ -273,8 +279,40 @@ Decisions (each the more robust or more configurable option):
 - **Duplicates** are the same email and the same first and last name in the same target, so siblings can share a
   parent's email. A public form fills only blank player details and never overwrites what's there.
 - **Rate limits** live in D1 (`rate_limits`, fixed windows): 20 an hour per IP, 6 an hour and 15 a day per email.
+  Only the IP is counted before Turnstile, so junk without a solved check can't lock a person's email out; the email
+  limits key on the canonical mailbox (lower-case, `+tag` dropped, Gmail dots dropped), so `pat+1@gmail.com` and
+  `p.at@googlemail.com` count as `pat@gmail.com`.
+- **Email confirmation before a spot is held** (the security review's main finding): a per-programme setting with a
+  per-instance override, like the caps, **defaulting to on for anything capped** (where a spot is worth taking) and
+  off for uncapped ones. A public entry then starts as `pending_email`, holding no spot and not on the waitlist, and the
+  person is emailed a signed link (HMAC, in the URL fragment, single-use); clicking it on the page settles the entry
+  against the caps in one batch, exactly as a new entry would be, so it may join the end of the waitlist (or, with the
+  waitlist off, be cancelled as full). The link works for Settings → Enrolment → "Hours to confirm" (default 24); the
+  hourly cron then expires it. Admins see "Awaiting email" entries and can confirm them by hand (settled against the
+  caps), resend the link (the deadline restarts) or confirm past the cap. Queue order is the order addresses are
+  confirmed in, not the order forms were sent: an unconfirmed entry can't keep a place.
+- **The form never says "already enrolled"**: that would tell anyone who a named person (maybe a junior) is entered
+  with. A repeat answers like a new entry and the address on file gets the news (its confirm link again, or its
+  reference and where it stands). Where confirmation is on the answer is identical; where it's off (uncapped) it's a
+  generic "we've emailed you".
+- **Email is rationed so junk can't crowd out real mail**: anything an anonymous form triggers is limited per mailbox
+  (5 an hour, then queued; 10 a day, then dropped) and stops 20 short of the general daily pool, which is kept for
+  priority email: offers, cancellations, admin actions and anything after a confirmed address. A waitlist offer's hold
+  starts when its email actually goes, and the cron never lapses an offer whose email is still queued.
+- **Draft seasons take enrolment** when their league's enrolment is open: that's next season's enrolment, opened
+  before the draw is published. A draft _programme_ takes none, and archived seasons are closed.
+- **Waitlist places are ranks** (1, 2, 3 … in waitlist order), worked out when shown; the stored position is only an
+  ordering key, so nobody is told they're number 2 when they're next.
+- **One name and time format per target**, built from the season, session, term or event row each time (never the
+  product's stored name), with times as "6–8pm" / "11am–1pm" from `src/lib/time.ts`: form choices, admin lists, the
+  offer and confirm pages and every email agree.
+- **Request hardening**: public JSON bodies are capped at 64 KB (answers at 32 KB) before parsing; unexpected errors
+  are logged as name, code and message with any query parameters cut off (never the bound values); production refuses
+  Cloudflare's Turnstile test keys and checks the hostname a token was solved on.
 - **Editors get no access** to enrolments or forms: it's personal data, juniors' included, and nothing an editor does
-  (results, pages, news) needs it. Admins and owners see everything. Revisit if Michael wants a check-in helper.
+  (results, pages, news) needs it. Admins and owners see everything. Revisit if Michael wants a check-in helper. The
+  reads re-check the role in D1 (not the 5-minute session cache), so a removed or demoted admin loses access at once,
+  and every CSV download is audited (`enrolment.export`: which target, how many rows).
 - **Payment method and note** are kept with "paid" (PayID, cash, bank transfer, card, other), and both directions are
   audited. Stripe, when it returns, just sets `paid_at`.
 - **Form changes are versioned**: each registration records the form and version it answered, and questions are
@@ -288,8 +326,13 @@ offer page renders nothing personal on the server. None of it goes to analytics 
 page URLs only, and no URL holds an answer or a token). The audit log records which personal fields changed, not their
 values. Rate-limit keys are salted hashes, deleted when their window ends; offer links are scrubbed from the outbox.
 Retention: entries stay while Michael needs them for the season. "Delete for good" removes an entry, and the player
-row with it when nothing else uses it. A yearly clean-up of finished seasons (for example after 2 years) is a
-follow-up for Michael to decide.
+row with it when nothing else uses it. Sent and failed emails (with their addresses) are deleted from the outbox after
+Settings → Enrolment → "Days to keep sent emails" (default 30); queued ones stay until sent. Deleted data can still
+sit in the backups for a while: the nightly D1 export in R2 is kept for **30 days** (the bucket's lifecycle rule,
+.github/workflows/backup.yml) and D1's own Time Travel can restore any point in the last **7 days** (the free plan's
+window), so "Delete for good" is complete after at most 30 days. The privacy policy (Phase 7) should say
+so. Unconfirmed entries that expire stay as "Lapsed" until deleted. A yearly clean-up of finished seasons (for example
+after 2 years) is a follow-up for Michael to decide.
 
 ### 3.8 Content map
 

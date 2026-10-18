@@ -5,7 +5,17 @@ import { groups, players, products, programmes, registrations } from '../db/sche
 import { getSettings } from '../content/settings'
 import type { Mailer } from '../email'
 import { HttpError } from '../http'
-import { offerEmail, offerNext, sendOfferEmails, sendQuietly, type NotifyDeps, type OfferMade } from './core'
+import {
+  joinTargetRows,
+  labelOfRow,
+  offerEmail,
+  offerNext,
+  sendOfferEmails,
+  sendQuietly,
+  targetLabelColumns,
+  type NotifyDeps,
+  type OfferMade,
+} from './core'
 import { readOfferToken, type OfferSubject } from './tokens'
 
 // Waitlist offers: the person's side (the /enrol/offer page: view, accept, decline) and the hourly cron that passes
@@ -41,26 +51,29 @@ type OfferRow = {
 
 /** The offer a subject names, from the registration (individual) or the captain's registration (team). One query. */
 async function loadOffer(db: AppDb, subject: OfferSubject): Promise<OfferRow | null> {
-  const base = db
-    .select({
-      registrationId: registrations.id,
-      productId: registrations.productId,
-      status: subject.type === 'group' ? groups.status : registrations.status,
-      offeredAt: subject.type === 'group' ? groups.offeredAt : registrations.offeredAt,
-      offerExpiresAt: subject.type === 'group' ? groups.offerExpiresAt : registrations.offerExpiresAt,
-      reference: registrations.reference,
-      firstName: players.firstName,
-      email: players.email,
-      teamName: groups.name,
-      programme: programmes.name,
-      target: products.name,
-      amountCents: registrations.amountCents,
-    })
-    .from(registrations)
-    .innerJoin(players, eq(players.id, registrations.playerId))
-    .innerJoin(products, eq(products.id, registrations.productId))
-    .innerJoin(programmes, eq(programmes.id, products.programmeId))
-    .leftJoin(groups, eq(groups.id, registrations.groupId))
+  const base = joinTargetRows(
+    db
+      .select({
+        registrationId: registrations.id,
+        productId: registrations.productId,
+        status: subject.type === 'group' ? groups.status : registrations.status,
+        offeredAt: subject.type === 'group' ? groups.offeredAt : registrations.offeredAt,
+        offerExpiresAt: subject.type === 'group' ? groups.offerExpiresAt : registrations.offerExpiresAt,
+        reference: registrations.reference,
+        firstName: players.firstName,
+        email: players.email,
+        teamName: sql<string | null>`${groups.name}`.as('team_name'),
+        programme: sql<string>`${programmes.name}`.as('programme_name'),
+        amountCents: registrations.amountCents,
+        ...targetLabelColumns,
+      })
+      .from(registrations)
+      .innerJoin(players, eq(players.id, registrations.playerId))
+      .innerJoin(products, eq(products.id, registrations.productId))
+      .innerJoin(programmes, eq(programmes.id, products.programmeId))
+      .leftJoin(groups, eq(groups.id, registrations.groupId))
+      .$dynamic(),
+  )
   const row =
     subject.type === 'group'
       ? await base
@@ -73,7 +86,7 @@ async function loadOffer(db: AppDb, subject: OfferSubject): Promise<OfferRow | n
           )
           .get()
       : await base.where(eq(registrations.id, subject.id)).get()
-  return row ?? null
+  return row ? { ...row, target: labelOfRow(row) } : null
 }
 
 const stateOf = (row: OfferRow, subject: OfferSubject, nowIso: string): OfferState => {
@@ -169,14 +182,20 @@ export async function respondToOffer(deps: OfferDeps, token: unknown, action: un
     const payid = row.amountCents ? (await getSettings(db)).payid : null
     await sendQuietly(
       () =>
-        deps.mailer.sendEmail(row.email, 'enrolment.confirmed', {
-          name: row.firstName,
-          ...what,
-          reference: row.reference,
-          teamName: subject.type === 'group' ? row.teamName : null,
-          amount: row.amountCents ? formatAud(row.amountCents) : null,
-          payid: payid?.payId ? payid : null,
-        }),
+        deps.mailer.sendEmail(
+          row.email,
+          'enrolment.confirmed',
+          {
+            name: row.firstName,
+            ...what,
+            reference: row.reference,
+            teamName: subject.type === 'group' ? row.teamName : null,
+            amount: row.amountCents ? formatAud(row.amountCents) : null,
+            payid: payid?.payId ? payid : null,
+          },
+          // Accepting an offer proves the address (it came from the offer email).
+          { priority: true },
+        ),
       'confirmation',
     )
     return view('accepted')
@@ -196,6 +215,15 @@ export const CRON_LAPSED_LIMIT = 3
 export const CRON_PRODUCT_LIMIT = 1
 export const CRON_OFFER_LIMIT = 3
 
+/**
+ * An offer whose email hasn't gone yet (over the day's email cap) isn't lapsed: its hold starts when the email is
+ * sent (mailer.ts OfferHold). `alias` is the registrations or groups alias in the query.
+ */
+const emailSent = (alias: string) =>
+  sql.raw(
+    `not exists (select 1 from email_outbox eo where eo.status = 'queued' and eo.template = 'enrolment.offer' and json_extract(eo.payload, '$.hold.id') = ${alias}.id)`,
+  )
+
 /** Products with a lapsed offer, or with a waitlist and room for someone on it (one query). */
 async function productsNeedingWork(db: AppDb, at: string, limit: number) {
   const capP = sql`coalesce(${products.capacity}, ${programmes.capPlayers})`
@@ -207,8 +235,8 @@ async function productsNeedingWork(db: AppDb, at: string, limit: number) {
     .from(products)
     .innerJoin(programmes, eq(programmes.id, products.programmeId))
     .where(
-      sql`exists (select 1 from registrations r0 where r0.product_id = ${products.id} and r0.status = 'offered' and r0.offer_expires_at <= ${at})
-        or exists (select 1 from groups g0 where g0.product_id = ${products.id} and g0.status = 'offered' and g0.offer_expires_at <= ${at})
+      sql`exists (select 1 from registrations r0 where r0.product_id = ${products.id} and r0.status = 'offered' and r0.offer_expires_at <= ${at} and (r0.group_id is null or r0.free_agent = 1) and ${emailSent('r0')})
+        or exists (select 1 from groups g0 where g0.product_id = ${products.id} and g0.status = 'offered' and g0.offer_expires_at <= ${at} and ${emailSent('g0')})
         or (exists (select 1 from registrations r where r.product_id = ${products.id} and r.status = 'waitlist' and (r.group_id is null or r.free_agent = 1)) and (${capP} is null or ${holdingP} < ${capP}))
         or (exists (select 1 from groups g where g.product_id = ${products.id} and g.status = 'waitlist') and (${capT} is null or ${holdingT} < ${capT}) and (${capP} is null or ${holdingP} < ${capP}))`,
     )
@@ -233,8 +261,8 @@ export async function runEnrolmentCron(
   const needing = await productsNeedingWork(db, at, CRON_PRODUCT_LIMIT)
   if (needing.length === 0) return { expired: 0, offered: 0, emailsQueued: 0 }
 
-  const lapsedRegs = sql`select r.id from registrations r where r.status = 'offered' and r.offer_expires_at <= ${at} and (r.group_id is null or r.free_agent = 1) order by r.offer_expires_at limit ${CRON_LAPSED_LIMIT}`
-  const lapsedGroups = sql`select g.id from groups g where g.status = 'offered' and g.offer_expires_at <= ${at} order by g.offer_expires_at limit ${CRON_LAPSED_LIMIT}`
+  const lapsedRegs = sql`select r.id from registrations r where r.status = 'offered' and r.offer_expires_at <= ${at} and (r.group_id is null or r.free_agent = 1) and ${emailSent('r')} order by r.offer_expires_at limit ${CRON_LAPSED_LIMIT}`
+  const lapsedGroups = sql`select g.id from groups g where g.status = 'offered' and g.offer_expires_at <= ${at} and ${emailSent('g')} order by g.offer_expires_at limit ${CRON_LAPSED_LIMIT}`
   const reason = 'Offer lapsed'
   const [regs, grps, captains] = (await runBatch(db, [
     db
@@ -263,21 +291,24 @@ export async function runEnrolmentCron(
   const expiredIds = [...regs!, ...captains!].map((r) => r.id)
   const emails: ReturnType<typeof deps.mailer.queueStatement>[] = []
   if (expiredIds.length > 0) {
-    const rows = await db
-      .select({
-        email: players.email,
-        firstName: players.firstName,
-        reference: registrations.reference,
-        teamName: groups.name,
-        freeAgent: registrations.freeAgent,
-        programme: programmes.name,
-        target: products.name,
-      })
-      .from(registrations)
-      .innerJoin(players, eq(players.id, registrations.playerId))
-      .innerJoin(products, eq(products.id, registrations.productId))
-      .innerJoin(programmes, eq(programmes.id, products.programmeId))
-      .leftJoin(groups, eq(groups.id, registrations.groupId))
+    const rows = await joinTargetRows(
+      db
+        .select({
+          email: players.email,
+          firstName: players.firstName,
+          reference: registrations.reference,
+          teamName: sql<string | null>`${groups.name}`.as('team_name'),
+          freeAgent: registrations.freeAgent,
+          programme: sql<string>`${programmes.name}`.as('programme_name'),
+          ...targetLabelColumns,
+        })
+        .from(registrations)
+        .innerJoin(players, eq(players.id, registrations.playerId))
+        .innerJoin(products, eq(products.id, registrations.productId))
+        .innerJoin(programmes, eq(programmes.id, products.programmeId))
+        .leftJoin(groups, eq(groups.id, registrations.groupId))
+        .$dynamic(),
+    )
       .where(inArray(registrations.id, expiredIds))
       .all()
     for (const r of rows)
@@ -288,7 +319,7 @@ export async function runEnrolmentCron(
           {
             name: r.firstName,
             programme: r.programme,
-            target: r.target,
+            target: labelOfRow(r),
             reference: r.reference,
             teamName: r.freeAgent ? null : r.teamName,
             reason: "The waitlist offer wasn't accepted in time, so the spot has gone to the next person.",

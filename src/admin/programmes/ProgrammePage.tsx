@@ -50,6 +50,8 @@ type Form = {
   allowFreeAgents: boolean
   waitlistEnabled: boolean
   waitlistOfferHours: string
+  /** '' = automatic (on when capped), 'true' = always, 'false' = never. */
+  enrolmentEmailConfirm: string
 }
 
 const str = (v: string | number | null | undefined) => (v === null || v === undefined ? '' : String(v))
@@ -87,6 +89,7 @@ const formOf = (p: Programme): Form => ({
   allowFreeAgents: p.allowFreeAgents,
   waitlistEnabled: p.waitlistEnabled,
   waitlistOfferHours: String(p.waitlistOfferHours),
+  enrolmentEmailConfirm: p.enrolmentEmailConfirm === null ? '' : String(p.enrolmentEmailConfirm),
 })
 
 const orNull = (s: string) => (s.trim() === '' ? null : s.trim())
@@ -128,6 +131,7 @@ function payloadOf(f: Form, kind: ProgrammeKind): Record<string, unknown> {
     allowFreeAgents: f.allowFreeAgents,
     waitlistEnabled: f.waitlistEnabled,
     waitlistOfferHours: Number(f.waitlistOfferHours),
+    enrolmentEmailConfirm: f.enrolmentEmailConfirm === '' ? null : f.enrolmentEmailConfirm === 'true',
   }
 }
 
@@ -684,6 +688,16 @@ function EnrolmentCard({
             value={form.waitlistOfferHours}
             onChange={(e) => set('waitlistOfferHours', e.target.value)}
           />
+          <Select
+            label="Confirm email before holding a spot"
+            value={form.enrolmentEmailConfirm}
+            hint="Public entries wait for the person to click a link emailed to them, so nobody can take a spot with someone else's address. Each instance can override it."
+            onChange={(e) => set('enrolmentEmailConfirm', e.target.value)}
+          >
+            <option value="">Automatic: on when there's a cap</option>
+            <option value="true">Always</option>
+            <option value="false">Never: hold the spot straight away</option>
+          </Select>
         </div>
         <div className="mt-4 space-y-3">
           <Checkbox
