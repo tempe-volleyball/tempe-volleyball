@@ -321,6 +321,12 @@ When it's picked up, the original scope still applies:
 The public website only; the admin is Phase 6.
 
 - Meta descriptions, Open Graph, JSON-LD, sitemap (real pages only), one H1 per page, fix the homepage's first line.
+  **SEO done (2026-10-19)**, see [docs/public-site.md](docs/public-site.md) "SEO": the `<Seo>` head (titles,
+  descriptions, canonical, Open Graph and Twitter cards, per-page/post/programme/category images and a default),
+  search title/description/noindex on pages and posts, Settings → Search and sharing, JSON-LD (SportsOrganization,
+  BreadcrumbList, SportsEvent/Event, NewsArticle), `/sitemap.xml`, robots.txt, `/search`, a real 404 page,
+  trailing-slash internal links fixed, and `scripts/seo/check.ts` (every page type Lighthouse SEO 100 with indexing on;
+  every old URL one 301 to a 200).
 - UX: a real contact form (with Turnstile), the sidebar/footer ladder duplication from the QA review, mobile layout of
   long fixtures tables, and the small Lighthouse leftovers (responsive hero/logo sizes, render-blocking CSS).
   **Contact form: done** (2026-10-19): a Contact form page block on /contact, Admin → Messages, notifications and

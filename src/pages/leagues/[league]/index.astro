@@ -20,6 +20,7 @@ import { cachePublic, tags } from '../../../server/cache'
 import { publicSeasons } from '../../../server/competition/load'
 import { loadProgrammePage, programmePageTags, programmeSeo } from '../../../server/programmes/public'
 import { publicDb, publicSite, redirectFor } from '../../../server/public'
+import { seasonJsonLd } from '../../../server/seo'
 import { getTurnstileKeys } from '../../../server/services'
 
 const slug = (Astro.params.league ?? '').toLowerCase()
@@ -64,12 +65,33 @@ const calendar: CalendarLinks | undefined =
       }
     : undefined
 
+// JSON-LD: the current season as a SportsEvent, with an Offer while that season takes entries.
+const origin = (Astro.site ?? Astro.url).origin
+const seasonTarget = view && page?.enrolment?.targets.find((t) => t.kind === 'season' && t.id === view.summary.id)
+const jsonLd =
+  view && seo
+    ? [
+        seasonJsonLd(view, site, {
+          origin,
+          url: new URL(leagueRoute(slug), origin).href,
+          description: seo.description,
+          ...(seasonTarget ? { enrolment: { open: true, url: new URL(`${leagueRoute(slug)}#enrol`, origin).href } } : {}),
+        }),
+      ]
+    : []
+
 if (league && page)
   cachePublic(Astro.cache, ...programmePageTags(league, page.category?.slug ?? null), ...(view ? [tags.season(view.summary.slug)] : []))
 ---
 
 {league && page && seo ? (
-  <BaseLayout title={documentTitle(seo.title)} description={seo.description} site={site} canonicalPath={leagueRoute(slug)}>
+  <BaseLayout
+    title={documentTitle(seo.title)}
+    description={seo.description}
+    site={site}
+    canonicalPath={leagueRoute(slug)}
+    seo={{ imageIds: [league.imageId], jsonLd }}
+  >
     {view ? (
       <SeasonView view={view} others={publicSeasons(site.seasons, view.league.id)} current today={today} calendar={calendar}>
         <Breadcrumbs slot="before" items={crumbs} />
@@ -112,6 +134,6 @@ if (league && page)
   </BaseLayout>
 ) : (
   <BaseLayout title={documentTitle('Page not found')} description={DEFAULT_DESCRIPTION} site={site}>
-    <NotFound />
+    <NotFound site={site} />
   </BaseLayout>
 )}

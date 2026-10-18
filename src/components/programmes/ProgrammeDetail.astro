@@ -6,6 +6,7 @@ import { categoryPath } from '../../lib/programmes'
 import { KIND_LABEL } from '../../server/programmes/programmes'
 import { programmeSeo, publicTargetSpots, type ProgrammeInstance } from '../../server/programmes/public'
 import type { ProgrammeRoute } from '../../server/programmes/route'
+import { programmeJsonLd } from '../../server/seo'
 import NotFound from '../NotFound.astro'
 import Breadcrumbs from './Breadcrumbs.astro'
 import EnrolSection from './EnrolSection.astro'
@@ -39,6 +40,18 @@ const crumbs = p
   ? [...(page?.category ? [{ label: page.category.name, href: categoryPath(page.category.slug) }] : []), { label: p.name }]
   : []
 
+// JSON-LD: the upcoming sessions (Event), terms (Event) or event dates (SportsEvent), with Offers while open.
+const origin = (Astro.site ?? Astro.url).origin
+const jsonLd =
+  p && page && seo && p.status === 'active'
+    ? programmeJsonLd(p, page.upcoming, site, {
+        origin,
+        url: new URL(page.path, origin).href,
+        description: seo.description,
+        targets: page.enrolment?.targets ?? [],
+      })
+    : []
+
 const when = (i: ProgrammeInstance) => {
   const start = formatDateLong(i.startDate)
   const range = i.endDate && i.endDate !== i.startDate ? `${start} to ${formatDateLong(i.endDate)}` : start
@@ -52,7 +65,13 @@ const details = (i: ProgrammeInstance) =>
 ---
 
 {p && page && seo ? (
-  <BaseLayout title={documentTitle(seo.title)} description={seo.description} site={site} canonicalPath={page.path}>
+  <BaseLayout
+    title={documentTitle(seo.title)}
+    description={seo.description}
+    site={site}
+    canonicalPath={page.path}
+    seo={{ imageIds: [p.imageId], jsonLd }}
+  >
     <Breadcrumbs items={crumbs} />
     <h1 class="page-title">{p.name}</h1>
     <ProgrammeIntro
@@ -119,6 +138,6 @@ const details = (i: ProgrammeInstance) =>
   </BaseLayout>
 ) : (
   <BaseLayout title={documentTitle('Page not found')} description={DEFAULT_DESCRIPTION} site={site}>
-    <NotFound />
+    <NotFound site={site} />
   </BaseLayout>
 )}

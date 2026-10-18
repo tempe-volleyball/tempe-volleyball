@@ -26,6 +26,11 @@ export const pages = sqliteTable(
     wpId: wpId(),
     ...timestamps(),
     updatedBy: updatedBy(),
+    // ── Phase 7: search and sharing (docs/public-site.md "SEO") ──
+    /** The <title> text when it should differ from the page title. Null = the title. */
+    seoTitle: text('seo_title'),
+    /** Keep the page out of search results (robots noindex) and out of the sitemap. */
+    noindex: integer('noindex', { mode: 'boolean' }).notNull().default(false),
   },
   (t) => [
     uniqueIndex('pages_path_unique').on(t.path),
@@ -66,6 +71,13 @@ export const posts = sqliteTable(
     wpId: wpId(),
     ...timestamps(),
     updatedBy: updatedBy(),
+    // ── Phase 7: search and sharing (docs/public-site.md "SEO") ──
+    /** The <title> text when it should differ from the post title. Null = the title. */
+    seoTitle: text('seo_title'),
+    /** The meta description when it should differ from the excerpt. Null = the excerpt, else the body's text. */
+    seoDescription: text('seo_description'),
+    /** Keep the post out of search results (robots noindex) and out of the sitemap. */
+    noindex: integer('noindex', { mode: 'boolean' }).notNull().default(false),
   },
   (t) => [
     uniqueIndex('posts_slug_unique').on(t.slug),

@@ -5,6 +5,7 @@ import { env } from 'cloudflare:workers'
 import LadderWidget from '../components/LadderWidget.astro'
 import SiteFooter from '../components/SiteFooter.astro'
 import SiteHeader from '../components/SiteHeader.astro'
+import Seo, { type SeoExtras } from '../components/Seo.astro'
 import { CF_BEACON_SRC, analyticsTags, cfBeaconAttr, ga4LoaderScript } from '../lib/analytics/tags'
 import { announcementActive } from '../lib/content/settings'
 import { isIndexable } from '../lib/indexing'
@@ -23,10 +24,11 @@ type Props = {
   canonicalPath?: string
   ogImage?: string
   ogType?: 'website' | 'article'
+  /** Sharing image ids, JSON-LD, noindex and article dates for the head (src/components/Seo.astro). */
+  seo?: SeoExtras
 }
-const { title, description, site, sidebar = false, canonicalPath, ogImage, ogType = 'website' } = Astro.props
+const { title, description, site, sidebar = false, canonicalPath, ogImage, ogType = 'website', seo } = Astro.props
 const canonical = new URL(canonicalPath ?? normalisePath(Astro.url.pathname), Astro.site)
-const image = new URL(ogImage ?? '/images/hero-1500.webp', Astro.site)
 // Edited in the admin (Site settings); changing it purges every cached page (tag `site`).
 const banner = site.settings.announcement
 const showBanner = announcementActive(banner, new Date())
@@ -39,9 +41,7 @@ const tracking = analyticsTags(site.settings.analytics, isIndexable(Astro.url, e
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{title}</title>
-    <meta name="description" content={description} />
-    <link rel="canonical" href={canonical} />
+    <Seo title={title} description={description} site={site} canonical={canonical} ogImage={ogImage} ogType={ogType} {...seo} />
     <link rel="alternate" type="application/rss+xml" title={`${SITE_NAME} news`} href={NEWS_FEED_ROUTE} />
     <link rel="preload" href="/fonts/lato-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="preload" href="/fonts/noto-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin />
@@ -54,17 +54,9 @@ const tracking = analyticsTags(site.settings.analytics, isIndexable(Astro.url, e
       fetchpriority="high"
     />
     <meta name="theme-color" content="#104293" />
-    <meta property="og:site_name" content={SITE_NAME} />
-    <meta property="og:type" content={ogType} />
-    <meta property="og:title" content={title} />
-    <meta property="og:description" content={description} />
-    <meta property="og:url" content={canonical} />
-    <meta property="og:image" content={image} />
-    <meta property="og:locale" content="en_AU" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="icon" href="/favicon.ico" sizes="32x32" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    {tracking.searchConsoleVerification && <meta name="google-site-verification" content={tracking.searchConsoleVerification} />}
     {tracking.ga4 && <script is:inline set:html={ga4LoaderScript(tracking.ga4.id, tracking.ga4.loading)} />}
     {tracking.cfBeaconToken && <script is:inline defer src={CF_BEACON_SRC} data-cf-beacon={cfBeaconAttr(tracking.cfBeaconToken)} />}
   </head>

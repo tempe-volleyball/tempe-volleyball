@@ -15,7 +15,12 @@ cachePublic(Astro.cache, tags.page('/enrol/confirm'))
 Astro.response.headers.set('X-Robots-Tag', 'noindex, nofollow')
 ---
 
-<BaseLayout title={documentTitle('Confirm your enrolment')} description="Confirm your email address to finish enrolling." site={site}>
+<BaseLayout
+  title={documentTitle('Confirm your enrolment')}
+  description="Confirm your email address to finish enrolling in a Tempe Volleyball league, training session or program."
+  site={site}
+  seo={{ noindex: true }}
+>
   <article class="mx-auto max-w-2xl space-y-4 py-6">
     <h1 class="font-display text-brand text-2xl font-bold">Confirm your enrolment</h1>
     <ConfirmResponse client:only="react" />

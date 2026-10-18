@@ -11,7 +11,7 @@ export const GET: APIRoute = ({ locals, request, params }) =>
     return json(await getPage(getServices().db, params.id!))
   })
 
-/** Saves edits ({ title?, path?, metaDescription?, ogImageId?, template?, blocks?, baseUpdatedAt? }). Live pages are purged. */
+/** Saves edits ({ title?, path?, metaDescription?, ogImageId?, seoTitle?, noindex?, template?, blocks?, baseUpdatedAt? }). Live pages are purged. */
 export const PATCH: APIRoute = ({ locals, request, params, cache }) =>
   handle(async () => {
     const actor = await requireRole(locals.user, 'editor', request, getServices().db)

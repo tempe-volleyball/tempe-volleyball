@@ -28,6 +28,8 @@ import {
 export const MAX_TITLE = 200
 export const MAX_EXCERPT = 300
 export const MAX_CATEGORY = 60
+export const MAX_SEO_TITLE = 120
+export const MAX_SEO_DESCRIPTION = 300
 
 export type PostInput = {
   title?: unknown
@@ -35,6 +37,11 @@ export type PostInput = {
   excerpt?: unknown
   category?: unknown
   coverMediaId?: unknown
+  /** The <title> text and meta description when they should differ from the title and excerpt ('' or null = those). */
+  seoTitle?: unknown
+  seoDescription?: unknown
+  /** Keep the post out of search results and the sitemap. */
+  noindex?: unknown
   blocks?: unknown
   /** UTC ISO; lets an editor back-date a post. Only used once the post is published. */
   publishedAt?: unknown
@@ -114,6 +121,9 @@ export async function createPost(db: AppDb, actor: Editor, input: PostInput, now
     excerpt: optionalText(input.excerpt, 'Excerpt', MAX_EXCERPT),
     category: optionalText(input.category, 'Category', MAX_CATEGORY),
     coverMediaId: typeof input.coverMediaId === 'string' && input.coverMediaId ? input.coverMediaId : null,
+    seoTitle: optionalText(input.seoTitle, 'Search title', MAX_SEO_TITLE),
+    seoDescription: optionalText(input.seoDescription, 'Search description', MAX_SEO_DESCRIPTION),
+    noindex: input.noindex === true,
     body: b,
     status: 'draft' as const,
     updatedBy: actor.id,
@@ -146,6 +156,12 @@ export async function updatePost(db: AppDb, actor: Editor, id: string, input: Po
         : typeof input.coverMediaId === 'string' && input.coverMediaId
           ? input.coverMediaId
           : null,
+    seoTitle: input.seoTitle === undefined ? post.seoTitle : optionalText(input.seoTitle, 'Search title', MAX_SEO_TITLE),
+    seoDescription:
+      input.seoDescription === undefined
+        ? post.seoDescription
+        : optionalText(input.seoDescription, 'Search description', MAX_SEO_DESCRIPTION),
+    noindex: input.noindex === undefined ? post.noindex : input.noindex === true,
     body: b,
     publishedAt:
       input.publishedAt === undefined || !post.publishedAt ? post.publishedAt : (isoOrNull(input.publishedAt) ?? post.publishedAt),

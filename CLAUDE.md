@@ -70,6 +70,9 @@ src/lib/content/     Content rules shared by admin and Worker: render.ts (editor
                      server-side sanitiser), paths.ts (page paths, slugs, reserved prefixes), menu.ts (validate /
                      build the two-level tree), media.ts (widths, upload names, URLs), settings.ts (site_settings
                      keys, defaults, validation, per-key roles).
+src/lib/seo/         SEO rules (docs/public-site.md): jsonld (escaping + schema.org builders), events, meta (images,
+                     descriptions), sitemap (+ robots.txt), search (queries, 404 suggestions). src/components/Seo.astro
+                     is the <head>; src/server/sitemap.ts, search.ts, seo.ts load for them. scripts/seo/check.ts checks a build.
 src/lib/wp-import/   Pure parts of the WordPress importer: title parser (finals labels, duty, byes, skip weeks),
                      SportsPress result mapping, route conventions + old-URL mapping (routes.ts), SQL upserts,
                      upload-link rewriting, ladder reconciliation.

@@ -1,4 +1,5 @@
 import type { UserRole } from '../roles'
+import { isMediaId } from './media'
 import { safeHref } from './render'
 
 // Site settings (the site_settings table, one JSON value per key): contact details, PayID, social links, the
@@ -106,6 +107,23 @@ export type SecuritySettings = {
   trustDeviceDays: number
 }
 
+/**
+ * Search and sharing (docs/public-site.md "SEO"): the site-wide defaults behind every page's meta tags and the
+ * organisation's JSON-LD. Per-page titles, descriptions and images are set on the page, post, programme or category.
+ */
+export type SeoSettings = {
+  /** The meta description of pages with nothing better to say (no field, no body text). Empty = the built-in one. */
+  description: string
+  /** The default social-sharing image (a media id). Empty = the built-in /images/og-default.jpg. */
+  imageId: string
+  /** The organisation's other names ("Tempe VB"), for search engines. */
+  alternateName: string
+  /** The year Tempe Volleyball started (JSON-LD foundingDate). Empty = left out. */
+  foundingYear: string
+  /** More profiles of the club (https URLs) for JSON-LD sameAs; Instagram and Facebook come from Social links. */
+  sameAs: string[]
+}
+
 /** The longest a device can be trusted (the trust cookie's own lifetime). */
 export const MAX_TRUST_DEVICE_DAYS = 90
 
@@ -120,6 +138,7 @@ export type SiteSettings = {
   security: SecuritySettings
   contactForm: ContactFormSettings
   privacy: PrivacySettings
+  seo: SeoSettings
 }
 
 export type SettingKey = keyof SiteSettings
@@ -134,6 +153,7 @@ export const settingKeys = [
   'security',
   'contactForm',
   'privacy',
+  'seo',
 ] as const satisfies readonly SettingKey[]
 
 /** Who may change each key. PayID is where players send money, so it's admin+ like other payment settings. */
@@ -149,6 +169,7 @@ export const settingMinRole: Record<SettingKey, UserRole> = {
   // Where messages (personal data) are emailed and how long they're kept.
   contactForm: 'admin',
   privacy: 'editor',
+  seo: 'editor',
 }
 
 /** Keys the public site never reads, so saving them doesn't purge the edge cache. */
@@ -188,6 +209,7 @@ export const DEFAULT_SETTINGS: SiteSettings = {
     retentionDays: 365,
   },
   privacy: { pagePath: '/privacy' },
+  seo: { description: '', imageId: '', alternateName: 'Tempe VB', foundingYear: '2005', sameAs: [] },
 }
 
 /** Bounds for the contact form settings. */
@@ -385,6 +407,22 @@ const checkers: { [K in SettingKey]: (v: unknown) => SiteSettings[K] } = {
         MAX_TRUST_DEVICE_DAYS,
         DEFAULT_SETTINGS.security.trustDeviceDays,
       ),
+    }
+  },
+  seo: (v) => {
+    const o = obj(v, 'Search and sharing')
+    const imageId = str(o.imageId, 'Social image', 64).toLowerCase()
+    if (imageId && !isMediaId(imageId)) throw new Invalid('Pick the social image from the media library.')
+    const foundingYear = pattern(o.foundingYear, 'The year founded', 4, /^(19|20)\d\d$/, 'is a four-digit year.')
+    const list = Array.isArray(o.sameAs) ? o.sameAs : typeof o.sameAs === 'string' ? o.sameAs.split(/\s+/) : []
+    if (list.length > 10) throw new Invalid('List at most 10 other profiles.')
+    const sameAs = [...new Set(list.map((u) => httpsUrl(u, 'Each other profile')).filter(Boolean))]
+    return {
+      description: str(o.description, 'Default description', 300),
+      imageId,
+      alternateName: str(o.alternateName, 'Other name', 80),
+      foundingYear,
+      sameAs,
     }
   },
 }

@@ -22,6 +22,7 @@ import {
   confirmAction,
   Button,
   Card,
+  Checkbox,
   Dialog,
   Field,
   Notice,
@@ -122,13 +123,25 @@ export function PageList() {
   )
 }
 
-type Form = { title: string; path: string; metaDescription: string; ogImageId: string | null; template: PageTemplate }
+type Form = {
+  title: string
+  path: string
+  metaDescription: string
+  ogImageId: string | null
+  seoTitle: string
+  noindex: boolean
+  template: PageTemplate
+}
+
+const EMPTY_FORM: Form = { title: '', path: '', metaDescription: '', ogImageId: null, seoTitle: '', noindex: false, template: 'content' }
 
 const formOf = (p: PageRow): Form => ({
   title: p.title,
   path: p.path,
   metaDescription: p.metaDescription ?? '',
   ogImageId: p.ogImageId,
+  seoTitle: p.seoTitle ?? '',
+  noindex: p.noindex,
   template: p.template,
 })
 
@@ -209,7 +222,7 @@ export function PageEditor({ id }: { id: string | null }) {
   const [, navigate] = useLocation()
   const [page, setPage] = useState<PageRow | null>(null)
   const [revisions, setRevisions] = useState<RevisionRow[]>([])
-  const [form, setForm] = useState<Form>({ title: '', path: '', metaDescription: '', ogImageId: null, template: 'content' })
+  const [form, setForm] = useState<Form>(EMPTY_FORM)
   const [pathEdited, setPathEdited] = useState(false)
   const blocks = useRef<unknown[] | undefined>(undefined)
   const [editorKey, setEditorKey] = useState(0)
@@ -383,6 +396,14 @@ export function PageEditor({ id }: { id: string | null }) {
           </Card>
           <Card title="Search and sharing">
             <div className="space-y-4">
+              <Field
+                label="Search title"
+                maxLength={120}
+                value={form.seoTitle}
+                placeholder={form.title}
+                onChange={(e) => set('seoTitle', e.target.value)}
+                hint="The title in search results and browser tabs, when it should differ from the page title. “| Tempe Volleyball” is added."
+              />
               <TextArea
                 label="Meta description"
                 rows={3}
@@ -395,7 +416,13 @@ export function PageEditor({ id }: { id: string | null }) {
                 label="Social image"
                 mediaId={form.ogImageId}
                 onChange={(v) => set('ogImageId', v)}
-                hint="Shown when the page is shared on Facebook, WhatsApp and so on."
+                hint="Shown when the page is shared on Facebook, WhatsApp and so on. Empty = the site’s default image (Settings → Search and sharing)."
+              />
+              <Checkbox
+                label="Hide from search engines"
+                checked={form.noindex}
+                onChange={(v) => set('noindex', v)}
+                hint="Asks Google and others not to list this page, and leaves it out of the sitemap. Visitors can still open it."
               />
               <Select label="Template" value={form.template} onChange={(e) => set('template', e.target.value as PageTemplate)}>
                 <option value="content">Content page</option>

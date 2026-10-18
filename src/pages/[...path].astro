@@ -46,11 +46,12 @@ const categoryDescription = category
 
 {page ? (
   <BaseLayout
-    title={documentTitle(page.title)}
+    title={documentTitle(page.seoTitle?.trim() || page.title)}
     description={metaDescription(page.metaDescription, { bodyHtml: page.body.html })}
     site={site}
     sidebar
     canonicalPath={path}
+    seo={{ imageIds: [page.ogImageId], noindex: page.noindex }}
   >
     <PageBody title={page.title} html={body?.html ?? page.body.html} titles={found.titles} />
   </BaseLayout>
@@ -60,11 +61,12 @@ const categoryDescription = category
     description={categoryDescription}
     site={site}
     canonicalPath={categoryPath(category.category.slug)}
+    seo={{ imageIds: [category.category.ogImageId] }}
   >
     <CategoryView data={category} titles={found.titles} />
   </BaseLayout>
 ) : (
   <BaseLayout title={documentTitle('Page not found')} description={DEFAULT_DESCRIPTION} site={site}>
-    <NotFound />
+    <NotFound site={site} titles={found.titles} />
   </BaseLayout>
 )}

@@ -10,6 +10,7 @@ import { leagueRoute, normalisePath, seasonRoute } from '../../../lib/wp-import/
 import { cachePublic, tags } from '../../../server/cache'
 import { publicSeasons } from '../../../server/competition/load'
 import { publicDb, publicSite, redirectFor } from '../../../server/public'
+import { seasonJsonLd } from '../../../server/seo'
 import { loadSeason, seasonView, type LeagueSeason } from '../../../server/site'
 
 const leagueSlug = (Astro.params.league ?? '').toLowerCase()
@@ -31,14 +32,22 @@ if (!view) {
   if (redirect) return redirect
   Astro.response.status = 404
 } else cachePublic(Astro.cache, tags.league(leagueSlug), tags.programme(leagueSlug), tags.season(seasonSlug))
+
+const origin = (Astro.site ?? Astro.url).origin
+const description = view ? `${view.league.name} ${view.summary.name}: ${current ? 'ladder' : 'final ladder'}, fixtures and results.` : ''
+const canonicalPath = current ? leagueRoute(leagueSlug) : seasonRoute(leagueSlug, seasonSlug)
+const jsonLd = view
+  ? [seasonJsonLd(view, site, { origin, url: new URL(seasonRoute(leagueSlug, seasonSlug), origin).href, description })]
+  : []
 ---
 
 {view ? (
   <BaseLayout
     title={documentTitle(`${view.summary.name} Ladder, Fixtures and Results`)}
-    description={`${view.league.name} ${view.summary.name}: final ladder, fixtures and results.`}
+    description={description}
     site={site}
-    canonicalPath={current ? leagueRoute(leagueSlug) : seasonRoute(leagueSlug, seasonSlug)}
+    canonicalPath={canonicalPath}
+    seo={{ imageIds: [view.league.imageId], jsonLd }}
   >
     <SeasonView view={view} others={publicSeasons(site.seasons, view.league.id)} current={false} today={sydneyDate(new Date())}>
       <Breadcrumbs slot="before" items={[{ label: view.league.name, href: leagueRoute(leagueSlug) }, { label: view.summary.name }]} />
@@ -46,6 +55,6 @@ if (!view) {
   </BaseLayout>
 ) : (
   <BaseLayout title={documentTitle('Page not found')} description={DEFAULT_DESCRIPTION} site={site}>
-    <NotFound />
+    <NotFound site={site} />
   </BaseLayout>
 )}

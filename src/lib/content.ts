@@ -6,7 +6,10 @@
 // - Vague link text ("here", "click here") gets the target page's title as visually hidden text, so screen readers
 //   and search engines know where it goes (Lighthouse link-text).
 // - Iframes get a title (Lighthouse frame-title), and images and iframes load lazily.
+// - Internal links lose the trailing slash every old WordPress link has ("/contact/" -> "/contact"), so they don't
+//   cost a 301 each (docs/public-site.md "Internal links").
 
+import { trailingSlashTarget } from './content/paths'
 import { decodeEntities } from './wp-import/text'
 
 const VAGUE = /^(?:click\s+)?(?:here|this|this link|link|more|read more)\.?$/i
@@ -94,8 +97,33 @@ export function fixEmbeds(html: string): string {
     })
 }
 
+const HREF = /(<a\b[^>]*?\bhref=")([^"]*)(")/gi
+
+/**
+ * Root-relative links without the trailing slash ("/contact/?x=1#a" -> "/contact?x=1#a"), the URL the site serves.
+ * With `retarget`, a link whose (slashless) path is an old URL gets its redirect's target instead, so it's no hop at
+ * all; the link's own #fragment wins over the target's. External links, "/", files and /api, /media … are left alone.
+ */
+export function tidyInternalLinks(html: string, retarget?: (path: string) => string | null | undefined): string {
+  return html.replace(HREF, (whole, pre: string, href: string, post: string) => {
+    if (!href.startsWith('/') || href.startsWith('//')) return whole
+    const m = /^([^?#]*)(\?[^#]*)?(#.*)?$/.exec(href)
+    if (!m) return whole
+    const path = m[1] ?? ''
+    const query = m[2] ?? ''
+    const hash = m[3] ?? ''
+    const slashless = trailingSlashTarget(path) ?? path
+    const target = retarget?.(slashless)
+    if (target) {
+      const base = hash ? target.replace(/#.*$/, '') : target
+      return `${pre}${base}${query}${hash}${post}`
+    }
+    return slashless === path ? whole : `${pre}${slashless}${query}${hash}${post}`
+  })
+}
+
 export function prepareHtml(html: string, opts: PrepareOptions = {}): string {
-  let out = fixHeadings(html, opts.baseLevel ?? 1)
+  let out = tidyInternalLinks(fixHeadings(html, opts.baseLevel ?? 1))
   if (opts.titles) out = describeVagueLinks(out, opts.titles)
   return fixEmbeds(out)
 }
@@ -165,10 +193,15 @@ export function metaDescription(
   return usable(body) ? truncateWords(body) : fallback
 }
 
+/** A title as shown in lists and the <title>: shouting titles ("WHERE WE PLAY") are title-cased. */
+export function prettyTitle(title: string): string {
+  const t = title.trim()
+  return t.length > 3 && t === t.toUpperCase() && /[A-Z]/.test(t) ? titleCase(t) : t
+}
+
 /** "<title> | Tempe Volleyball", without repeating the site name. Shouting titles ("CONTACT") are title-cased. */
 export function documentTitle(title: string, site = 'Tempe Volleyball'): string {
-  const t = title.trim()
-  const pretty = t.length > 3 && t === t.toUpperCase() && /[A-Z]/.test(t) ? titleCase(t) : t
+  const pretty = prettyTitle(title)
   return pretty.toLowerCase().includes(site.toLowerCase()) ? pretty : `${pretty} | ${site}`
 }
 

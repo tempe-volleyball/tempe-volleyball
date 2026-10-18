@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { MAX_TRUST_DEVICE_DAYS, type SettingKey, type SiteSettings } from '../../lib/content/settings'
 import { atLeast, type UserRole } from '../../lib/roles'
 import { api, type Me, type PurgeResult } from '../api'
+import { ImageField } from '../media/MediaLibrary'
 import { useUnsavedWarning } from '../unsaved'
 import { LoadError, Skeleton, toast, Button, Card, Field, Notice, Select, TextArea, errorMessage, purgeNote } from '../ui'
 
@@ -74,6 +75,7 @@ const SECTIONS: [SettingKey, string][] = [
   ['announcement', 'Banner'],
   ['contact', 'Contact'],
   ['social', 'Social links'],
+  ['seo', 'Search and sharing'],
   ['payid', 'PayID'],
   ['revolutioniseUrl', 'Membership'],
   ['enrolment', 'Enrolment and email'],
@@ -185,6 +187,57 @@ export function Settings({ me }: { me: Me }) {
                 placeholder="https://www.facebook.com/…"
                 value={v.facebook}
                 onChange={(e) => set({ ...v, facebook: e.target.value })}
+              />
+            </>
+          )}
+        </Section>
+
+        <Section
+          {...common}
+          k="seo"
+          title="Search and sharing"
+          intro="Defaults for what Google and link previews show. Each page, post, programme and category can set its own title, description and image; these fill the gaps."
+        >
+          {(v, set) => (
+            <>
+              <TextArea
+                label="Default description"
+                rows={3}
+                maxLength={300}
+                value={v.description}
+                placeholder="Social mixed volleyball leagues, junior and adult development programs and training in Tempe, Burwood and Five Dock, Sydney."
+                onChange={(e) => set({ ...v, description: e.target.value })}
+                hint="Used by pages with no description and no text of their own, and to describe the club to search engines."
+              />
+              <ImageField
+                label="Default social image"
+                mediaId={v.imageId || null}
+                onChange={(id) => set({ ...v, imageId: id ?? '' })}
+                hint="Shown when a page without its own image is shared. Best at 1200 × 630 px. Empty = the built-in photo with the logo."
+              />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field
+                  label="Other name"
+                  maxLength={80}
+                  value={v.alternateName}
+                  onChange={(e) => set({ ...v, alternateName: e.target.value })}
+                  hint="What people also call the club, e.g. Tempe VB."
+                />
+                <Field
+                  label="Year founded"
+                  inputMode="numeric"
+                  maxLength={4}
+                  value={v.foundingYear}
+                  onChange={(e) => set({ ...v, foundingYear: e.target.value })}
+                />
+              </div>
+              <TextArea
+                label="Other profiles (one link per line)"
+                rows={3}
+                value={v.sameAs.join('\n')}
+                placeholder="https://www.youtube.com/@…"
+                onChange={(e) => set({ ...v, sameAs: e.target.value.split('\n') })}
+                hint="Links search engines can use to recognise the club, beyond Instagram and Facebook above. Up to 10."
               />
             </>
           )}

@@ -42,12 +42,17 @@ import {
 export const REVISION_LIMIT = 20
 export const MAX_TITLE = 200
 export const MAX_META_DESCRIPTION = 300
+export const MAX_SEO_TITLE = 120
 
 export type PageInput = {
   title?: unknown
   path?: unknown
   metaDescription?: unknown
   ogImageId?: unknown
+  /** The <title> text when it should differ from the title ('' or null = the title). */
+  seoTitle?: unknown
+  /** Keep the page out of search results and the sitemap. */
+  noindex?: unknown
   template?: unknown
   blocks?: unknown
   /** The updatedAt the editor loaded; a save is refused if someone else saved since. */
@@ -179,6 +184,8 @@ export async function createPage(db: AppDb, actor: Editor, input: PageInput, now
     path: path(input.path),
     metaDescription: optionalText(input.metaDescription, 'Meta description', MAX_META_DESCRIPTION),
     ogImageId: typeof input.ogImageId === 'string' && input.ogImageId ? input.ogImageId : null,
+    seoTitle: optionalText(input.seoTitle, 'Search title', MAX_SEO_TITLE),
+    noindex: input.noindex === true,
     template: template(input.template),
     body: body(input.blocks ?? []),
     status: 'draft' as const,
@@ -230,6 +237,8 @@ export async function updatePage(
         : optionalText(input.metaDescription, 'Meta description', MAX_META_DESCRIPTION),
     ogImageId:
       input.ogImageId === undefined ? page.ogImageId : typeof input.ogImageId === 'string' && input.ogImageId ? input.ogImageId : null,
+    seoTitle: input.seoTitle === undefined ? page.seoTitle : optionalText(input.seoTitle, 'Search title', MAX_SEO_TITLE),
+    noindex: input.noindex === undefined ? page.noindex : input.noindex === true,
     template: input.template === undefined ? page.template : template(input.template),
     body: restored ?? (input.blocks === undefined ? page.body : body(input.blocks)),
   }
@@ -271,7 +280,9 @@ export async function updatePage(
     throw e
   }
   const saved = (await db.select().from(pages).where(eq(pages.id, id)).get())!
-  return { result: saved, purge: page.status === 'published' ? pagePurge(moved ? [page.path, next.path] : [next.path], moved) : {} }
+  // A noindex change also changes the sitemap (tag SITE).
+  const layout = moved || next.noindex !== page.noindex
+  return { result: saved, purge: page.status === 'published' ? pagePurge(moved ? [page.path, next.path] : [next.path], layout) : {} }
 }
 
 export type PageStatusChange = 'published' | 'draft' | 'archived'

@@ -1,19 +1,80 @@
 ---
-// Body of a 404. The route sets the status; this is what people see.
+// Body of a 404 (the route sets the status): a search box filled in from the address, pages whose address or title
+// share words with it ("did you mean"), and the main links. Suggestions come from the menu, the programmes and
+// categories in `site`, plus published page titles when the route has them; no extra queries.
+import { prettyTitle } from '../lib/content'
+import { categoryPath, programmePath } from '../lib/programmes'
+import { menuCandidates, pathWords, suggestPages, type Candidate } from '../lib/seo/search'
+import type { Site } from '../server/site'
+import SearchForm from './SearchForm.astro'
+
+type Props = { site?: Site; titles?: Map<string, string> }
+const { site, titles } = Astro.props
+const candidates: Candidate[] = [
+  ...(site ? menuCandidates(site.menu) : []),
+  ...(site?.programmes ?? []).filter((p) => p.status === 'active').map((p) => ({ path: programmePath(p.kind, p.slug), title: p.name })),
+  ...(site?.categories ?? []).filter((c) => c.status === 'active').map((c) => ({ path: categoryPath(c.slug), title: c.name })),
+  ...[...(titles ?? new Map<string, string>())].map(([path, title]) => ({ path, title: prettyTitle(title) })),
+]
+const suggestions = suggestPages(Astro.url.pathname, candidates)
+const linkClass = 'text-link decoration-accent underline decoration-2 underline-offset-2'
 ---
 
 <h1 class="page-title">Page not found</h1>
 <div class="prose">
   <p>Sorry, there's nothing at this address. It may have moved when the site was rebuilt.</p>
-  <ul>
+</div>
+{suggestions.length > 0 && (
+  <section aria-labelledby="nf-suggestions" class="mt-6">
+    <h2 id="nf-suggestions" class="mb-3 text-2xl font-bold">
+      Were you looking for…
+    </h2>
+    <ul class="list-disc space-y-1 pl-6">
+      {suggestions.map((s) => (
+        <li>
+          <a class={linkClass} href={s.path}>
+            {s.title}
+          </a>
+        </li>
+      ))}
+    </ul>
+  </section>
+)}
+<SearchForm value={pathWords(Astro.url.pathname).join(' ')} id="nf-search" />
+<section aria-labelledby="nf-links" class="mt-6">
+  <h2 id="nf-links" class="mb-3 text-2xl font-bold">
+    Popular pages
+  </h2>
+  <ul class="list-disc space-y-1 pl-6">
     <li>
-      <a href="/">Go to the home page</a>
+      <a class={linkClass} href="/">
+        Home page
+      </a>
     </li>
     <li>
-      <a href="/leagues">See the league ladders and fixtures</a>
+      <a class={linkClass} href="/leagues">
+        League ladders and fixtures
+      </a>
     </li>
     <li>
-      <a href="/contact">Contact us</a>
+      <a class={linkClass} href="/leagues/fixtures">
+        This week’s games
+      </a>
+    </li>
+    <li>
+      <a class={linkClass} href="/enrol">
+        Enrol in a league, training or program
+      </a>
+    </li>
+    <li>
+      <a class={linkClass} href="/news">
+        News
+      </a>
+    </li>
+    <li>
+      <a class={linkClass} href="/contact">
+        Contact us
+      </a>
     </li>
   </ul>
-</div>
+</section>

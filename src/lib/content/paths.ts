@@ -22,6 +22,7 @@ export const RESERVED_PREFIXES = [
 /** Exact paths owned by routes or files. */
 export const RESERVED_PATHS = [
   '/enrol/offer',
+  '/search',
   '/robots.txt',
   '/sitemap.xml',
   '/sitemap-index.xml',

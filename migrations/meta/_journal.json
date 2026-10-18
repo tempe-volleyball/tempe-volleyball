@@ -64,6 +64,13 @@
       "when": 1792340299500,
       "tag": "0008_contact_messages",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1792342202584,
+      "tag": "0009_seo_fields",
+      "breakpoints": true
     }
   ]
 }

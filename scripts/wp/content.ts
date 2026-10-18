@@ -24,7 +24,7 @@ import {
   stripTrailingSlashes,
 } from '../../src/lib/wp-import/routes'
 import { sqlLiteral, type SqlValue } from '../../src/lib/wp-import/sql'
-import { describeHtml } from '../../src/lib/content'
+import { describeHtml, tidyInternalLinks } from '../../src/lib/content'
 import { decodeEntities, isAutoExcerpt } from '../../src/lib/wp-import/text'
 import type { Competition } from './competition'
 import { stableId } from './ids'
@@ -80,7 +80,7 @@ export function cleanBody(html: string, resolve: (url: string) => ResolvedMedia 
     .replace(/<p[^>]*>\s*<\/p>/g, '')
     .trim()
   const r = rewriteUploads(safe, resolve)
-  return { ...r, html: relativiseLinks(r.html) }
+  return { ...r, html: tidyInternalLinks(relativiseLinks(r.html)) }
 }
 
 /**
@@ -228,6 +228,13 @@ export function buildContent(
   add('/category/news', NEWS_ROUTE, 'wordpress')
   for (const [from, to] of wordpressRedirects(data.posts.filter((p) => p.status === 'publish').map((p) => p.date)))
     add(from, to, 'wordpress')
+
+  // Links in bodies to old URLs that now redirect point straight at the target (no 301 hop for visitors or crawlers).
+  const retarget = (path: string) => redirects.get(path)?.to
+  for (const row of [...pages, ...posts]) {
+    const b = row.body as { blocks: unknown[]; html: string }
+    row.body = { ...b, html: tidyInternalLinks(b.html, retarget) }
+  }
 
   const redirectRows: Row[] = [...redirects].map(([from, r]) => {
     report.redirects[r.kind] = (report.redirects[r.kind] ?? 0) + 1

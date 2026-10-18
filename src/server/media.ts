@@ -1,4 +1,8 @@
+import { eq } from 'drizzle-orm'
+import { socialFile } from '../lib/content/media'
 import { MEDIA_CACHE_CONTROL } from './cache'
+import type { AppDb } from './db'
+import { media } from './db/schema'
 
 // Serving media from R2. Keys follow the importer and the uploader: media/<id>/<width>.webp (or .jpg) for resized
 // variants and media/<id>/original.<ext> for the original (PDFs only have that).
@@ -10,6 +14,21 @@ const FILE = /^(?:\d{2,5}\.(?:webp|jpg)|original\.[a-z0-9]{2,5})$/i
 export function mediaKey(id: string, file: string): string | null {
   if (!ID.test(id) || !FILE.test(file)) return null
   return `media/${id.toLowerCase()}/${file.toLowerCase()}`
+}
+
+/**
+ * The R2 key behind /media/<id>/social (the sharing image pages link to without knowing the row): the variant
+ * socialFile() picks, under the row's key base. One indexed lookup; null when there's no such image.
+ */
+export async function socialMediaKey(db: AppDb, id: string): Promise<string | null> {
+  if (!ID.test(id)) return null
+  const row = await db
+    .select({ keyBase: media.keyBase, mime: media.mime, variants: media.variants, variantExt: media.variantExt })
+    .from(media)
+    .where(eq(media.id, id.toLowerCase()))
+    .get()
+  const file = row && socialFile(row)
+  return row && file ? `${row.keyBase}/${file}` : null
 }
 
 const TYPES: Record<string, string> = {

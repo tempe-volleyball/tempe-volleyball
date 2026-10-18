@@ -18,11 +18,12 @@ cachePublic(Astro.cache, tags.page('/'), ...(body?.tags ?? []))
 ---
 
 <BaseLayout
-  title={page ? documentTitle(`${SITE_NAME} | Social volleyball leagues and training in Sydney`) : SITE_NAME}
+  title={page?.seoTitle?.trim() ? documentTitle(page.seoTitle) : `${SITE_NAME} | Social volleyball leagues and training in Sydney`}
   description={metaDescription(page?.metaDescription)}
   site={site}
   sidebar
   canonicalPath="/"
+  seo={{ imageIds: [page?.ogImageId], noindex: page?.noindex ?? false }}
 >
   <PageBody title={page?.title ?? `Welcome to ${SITE_NAME}`} html={body?.html ?? ''} titles={found.titles} />
 </BaseLayout>

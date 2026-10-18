@@ -100,6 +100,25 @@ export function mediaUrls(m: { id: string; mime: string; variants: readonly numb
   }
 }
 
+/** The file name of /media/<id>/social: the URL pages give for an image used for sharing (docs/public-site.md). */
+export const SOCIAL_FILE = 'social'
+
+/** Social cards want at least 1200 px wide; the nearest variant at or above that, else the largest one. */
+export const SOCIAL_MIN_WIDTH = 1200
+
+/**
+ * Which stored file /media/<id>/social serves for a media row: the smallest variant at least SOCIAL_MIN_WIDTH wide,
+ * else the largest, else the original when it's a JPEG, PNG, GIF or WebP; null for anything else (a PDF).
+ */
+export function socialFile(m: { mime: string; variants: readonly number[]; variantExt?: VariantExt | undefined }): string | null {
+  const widths = m.variants.toSorted((a, b) => a - b)
+  const w = widths.find((x) => x >= SOCIAL_MIN_WIDTH) ?? widths.at(-1)
+  if (w) return `${w}.${m.variantExt ?? 'webp'}`
+  return ['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(m.mime) && isUploadMime(m.mime)
+    ? `original.${UPLOAD_TYPES[m.mime]}`
+    : null
+}
+
 /** The content type for a stored media file name ("800.webp", "original.pdf"). */
 export function fileContentType(name: string): string | null {
   const f = parseUploadFile(name)
