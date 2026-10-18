@@ -3,52 +3,80 @@ import { prepareHtml } from '../../lib/content'
 import { scheduleText, venueText, type VenueTextInput } from '../../lib/programme-text'
 import type { Programme } from '../../server/db/schema'
 
-// What sits above a programme's schedule or tabs: when and where, "Next … starts", the enrol button while enrolment
-// is open, the "more info" link, and Michael's description (rich text from the admin). A retired programme gets the
-// "This … has finished" notice instead of the enrol button.
+// What sits under a programme's H1 (docs/public-site.md, "Programme pages"): the enrolment badge, when, where and
+// "Next … starts" as facts, the Enrol button while enrolment is open, the "more info" link, and Michael's
+// description (rich text from the admin). A retired programme gets the "This … has finished" notice instead.
 type Props = {
   programme: Programme
   venue: VenueTextInput
   nextStarts: string
   enrolmentOpen: boolean
-  /** "league", "training programme" … for the retired notice. */
+  /** "league", "training program" … for the retired notice. */
   noun: string
   /** Whether past seasons (or sessions, terms, dates) are listed below, which the retired notice points to. */
   hasHistory?: boolean
   titles?: Map<string, string>
+  /** Extra buttons after Enrol and More info (a league's Fixtures and Ladder). */
+  links?: { label: string; href: string; srLabel?: string }[]
 }
-const { programme: p, venue, nextStarts, enrolmentOpen, noun, titles, hasHistory = true } = Astro.props
+const { programme: p, venue, nextStarts, enrolmentOpen, noun, titles, hasHistory = true, links = [] } = Astro.props
 const when = scheduleText(p)
 const where = venueText(venue)
 const retired = p.status === 'retired'
 const html = p.description?.html ?? ''
 ---
 
-{retired && (
-  <p role="status" class="bg-accent text-ink mb-6 px-4 py-3 font-semibold">
+{retired ? (
+  <p role="status" class="notice mb-6">
     This {noun} has finished.{hasHistory ? (p.kind === 'league' ? ' Its past seasons are below.' : ' What it ran is listed below.') : ''}
   </p>
-)}
-{(when || where) && !retired && (
-  <p class="text-lg">
-    {when}
-    {when && where ? ' · ' : ''}
-    {where}
-  </p>
-)}
-{!retired && nextStarts && <p class="mt-1 font-semibold">{nextStarts}</p>}
-{!retired && (enrolmentOpen || p.moreInfoUrl) && (
-  <p class="mt-4 flex flex-wrap gap-3">
-    {enrolmentOpen && (
-      <a class="bg-accent text-ink inline-block px-4 py-2 font-bold hover:brightness-95" href="#enrol">
-        Enrol now
-      </a>
+) : (
+  <>
+    <p class="badge-row">
+      {enrolmentOpen ? <span class="badge badge-open">Enrolling now</span> : <span class="badge badge-closed">Enrolment closed</span>}
+    </p>
+    {(when || where || nextStarts) && (
+      <dl class="facts">
+        {when && (
+          <div>
+            <dt>When</dt>
+            <dd>{when}</dd>
+          </div>
+        )}
+        {where && (
+          <div>
+            <dt>Where</dt>
+            <dd>{where}</dd>
+          </div>
+        )}
+        {nextStarts && (
+          <div>
+            <dt>Next start</dt>
+            <dd>{nextStarts}</dd>
+          </div>
+        )}
+      </dl>
     )}
-    {p.moreInfoUrl && (
-      <a class="bg-brand hover:bg-brand-dark inline-block px-4 py-2 font-semibold text-white" href={p.moreInfoUrl}>
-        More info<span class="sr-only"> about {p.name}</span>
-      </a>
+    {(enrolmentOpen || p.moreInfoUrl || links.length > 0) && (
+      <p class="mt-6 flex flex-wrap gap-3">
+        {enrolmentOpen && (
+          <a class="btn btn-enrol" href="#enrol">
+            Enrol now<span class="sr-only"> in {p.name}</span>
+          </a>
+        )}
+        {links.map((l) => (
+          <a class="btn btn-brand" href={l.href}>
+            {l.label}
+            {l.srLabel && <span class="sr-only"> {l.srLabel}</span>}
+          </a>
+        ))}
+        {p.moreInfoUrl && (
+          <a class="btn btn-outline" href={p.moreInfoUrl}>
+            More info<span class="sr-only"> about {p.name}</span>
+          </a>
+        )}
+      </p>
     )}
-  </p>
+  </>
 )}
-{html && <div class="prose mt-6 max-w-3xl" set:html={prepareHtml(html, titles ? { titles } : {})} />}
+{html && <div class="prose mt-8 max-w-3xl" set:html={prepareHtml(html, titles ? { titles } : {})} />}

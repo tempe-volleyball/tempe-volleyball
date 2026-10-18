@@ -1,70 +1,19 @@
 ---
-import { formatAU } from '../lib/fixtures'
+import { fixturesTableHtml } from '../lib/tables'
 import type { FixtureRow } from '../server/competition/adapter'
 
-// Fixtures and results, columns as on the old site: Date, Match, Time, Results, Court, Match Day, Duty (no Duty
-// column for leagues without team duty, i.e. TVSL).
-type Props = { rows: FixtureRow[]; caption?: string; showDuty?: boolean; emptyText?: string }
-const { rows, caption, showDuty = true, emptyText = "The draw hasn't been published yet." } = Astro.props
-const cols = showDuty ? 7 : 6
-// "(moved from …)" once per night, on its first row: after a push-back every later night has moved, and repeating
-// it on each game crowds the table on phones.
-const firstOfNight = new Set(rows.flatMap((r, i) => (r.movedFrom && rows[i - 1]?.date !== r.date ? [i] : [])))
+// Fixtures and results, grouped by night (src/lib/tables.ts; the page editor's Fixtures block uses the same
+// renderer). No Duty column for leagues without team duty (TVSL). Under 640px each game is a small card.
+type Props = { rows: FixtureRow[]; caption?: string; showDuty?: boolean; emptyText?: string; showDate?: boolean; legend?: boolean }
+const { rows, caption, showDuty = true, emptyText = "The draw hasn't been published yet.", showDate = true, legend = true } = Astro.props
+const html = fixturesTableHtml(rows, {
+  ...(caption ? { caption } : {}),
+  label: caption ?? 'Fixtures and results',
+  duty: showDuty,
+  showDate,
+  legend,
+  emptyText,
+})
 ---
 
-<div class="table-scroll" tabindex="0" role="region" aria-label={caption ?? 'Fixtures and results'}>
-  <table class="data-table">
-    {caption && <caption>{caption}</caption>}
-    <thead>
-      <tr>
-        <th scope="col">Date</th>
-        <th scope="col">Match</th>
-        <th scope="col">Time</th>
-        <th scope="col">Results</th>
-        <th scope="col">Court</th>
-        <th scope="col">Match Day</th>
-        {showDuty && <th scope="col">Duty</th>}
-      </tr>
-    </thead>
-    <tbody>
-      {rows.length === 0 ? (
-        <tr>
-          <td colspan={cols}>{emptyText}</td>
-        </tr>
-      ) : (
-        rows.map((r, i) =>
-          r.kind === 'skip' ? (
-            <tr>
-              <td class="whitespace-nowrap">{formatAU(r.date)}</td>
-              <td colspan={cols - 1} class="italic">
-                {r.match}
-              </td>
-            </tr>
-          ) : (
-            <tr>
-              <td class="whitespace-nowrap">
-                {formatAU(r.date)}
-                {firstOfNight.has(i) && <span class="block text-xs">(moved from {formatAU(r.movedFrom)})</span>}
-              </td>
-              <td class="team min-w-40 sm:min-w-56">
-                {r.match}
-                {r.referee && <span class="block text-xs">Referee: {r.referee}</span>}
-              </td>
-              <td>{r.time}</td>
-              <td class="whitespace-nowrap">
-                {r.result}
-                {r.forfeit && <span class="block text-xs">(forfeit)</span>}
-                {r.sets && <span class="block text-xs">{r.sets}</span>}
-                {r.resultNote && <span class="block text-xs whitespace-normal">{r.resultNote}</span>}
-                {r.note && <span class="block text-xs whitespace-normal">{r.note}</span>}
-              </td>
-              <td class="whitespace-nowrap">{r.court}</td>
-              <td>{r.matchDay}</td>
-              {showDuty && <td>{r.duty}</td>}
-            </tr>
-          ),
-        )
-      )}
-    </tbody>
-  </table>
-</div>
+<Fragment set:html={html} />

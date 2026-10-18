@@ -12,7 +12,7 @@ import {
 } from 'react'
 import { Link } from 'wouter'
 
-// Small building blocks for the admin, styled with the site tokens (src/styles/global.css). docs/admin.md §4 lists
+// Small building blocks for the admin, styled with the site tokens (src/styles/tokens.css). docs/admin.md §4 lists
 // which to use for what: one primary button per screen area, toasts for saves, confirmAction() before anything
 // destructive, Skeleton while loading, LoadError (with Try again) when a load fails, EmptyState for empty lists.
 

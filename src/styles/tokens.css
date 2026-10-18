@@ -1,0 +1,79 @@
+/*
+ * Design tokens shared by the public site (global.css) and the admin (admin.css). docs/public-site.md explains
+ * each one. The brand blue and amber are the old site's (ThemeBoy "Premier" theme, docs/reference/); the greys
+ * were cooled towards the blue so the site reads as one palette.
+ *
+ * Fonts: Lato (headings, nav, buttons) and Noto Sans (body, Droid Sans's successor), self-hosted from public/fonts
+ * (latin subset, copied from @fontsource), with metric-adjusted local fallbacks so the swap barely moves anything.
+ */
+@font-face {
+  font-family: 'Lato';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/lato-latin-400-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Lato';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/lato-latin-700-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Noto Sans';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/noto-sans-latin-400-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Noto Sans';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/noto-sans-latin-700-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Lato Fallback';
+  src: local('Arial'), local('Helvetica'), local('Liberation Sans');
+  size-adjust: 97.4%;
+  ascent-override: 101.4%;
+  descent-override: 21.9%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: 'Noto Sans Fallback';
+  src: local('Arial'), local('Helvetica'), local('Liberation Sans');
+  size-adjust: 105.9%;
+  ascent-override: 101%;
+  descent-override: 27.7%;
+  line-gap-override: 0%;
+}
+
+@theme {
+  --font-sans: 'Noto Sans', 'Noto Sans Fallback', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Lato', 'Lato Fallback', ui-sans-serif, system-ui, sans-serif;
+
+  --color-brand: #104293; /* the club blue: nav, buttons, table bodies */
+  --color-brand-dark: #0b3170; /* hover on brand, table header rows */
+  --color-brand-deep: #071d44; /* footer, hero overlay */
+  --color-brand-tint: #e6ecf6; /* light blue surfaces: night rows, info badges */
+  --color-brand-soft: #87a0c9; /* the old muted numbers; fails contrast on brand, so it's only used for borders */
+  --color-brand-text: #e8eef8; /* near-white text on brand blue (AAA) */
+  --color-accent: #ffa800; /* the amber: CTAs, captions, rules under the header and H1s; dark text on it */
+  --color-accent-dark: #e69500; /* hover on accent */
+  --color-accent-tint: #fff3d9; /* "enrolling" badges */
+  --color-accent-ink: #6b4400; /* amber-family text on accent-tint (7:1) */
+  --color-ink: #1b2330; /* body text */
+  --color-muted: #4a5568; /* secondary text on paper and white (7:1 on white) */
+  --color-paper: #f2f4f8; /* page background */
+  --color-line: #d5dce7; /* card borders and rules */
+  --color-header-row: #0b3170; /* table header rows (was the old site's grey #555) */
+  --color-footer: #071d44; /* footer */
+  --color-link: #0d3a85; /* links on paper: amber fails contrast there, so links are brand blue + amber underline */
+  --color-danger: #9b1c1c;
+  --color-danger-tint: #fdecec;
+  --color-ok: #146c2e;
+  --color-ok-tint: #e5f4ea;
+}

@@ -1,0 +1,1089 @@
+/*
+ * Public-site components (docs/public-site.md). Imported by global.css (the public entry) and admin.css, since the
+ * admin's page editor previews data blocks and page bodies with the same styles.
+ */
+
+/* ── Base ─────────────────────────────────────────────────────────────── */
+
+html {
+  scroll-padding-top: 1rem;
+  -webkit-text-size-adjust: 100%;
+}
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-display);
+  text-wrap: balance;
+}
+::selection {
+  background: var(--color-accent);
+  color: var(--color-ink);
+}
+/* One visible focus ring for everything a keyboard can reach: blue on light, amber on dark (.on-dark). */
+:focus-visible {
+  outline: 3px solid var(--color-brand);
+  outline-offset: 2px;
+}
+.on-dark :focus-visible,
+.data-table :focus-visible {
+  outline-color: var(--color-accent);
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ── Page furniture ───────────────────────────────────────────────────── */
+
+/* Page H1: big Lato with a short amber bar under it (the old site's full-width 4px rule, shortened). */
+.page-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(2rem, 1.4rem + 2.6vw, 3rem);
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  margin-bottom: 1.75rem;
+}
+.page-title::after {
+  content: '';
+  display: block;
+  width: 3.5rem;
+  height: 4px;
+  margin-top: 0.875rem;
+  background: var(--color-accent);
+  border-radius: 2px;
+}
+.page-lead {
+  font-size: 1.125rem;
+  line-height: 1.6;
+  color: var(--color-muted);
+  max-width: 42rem;
+}
+.section-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(1.5rem, 1.25rem + 1vw, 1.875rem);
+  line-height: 1.2;
+  margin-bottom: 1rem;
+}
+
+/* Text links on light backgrounds: blue with the amber underline. */
+.link {
+  color: var(--color-link);
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: var(--color-accent);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+.link:hover {
+  text-decoration-thickness: 3px;
+}
+
+/* Buttons: amber is the main action (Enrol), blue the next (Fixtures, Details), outline the rest. 44px tall. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 2.75rem;
+  padding: 0.5rem 1.125rem;
+  border-radius: 0.5rem;
+  border: 2px solid transparent;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1rem;
+  line-height: 1.2;
+  text-decoration: none;
+  text-align: center;
+  transition:
+    background-color 120ms,
+    border-color 120ms;
+}
+.btn-enrol {
+  background: var(--color-accent);
+  color: var(--color-ink);
+}
+.btn-enrol:hover {
+  background: var(--color-accent-dark);
+}
+.btn-brand {
+  background: var(--color-brand);
+  color: #fff;
+}
+.btn-brand:hover {
+  background: var(--color-brand-dark);
+}
+.btn-outline {
+  border-color: var(--color-brand);
+  color: var(--color-brand);
+  background: #fff;
+}
+.btn-outline:hover {
+  background: var(--color-brand-tint);
+}
+.btn-light {
+  border-color: rgb(255 255 255 / 0.85);
+  color: #fff;
+  background: rgb(7 29 68 / 0.35);
+}
+.btn-light:hover {
+  background: rgb(7 29 68 / 0.6);
+}
+.btn-sm {
+  min-height: 2.5rem;
+  padding: 0.375rem 0.875rem;
+  font-size: 0.9375rem;
+}
+
+/* Status badges: enrolment state, next start, moved, off. Text is always at least 4.5:1 on its tint. */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.125rem 0.625rem;
+  border-radius: 999px;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.badge-open {
+  background: var(--color-accent-tint);
+  color: var(--color-accent-ink);
+}
+.badge-open::before {
+  content: '';
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--color-accent);
+}
+.badge-closed {
+  background: #e9edf3;
+  color: var(--color-muted);
+}
+.badge-info {
+  background: var(--color-brand-tint);
+  color: var(--color-brand-dark);
+}
+.badge-full {
+  background: var(--color-danger-tint);
+  color: var(--color-danger);
+}
+.badge-ok {
+  background: var(--color-ok-tint);
+  color: var(--color-ok);
+}
+
+/* Cards: white on the paper background, a hairline border, no shadow. */
+.card {
+  background: #fff;
+  border: 1px solid var(--color-line);
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+}
+@media (min-width: 40rem) {
+  .card {
+    padding: 1.5rem;
+  }
+}
+.card-quiet {
+  background: rgb(255 255 255 / 0.6);
+  border: 1px dashed var(--color-line);
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+}
+
+/* Spots left: a bar of how full a session or season is, beside the words (the words carry the meaning). */
+.meter {
+  position: relative;
+  height: 0.375rem;
+  border-radius: 999px;
+  background: var(--color-brand-tint);
+  overflow: hidden;
+}
+.meter > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: var(--color-brand);
+}
+.meter[data-level='low'] > span {
+  background: var(--color-accent);
+}
+.meter[data-level='none'] > span {
+  background: var(--color-danger);
+}
+
+/* Breadcrumbs. */
+.crumbs {
+  font-size: 0.875rem;
+  color: var(--color-muted);
+  margin-bottom: 1rem;
+}
+.crumbs ol {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.5rem;
+}
+.crumbs li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.crumbs a {
+  color: var(--color-link);
+  text-decoration: underline;
+  text-decoration-color: rgb(16 66 147 / 0.3);
+  text-underline-offset: 3px;
+}
+.crumbs a:hover {
+  text-decoration-color: var(--color-accent);
+}
+.crumbs [aria-current] {
+  color: var(--color-ink);
+  font-weight: 600;
+}
+
+/* An empty state: what isn't there, and where to go instead. */
+.empty {
+  border: 1px dashed var(--color-brand-soft);
+  border-radius: 0.75rem;
+  background: rgb(255 255 255 / 0.7);
+  padding: 1.5rem;
+}
+.empty > :first-child {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.125rem;
+}
+.empty > * + * {
+  margin-top: 0.5rem;
+}
+
+/* A notice strip (retired programmes, closed enrolment). */
+.notice {
+  border-left: 4px solid var(--color-accent);
+  background: var(--color-accent-tint);
+  border-radius: 0 0.5rem 0.5rem 0;
+  padding: 0.875rem 1rem;
+  font-weight: 600;
+}
+
+/* ── Header and menu ──────────────────────────────────────────────────── */
+
+/* The menu is a <details> (works without JavaScript); on wide screens it's always open and its summary hidden. */
+.site-menu > summary::-webkit-details-marker,
+.nav-group > summary::-webkit-details-marker {
+  display: none;
+}
+.site-menu > summary,
+.nav-group > summary {
+  list-style: none;
+}
+@media (min-width: 64rem) {
+  .site-menu > summary {
+    display: none;
+  }
+  .site-menu::details-content {
+    content-visibility: visible;
+    display: contents;
+  }
+}
+.nav-group[open] > summary svg {
+  transform: rotate(180deg);
+}
+.hero-shade {
+  background:
+    linear-gradient(180deg, rgb(7 29 68 / 0.55) 0%, rgb(7 29 68 / 0) 38%),
+    linear-gradient(90deg, rgb(7 29 68 / 0.6) 0%, rgb(7 29 68 / 0.1) 60%);
+}
+.hero-shade-home {
+  background:
+    linear-gradient(180deg, rgb(7 29 68 / 0.6) 0%, rgb(7 29 68 / 0.35) 40%, rgb(7 29 68 / 0.92) 100%),
+    linear-gradient(90deg, rgb(7 29 68 / 0.55) 0%, rgb(7 29 68 / 0) 70%);
+}
+@media (min-width: 64rem) {
+  .hero-shade-home {
+    background:
+      linear-gradient(180deg, rgb(7 29 68 / 0.55) 0%, rgb(7 29 68 / 0) 30%),
+      linear-gradient(90deg, rgb(7 29 68 / 0.94) 0%, rgb(7 29 68 / 0.82) 38%, rgb(7 29 68 / 0.15) 72%);
+  }
+}
+
+/* ── Blue data tables (fixtures, ladders, programme dates) ────────────── */
+
+.data-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+}
+.data-table caption {
+  background: var(--color-accent);
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1rem;
+  padding: 0.625rem 0.875rem;
+  text-align: left;
+  border-radius: 0.5rem 0.5rem 0 0;
+}
+.data-table thead th {
+  background: var(--color-header-row);
+  color: #fff;
+  font-weight: 700;
+  text-align: left;
+  white-space: nowrap;
+  padding: 0.625rem 0.75rem;
+}
+.data-table:not(:has(caption)) thead th:first-child {
+  border-top-left-radius: 0.5rem;
+}
+.data-table:not(:has(caption)) thead th:last-child {
+  border-top-right-radius: 0.5rem;
+}
+.data-table tbody {
+  background: var(--color-brand);
+  color: var(--color-brand-text);
+}
+.data-table tbody td,
+.data-table tbody th {
+  padding: 0.625rem 0.75rem;
+  text-align: left;
+  vertical-align: top;
+  font-weight: 400;
+  border-top: 1px solid rgb(255 255 255 / 0.1);
+}
+.data-table tbody tr:nth-child(even) > * {
+  background: #0e3c88;
+}
+.data-table tbody:last-child tr:last-child > :first-child {
+  border-bottom-left-radius: 0.5rem;
+}
+.data-table tbody:last-child tr:last-child > :last-child {
+  border-bottom-right-radius: 0.5rem;
+}
+.data-table .team {
+  color: #fff;
+  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.data-table abbr {
+  text-decoration: none;
+}
+.data-table .num {
+  text-align: right;
+}
+.data-table a {
+  color: #fff;
+  text-decoration: underline;
+  text-decoration-color: rgb(255 255 255 / 0.45);
+  text-underline-offset: 2px;
+}
+.data-table a:hover {
+  text-decoration-color: #fff;
+}
+.data-table .fx-sub,
+.data-table .fx-note {
+  display: block;
+  font-size: 0.8125rem;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--color-brand-text);
+  white-space: normal;
+}
+.data-table .badge {
+  font-size: 0.75rem;
+  padding: 0 0.5rem;
+}
+.data-table .badge-moved,
+.fx-legend .badge-moved {
+  background: var(--color-accent);
+  color: var(--color-ink);
+}
+.data-table .badge-off,
+.fx-legend .badge-off {
+  background: #fff;
+  color: var(--color-danger);
+}
+.data-table .badge-bye {
+  background: rgb(255 255 255 / 0.16);
+  color: #fff;
+}
+
+/* Tables scroll sideways when they must; the scroller is focusable so keyboard users can scroll it, and it's the
+   containing block of what's inside, so sr-only text in a wide table can't widen the page. */
+.table-scroll {
+  position: relative;
+  overflow-x: auto;
+  border-radius: 0.5rem;
+}
+
+/* Compact ladders (widgets, blocks): tighter cells so Pos to L fits a narrow column. */
+.data-table.compact thead th,
+.data-table.compact tbody td,
+.data-table.compact tbody th {
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
+}
+.data-table.compact thead th:first-child,
+.data-table.compact tbody td:first-child {
+  padding-left: 0.75rem;
+}
+.ladder-table .lt-pos {
+  width: 2.75rem;
+}
+.ladder-table .lt-pts {
+  font-weight: 700;
+  color: #fff;
+}
+
+/* Full ladders on phones: Pos and Team stay put while the numbers scroll, with a fade at the right edge that
+   goes once the end is reached (where scroll-driven animations exist; elsewhere it just stays). */
+.scroll-hint {
+  position: relative;
+  timeline-scope: --ladder-x;
+}
+.scroll-note {
+  display: none;
+}
+@media (max-width: 47.99rem) {
+  .ladder-scroll {
+    scroll-timeline: --ladder-x inline;
+  }
+  .ladder-table:not(.compact) {
+    min-width: 40rem;
+  }
+  .ladder-table:not(.compact) .lt-pos {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    width: 2.75rem;
+    min-width: 2.75rem;
+  }
+  .ladder-table:not(.compact) .lt-team {
+    position: sticky;
+    left: 2.75rem;
+    z-index: 1;
+    min-width: 8.5rem;
+    max-width: 9.5rem;
+    white-space: normal;
+    box-shadow: 6px 0 6px -4px rgb(0 0 0 / 0.35);
+  }
+  .ladder-table:not(.compact) thead .lt-pos,
+  .ladder-table:not(.compact) thead .lt-team {
+    background: var(--color-header-row);
+  }
+  .ladder-table:not(.compact) tbody tr > .lt-pos,
+  .ladder-table:not(.compact) tbody tr > .lt-team {
+    background: var(--color-brand);
+  }
+  .ladder-table:not(.compact) tbody tr:nth-child(even) > .lt-pos,
+  .ladder-table:not(.compact) tbody tr:nth-child(even) > .lt-team {
+    background: #0e3c88;
+  }
+  .scroll-hint::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 1.75rem;
+    width: 2rem;
+    pointer-events: none;
+    border-radius: 0 0.5rem 0.5rem 0;
+    background: linear-gradient(90deg, rgb(7 29 68 / 0), rgb(7 29 68 / 0.75));
+    animation: scroll-fade linear both;
+    animation-timeline: --ladder-x;
+  }
+  .scroll-note {
+    display: block;
+    margin-top: 0.375rem;
+    font-size: 0.8125rem;
+    color: var(--color-muted);
+  }
+}
+@keyframes scroll-fade {
+  0%,
+  85% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Fixtures: one <tbody> per night under a light "night" row; the date isn't repeated on each game. */
+.fixtures-table .night-row > th {
+  background: var(--color-brand-tint) !important;
+  color: var(--color-ink);
+  padding: 0.5rem 0.75rem;
+  border-top: 0;
+}
+.fixtures-table tbody.night + tbody.night .night-row > th {
+  border-top: 2px solid var(--color-header-row);
+}
+.night-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+}
+.night-date {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.9375rem;
+}
+.night-day {
+  color: var(--color-muted);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+.night-head .badge-moved {
+  background: var(--color-accent);
+  color: var(--color-ink);
+}
+.fixtures-table .fx-time,
+.fixtures-table .fx-court {
+  white-space: nowrap;
+}
+.fixtures-table .fx-match {
+  min-width: 14rem;
+}
+.fixtures-table .fx-match .badge {
+  margin-top: 0.25rem;
+}
+.fixtures-table .fx-teams {
+  overflow-wrap: anywhere;
+}
+.fixtures-table .fx-vs {
+  text-transform: none;
+  font-weight: 400;
+  color: var(--color-brand-text);
+}
+.fixtures-table .badge-bye {
+  text-transform: none;
+}
+.fixtures-table .fx-score {
+  font-weight: 700;
+  color: #fff;
+  font-size: 0.9375rem;
+}
+.fixtures-table .fx-result {
+  white-space: nowrap;
+}
+.fixtures-table .fx-skip {
+  font-style: italic;
+}
+.fixtures-table .fx-label {
+  display: none;
+}
+.fixtures-table .fx-bye > * {
+  color: var(--color-brand-text);
+}
+.fixtures-table .fx-empty {
+  padding: 1rem 0.75rem;
+}
+.fx-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem 1.25rem;
+  margin-top: 0.625rem;
+  font-size: 0.8125rem;
+  color: var(--color-muted);
+}
+.fx-legend > div {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+.fx-legend dt {
+  font-weight: 700;
+  color: var(--color-ink);
+}
+
+/* Under 640px each game is a small card: time and court, the result on the right, the teams, then the duty team.
+   The header row stays for screen readers (visually hidden) and every element keeps its role (src/lib/tables.ts). */
+@media (max-width: 39.99rem) {
+  .fixtures-scroll {
+    overflow: visible;
+  }
+  .fixtures-table,
+  .fixtures-table tbody,
+  .fixtures-table tr,
+  .fixtures-table td,
+  .fixtures-table th {
+    display: block;
+  }
+  .fixtures-table caption {
+    display: block;
+  }
+  .fixtures-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .fixtures-table tbody.night + tbody.night {
+    margin-top: 0;
+  }
+  .fixtures-table .night-row > th {
+    border-radius: 0;
+  }
+  .fixtures-table tr.fx-game,
+  .fixtures-table tr.fx-bye,
+  .fixtures-table tr.fx-moved {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas:
+      'time court result'
+      'match match result'
+      'duty duty duty';
+    column-gap: 0.75rem;
+    padding: 0.625rem 0.875rem 0.75rem;
+    border-top: 1px solid rgb(255 255 255 / 0.12);
+  }
+  .fixtures-table tr.fx-game > *,
+  .fixtures-table tr.fx-bye > *,
+  .fixtures-table tr.fx-moved > * {
+    padding: 0 !important;
+    border: 0 !important;
+    background: none !important;
+  }
+  .fixtures-table tbody tr:nth-child(even) {
+    background: #0e3c88;
+  }
+  .fixtures-table .fx-time {
+    grid-area: time;
+    font-weight: 700;
+    color: #fff;
+    font-size: 0.8125rem;
+  }
+  .fixtures-table .fx-court {
+    grid-area: court;
+    font-size: 0.8125rem;
+  }
+  .fixtures-table .fx-result {
+    grid-area: result;
+    text-align: right;
+    align-self: center;
+    white-space: normal;
+    max-width: 9rem;
+  }
+  .fixtures-table .fx-match {
+    grid-area: match;
+    min-width: 0;
+    margin-top: 0.25rem;
+    font-size: 0.9375rem;
+  }
+  .fixtures-table .fx-duty {
+    grid-area: duty;
+    font-size: 0.8125rem;
+    margin-top: 0.25rem;
+  }
+  .fixtures-table .fx-duty:empty,
+  .fixtures-table .fx-court:empty,
+  .fixtures-table .fx-time:empty {
+    display: none;
+  }
+  .fixtures-table .fx-label {
+    display: inline;
+    font-weight: 700;
+    text-transform: none;
+    color: var(--color-brand-text);
+  }
+  .fixtures-table .fx-duty {
+    text-transform: uppercase;
+  }
+  .fixtures-table tbody:last-child tr:last-child {
+    border-radius: 0 0 0.5rem 0.5rem;
+  }
+}
+
+/* A full ladder's caption would scroll away with the numbers on a phone; the section heading names it there. */
+@media (max-width: 47.99rem) {
+  .ladder-table:not(.compact) caption {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .ladder-table:not(.compact) thead th:first-child {
+    border-top-left-radius: 0.5rem;
+  }
+}
+
+/* ── Programme pages ──────────────────────────────────────────────────── */
+
+/* Badges under a title (season, enrolment): consecutive rows sit on one line. */
+.badge-row {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0 0.5rem 1.25rem 0;
+}
+
+/* Facts under a programme's title: when, where, next start. */
+.facts {
+  display: grid;
+  gap: 0.75rem 2rem;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  max-width: 52rem;
+}
+.facts dt {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--color-muted);
+}
+.facts dd {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+/* League tabs: a segmented control (they're buttons once the script runs; without it the sections stack). */
+.tabs {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  border-radius: 0.75rem;
+  background: #fff;
+  border: 1px solid var(--color-line);
+}
+.tabs [role='tab'] {
+  min-height: 2.75rem;
+  padding: 0.5rem 1.125rem;
+  border-radius: 0.5rem;
+  font-family: var(--font-display);
+  font-weight: 700;
+  color: var(--color-brand);
+  cursor: pointer;
+}
+.tabs [role='tab']:hover {
+  background: var(--color-brand-tint);
+}
+.league-tabs [role='tabpanel']:focus-visible {
+  outline-offset: 0.75rem;
+  border-radius: 0.25rem;
+}
+.tabs [role='tab'][aria-selected='true'] {
+  background: var(--color-brand);
+  color: #fff;
+}
+
+/* ── Footer ───────────────────────────────────────────────────────────── */
+
+.footer-link {
+  color: #fff;
+  text-decoration: underline;
+  text-decoration-color: rgb(255 168 0 / 0.55);
+  text-underline-offset: 3px;
+}
+.footer-link:hover {
+  text-decoration-color: var(--color-accent);
+}
+
+/* ── Stored page and post bodies (.prose) ─────────────────────────────── */
+
+.prose {
+  line-height: 1.7;
+  overflow-wrap: break-word;
+}
+.prose > * + * {
+  margin-top: 1rem;
+}
+.prose > :first-child {
+  margin-top: 0;
+}
+.prose :where(p, ul, ol, blockquote, h2, h3, h4, h5, h6) {
+  max-width: 70ch;
+}
+.prose h2 {
+  margin-top: 2.25rem;
+  font-size: 1.625rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+.prose h3 {
+  margin-top: 1.75rem;
+  font-size: 1.3125rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+.prose h4,
+.prose h5,
+.prose h6 {
+  margin-top: 1.5rem;
+  font-family: var(--font-display);
+  font-size: 1.125rem;
+  font-weight: 700;
+}
+.prose h2 + *,
+.prose h3 + *,
+.prose h4 + * {
+  margin-top: 0.5rem;
+}
+.prose a {
+  color: var(--color-link);
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: var(--color-accent);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+.prose a:hover {
+  text-decoration-thickness: 3px;
+}
+.prose strong {
+  font-weight: 700;
+}
+.prose ul {
+  list-style: disc;
+  padding-left: 1.5rem;
+}
+.prose ol {
+  list-style: decimal;
+  padding-left: 1.5rem;
+}
+.prose li::marker {
+  color: var(--color-brand);
+}
+.prose li + li {
+  margin-top: 0.375rem;
+}
+.prose li > ul,
+.prose li > ol {
+  margin-top: 0.375rem;
+}
+.prose hr {
+  border: 0;
+  border-top: 1px solid var(--color-line);
+  margin: 2rem 0;
+}
+.prose blockquote {
+  border-left: 4px solid var(--color-accent);
+  padding: 0.25rem 0 0.25rem 1rem;
+  color: var(--color-muted);
+  font-style: italic;
+}
+.prose img {
+  height: auto;
+  max-width: 100%;
+  border-radius: 0.5rem;
+}
+.prose figure {
+  max-width: 100%;
+}
+.prose figcaption {
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--color-muted);
+}
+/* Embeds (YouTube, Google Maps, forms): full width, 16:9 unless the embed says otherwise. */
+.prose iframe {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  border: 0;
+  border-radius: 0.5rem;
+  background: #fff;
+}
+.prose iframe:not([height]),
+.prose .embed iframe {
+  aspect-ratio: 16 / 9;
+  height: auto;
+}
+/* Imported tables: white, ruled, scrolling sideways on phones rather than squashing. */
+.prose .table-wrap,
+.prose .wp-block-table {
+  overflow-x: auto;
+}
+.prose table:not(.data-table) {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9375rem;
+  background: #fff;
+  border: 1px solid var(--color-line);
+}
+.prose table:not(.data-table) td,
+.prose table:not(.data-table) th {
+  border: 1px solid var(--color-line);
+  padding: 0.5rem 0.75rem;
+  vertical-align: top;
+  text-align: left;
+}
+.prose table:not(.data-table) th,
+.prose table:not(.data-table) thead td {
+  background: var(--color-brand-tint);
+  font-weight: 700;
+}
+.prose table:not(.data-table) td p,
+.prose table:not(.data-table) th p {
+  margin: 0;
+}
+/* Data blocks in a page body (src/lib/content/data-blocks.ts) keep the blue tables' own look. */
+.prose .data-block {
+  margin-top: 2rem;
+  margin-bottom: 2rem;
+  max-width: none;
+}
+.prose .data-block > * + * {
+  margin-top: 0.75rem;
+}
+.prose .data-block h2 {
+  margin-top: 0;
+}
+.prose .data-table a {
+  font-weight: 400;
+  color: #fff;
+  text-decoration-color: rgb(255 255 255 / 0.45);
+  text-decoration-thickness: 1px;
+}
+.data-block-meta {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-muted);
+}
+.data-block-link {
+  font-size: 0.9375rem;
+}
+.prose .programme-list ul {
+  list-style: none;
+  padding-left: 0;
+}
+.prose .venues-block .venue + .venue {
+  margin-top: 2rem;
+  padding-top: 2rem;
+  border-top: 1px solid var(--color-line);
+}
+.prose .venues-block .venue > * + * {
+  margin-top: 0.5rem;
+}
+.venue-address {
+  font-weight: 600;
+}
+.prose .wp-block-image,
+.prose .wp-block-embed {
+  margin-top: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+.prose .aligncenter {
+  margin-left: auto;
+  margin-right: auto;
+}
+.prose .wp-block-columns {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+@media (min-width: 48rem) {
+  .prose .wp-block-columns {
+    flex-direction: row;
+  }
+}
+.prose .wp-block-column {
+  min-width: 0;
+  flex: 1;
+}
+.prose .wp-block-button__link,
+.prose a.button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  padding: 0.5rem 1.125rem;
+  border-radius: 0.5rem;
+  background: var(--color-brand);
+  color: #fff;
+  font-family: var(--font-display);
+  font-weight: 700;
+  text-decoration: none;
+}
+.prose .wp-block-button__link:hover,
+.prose a.button:hover {
+  background: var(--color-brand-dark);
+}
+
+/* Images with a caption, size, alignment or link (the editor's image settings; render.ts writes the classes). */
+.prose .figure {
+  margin-top: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+.prose .figure img {
+  display: block;
+  height: auto;
+  width: 100%;
+}
+.prose .figure-small {
+  max-width: 20rem;
+}
+.prose .figure-medium {
+  max-width: 28rem;
+}
+.prose .figure-large {
+  max-width: 42rem;
+}
+.prose .figure-full {
+  max-width: none;
+}
+.prose .figure-center {
+  margin-left: auto;
+  margin-right: auto;
+}
+.prose .figure:not(.figure-small, .figure-medium, .figure-large, .figure-full) img {
+  width: auto;
+  max-width: 100%;
+}
+.prose .figure-center:not(.figure-small, .figure-medium, .figure-large, .figure-full) {
+  width: fit-content;
+}
+@media (min-width: 40rem) {
+  .prose .figure-left,
+  .prose .figure-right {
+    margin-top: 0.25rem;
+    margin-bottom: 1rem;
+    max-width: 50%;
+  }
+  .prose .figure-left {
+    float: left;
+    margin-right: 1.5rem;
+  }
+  .prose .figure-right {
+    float: right;
+    margin-left: 1.5rem;
+  }
+  .prose .figure-left.figure-small,
+  .prose .figure-right.figure-small {
+    max-width: 20rem;
+  }
+}
+.prose::after {
+  /* Floated images never hang out of the body. */
+  content: '';
+  display: table;
+  clear: both;
+}

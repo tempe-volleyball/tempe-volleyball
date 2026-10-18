@@ -25,7 +25,10 @@ const { upcoming, played } = splitFixtures(rows, competition.weeks, today)
 const hasFinals = competition.weeks.some((w) => w.kind === 'semi' || w.kind === 'final')
 const initial: LeagueTab = current ? defaultLeagueTab(competition.weeks, today) : 'ladder'
 const showDuty = view.data.season.dutyEnabled
-const linkClass = 'text-link decoration-accent font-semibold underline decoration-2 underline-offset-2'
+// Results read newest night first (players look for last night's scores); games within a night keep their order.
+const nights = new Map<string, typeof played>()
+for (const r of played) nights.set(r.date, [...(nights.get(r.date) ?? []), r])
+const playedNewestFirst = [...nights.values()].reverse().flat()
 ---
 
 <slot name="before" />
@@ -33,11 +36,15 @@ const linkClass = 'text-link decoration-accent font-semibold underline decoratio
   {league.name}
   {current ? '' : ` – ${summary.name}`}
 </h1>
-<p class="-mt-4 mb-6 text-lg">{current ? `${summary.name}.` : summary.status === 'archived' ? 'Past season.' : ''}</p>
+<p class="badge-row -mt-3">
+  <span class="badge badge-info">
+    {current ? summary.name : summary.status === 'archived' ? `Past season: ${summary.name}` : summary.name}
+  </span>
+</p>
 <slot />
 
-<div class="league-tabs mt-8" data-default={initial}>
-  <div role="tablist" aria-label={`${summary.name}`} class="mb-6 flex flex-wrap gap-1 border-b-4 border-brand" hidden>
+<div class="league-tabs mt-10" data-default={initial}>
+  <div role="tablist" aria-label={`${summary.name}`} class="tabs mb-6" hidden>
     {LEAGUE_TABS.map((t) => (
       <button
         type="button"
@@ -47,7 +54,6 @@ const linkClass = 'text-link decoration-accent font-semibold underline decoratio
         aria-controls={t}
         aria-selected={t === initial ? 'true' : 'false'}
         tabindex={t === initial ? 0 : -1}
-        class="font-display px-4 py-2.5 text-base font-bold uppercase aria-selected:bg-brand aria-selected:text-white not-aria-selected:bg-white/60 not-aria-selected:hover:bg-white sm:px-6 sm:text-lg"
       >
         {LEAGUE_TAB_LABELS[t]}
       </button>
@@ -55,7 +61,7 @@ const linkClass = 'text-link decoration-accent font-semibold underline decoratio
   </div>
 
   <section id="fixtures" aria-labelledby="fixtures-heading" class="mb-14 scroll-mt-4">
-    <h2 id="fixtures-heading" class="mb-4 text-2xl font-bold sm:text-3xl">
+    <h2 id="fixtures-heading" class="section-title">
       Fixtures
     </h2>
     <FixturesTable
@@ -65,60 +71,58 @@ const linkClass = 'text-link decoration-accent font-semibold underline decoratio
       emptyText={rows.length === 0 ? "The draw hasn't been published yet." : 'No more games this season. See the results.'}
     />
     {calendar && (
-      <div class="mt-4 text-sm">
-        <p>
-          Add the {league.code} games to your calendar:{' '}
-          <a class={linkClass} href={calendar.league.webcal}>
-            subscribe<span class="sr-only"> to the {league.name} calendar</span>
-          </a>{' '}
-          or{' '}
-          <a class={linkClass} href={calendar.league.https}>
-            download<span class="sr-only"> the {league.name} calendar</span>
+      <div class="card mt-6">
+        <h3 class="font-display text-lg font-bold">Add the games to your calendar</h3>
+        <p class="text-muted mt-1 text-sm">Your calendar keeps itself up to date when times, courts or duties change.</p>
+        <p class="mt-4 flex flex-wrap gap-3">
+          <a class="btn btn-brand btn-sm" href={calendar.league.webcal}>
+            Subscribe to {league.code}
+            <span class="sr-only"> ({league.name})</span>
+          </a>
+          <a class="btn btn-outline btn-sm" href={calendar.league.https}>
+            Download .ics<span class="sr-only"> for {league.name}</span>
+          </a>
+          <a class="btn btn-outline btn-sm" href={`${FIXTURE_LIST_ROUTE}?league=${league.slug}`}>
+            This week's {league.code} games
           </a>
         </p>
         {calendar.teams.length > 0 && (
-          <details class="mt-2">
-            <summary class="cursor-pointer font-semibold">One team's games and duties</summary>
-            <ul class="mt-2 grid gap-x-6 gap-y-1 sm:grid-cols-2 lg:grid-cols-3">
+          <details class="mt-4">
+            <summary class="link cursor-pointer">Just one team's games and duties</summary>
+            <ul class="mt-3 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
               {calendar.teams.map((t) => (
                 <li>
-                  <a class={linkClass} href={t.webcal}>
+                  <a class="link" href={t.webcal}>
                     {t.name}
-                  </a>
-                  {' · '}
-                  <a class="underline underline-offset-2" href={t.https}>
-                    .ics<span class="sr-only"> file for {t.name}</span>
+                  </a>{' '}
+                  <a class="text-muted underline underline-offset-2" href={t.https}>
+                    (.ics<span class="sr-only"> file for {t.name}</span>)
                   </a>
                 </li>
               ))}
             </ul>
           </details>
         )}
-        <p class="mt-2">
-          <a class={linkClass} href={`${FIXTURE_LIST_ROUTE}?league=${league.slug}`}>
-            This week's {league.code} games
-          </a>
-        </p>
       </div>
     )}
   </section>
 
   <section id="ladder" aria-labelledby="ladder-heading" class="mb-14 scroll-mt-4">
-    <h2 id="ladder-heading" class="mb-4 text-2xl font-bold sm:text-3xl">
+    <h2 id="ladder-heading" class="section-title">
       {ladderHeading}
     </h2>
     <LadderTable rows={view.ladder} caption={`${summary.name} Ladder`} />
-    <div class="mt-3 flex flex-wrap justify-between gap-2 text-sm">
+    <div class="text-muted mt-3 flex flex-wrap justify-between gap-2 text-sm">
       <p>{hasFinals ? 'Round-robin matches only; finals are in the fixtures and results.' : ''}</p>
-      {updated && <p class="font-semibold">{updated}</p>}
+      {updated && <p class="text-ink font-semibold">{updated}</p>}
     </div>
   </section>
 
   <section id="results" aria-labelledby="results-heading" class="mb-14 scroll-mt-4">
-    <h2 id="results-heading" class="mb-4 text-2xl font-bold sm:text-3xl">
+    <h2 id="results-heading" class="section-title">
       Results
     </h2>
-    <FixturesTable rows={played} caption={`${summary.name} Results`} showDuty={showDuty} emptyText="No results yet." />
+    <FixturesTable rows={playedNewestFirst} caption={`${summary.name} Results`} showDuty={showDuty} emptyText="No results yet." />
   </section>
 
   <script is:inline>
@@ -171,15 +175,15 @@ const linkClass = 'text-link decoration-accent font-semibold underline decoratio
 
 {others.length > 0 && (
   <section aria-labelledby="seasons-heading">
-    <h2 id="seasons-heading" class="mb-4 text-2xl font-bold">
+    <h2 id="seasons-heading" class="section-title">
       {league.code} seasons
     </h2>
-    <ul class="flex flex-wrap gap-3">
+    <ul class="flex flex-wrap gap-2">
       {others.map((s) => (
         <li>
           <a
             href={seasonRoute(league.slug, s.slug)}
-            class="bg-brand hover:bg-brand-dark inline-block px-3 py-2 text-white"
+            class:list={['btn btn-sm', s.id === summary.id ? 'btn-brand' : 'btn-outline']}
             aria-current={s.id === summary.id ? 'page' : undefined}
           >
             {s.name}

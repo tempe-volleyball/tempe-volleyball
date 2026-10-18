@@ -283,7 +283,7 @@ function renderNode(node: JsonNode, depth: number, o: RenderOptions): string {
       const src = safeImageSrc(a?.src)
       if (!src) return ''
       const srcset = safeSrcset(a?.srcset)
-      // A size preset caps the width (global.css: small 20rem, medium 28rem, large 42rem), so phones and desktops
+      // A size preset caps the width (site.css: small 20rem, medium 28rem, large 42rem), so phones and desktops
       // fetch a copy that size, not the 800 px one.
       const preset = oneOf(IMAGE_SIZES, a?.size)
       const sizes = (preset && PRESET_SIZES[preset]) || (typeof a?.sizes === 'string' && SIZES_RE.test(a.sizes) ? a.sizes : null)

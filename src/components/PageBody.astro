@@ -2,16 +2,20 @@
 import { prepareHtml } from '../lib/content'
 import ContactFormScript from './ContactFormScript.astro'
 
-// A page or post: the H1 (with the amber rule) and the stored HTML, tidied for headings, vague links and embeds.
-// A body with a Contact form block also gets the form's script (and only then).
-type Props = { title: string; html: string; titles?: Map<string, string> }
-const { title, html, titles } = Astro.props
+// A page or post: the title (the H1 with the amber bar, or an H2 on the home page, whose H1 is in the hero) and
+// the stored HTML, tidied for headings, vague links and embeds. Slots: "before" above the title (breadcrumbs),
+// "meta" under it (a post's date), the default after the body. A body with a Contact form block also gets the
+// form's script (and only then).
+type Props = { title: string; html: string; titles?: Map<string, string>; titleTag?: 'h1' | 'h2' }
+const { title, html, titles, titleTag = 'h1' } = Astro.props
+const Title = titleTag
 ---
 
 <article>
-  <h1 class="page-title">{title}</h1>
+  <slot name="before" />
+  {title && <Title class={titleTag === 'h1' ? 'page-title' : 'section-title'}>{title}</Title>}
   <slot name="meta" />
-  <div class="prose" set:html={prepareHtml(html, { titles })} />
+  {html && <div class="prose" set:html={prepareHtml(html, { titles, baseLevel: titleTag === 'h2' ? 2 : 1 })} />}
   <slot />
 </article>
 {html.includes('data-contact-form') && <ContactFormScript />}

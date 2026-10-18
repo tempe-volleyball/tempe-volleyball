@@ -336,6 +336,12 @@ The public website only; the admin is Phase 6.
   text), kept at Lighthouse 100.
 - Remove or redirect stale pages: 2021 Monday leagues, COVID guidelines, "Sample Page", duplicates (two Thursday fixtures
   pages, two Sunday afternoon pages), year-stamped slugs like `/2023-enrolment/`.
+- **Design (done 2026-10-19, [docs/public-site.md](docs/public-site.md)):** the design system and every page type
+  restyled; responsive AVIF/WebP hero and logo; inlined CSS; a no-JS header and menu; the footer with Explore links
+  (News and the kind index pages included); ladder widgets in the sidebar, the footer or nowhere (Settings →
+  Ladders), never both; fixtures grouped by night and stacked on phones, with a legend; sticky-column ladders on
+  phones; the home page's hero and first line editable in Settings → Home page. Lighthouse mobile 100/100/100 on
+  every page type locally.
 - **Done when:** every public page passes Lighthouse SEO and accessibility (apart from the deliberate noindex outside
   production) and Michael is happy with how the site looks on desktop and phone.
 

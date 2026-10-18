@@ -50,8 +50,9 @@ const isServer = () => false
 
 const aud = (cents: number) => new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(cents / 100)
 
+// Styled with the public tokens (docs/public-site.md, "Forms"): 44px fields, a blue focus ring, red and tinted when invalid.
 const inputClass = (invalid: boolean) =>
-  `w-full rounded border px-3 py-2 outline-none focus:ring-2 focus:ring-brand/30 ${invalid ? 'border-red-600' : 'border-black/25 focus:border-brand'}`
+  `block min-h-11 w-full rounded-lg border bg-white px-3.5 py-2.5 text-base outline-none transition-shadow focus:ring-4 focus:ring-brand/20 ${invalid ? 'border-danger bg-danger-tint/40 focus:border-danger' : 'border-ink/30 hover:border-ink/50 focus:border-brand'}`
 
 function Turnstile({ siteKey, onToken, resetKey }: { siteKey: string; onToken: (t: string | null) => void; resetKey: number }) {
   const ref = useRef<HTMLDivElement>(null)
@@ -92,7 +93,7 @@ function Turnstile({ siteKey, onToken, resetKey }: { siteKey: string; onToken: (
     <div>
       <div ref={ref} />
       {failed && (
-        <p className="text-sm text-red-700">
+        <p className="text-danger text-sm">
           The "are you human" check couldn't load. Check your connection, or turn off a blocker, and reload.
         </p>
       )}
@@ -104,7 +105,7 @@ function Turnstile({ siteKey, onToken, resetKey }: { siteKey: string; onToken: (
 function GroupRequired() {
   return (
     <>
-      <span className="text-red-700" aria-hidden="true">
+      <span className="text-danger" aria-hidden="true">
         {' '}
         *
       </span>
@@ -115,10 +116,10 @@ function GroupRequired() {
 
 function Label({ htmlFor, required, children }: { htmlFor?: string; required?: boolean; children: ReactNode }) {
   return (
-    <label htmlFor={htmlFor} className="mb-1 block font-semibold">
+    <label htmlFor={htmlFor} className="text-ink mb-1.5 block font-semibold">
       {children}
       {required && (
-        <span className="text-red-700" aria-hidden="true">
+        <span className="text-danger" aria-hidden="true">
           {' '}
           *
         </span>
@@ -129,7 +130,10 @@ function Label({ htmlFor, required, children }: { htmlFor?: string; required?: b
 
 const ErrorText = ({ id, error }: { id: string; error?: string }) =>
   error ? (
-    <p id={id} className="mt-1 text-sm text-red-700">
+    <p id={id} className="text-danger mt-1.5 flex items-start gap-1.5 text-sm font-semibold">
+      <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" className="mt-0.5 shrink-0">
+        <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1Zm-.75 3.5h1.5v5h-1.5v-5Zm0 6h1.5V12h-1.5v-1.5Z" />
+      </svg>
       {error}
     </p>
   ) : null
@@ -152,7 +156,7 @@ function Question({
   const helpId = `${id}-help`
   const described = [field.help ? helpId : '', error ? errId : ''].filter(Boolean).join(' ') || undefined
   const help = field.help ? (
-    <p id={helpId} className="mb-1 text-sm text-black/70">
+    <p id={helpId} className="text-muted mb-1.5 text-sm">
       {field.help}
     </p>
   ) : null
@@ -162,9 +166,9 @@ function Question({
 
   switch (field.type) {
     case 'heading':
-      return <h3 className="font-display text-brand pt-2 text-lg font-bold">{field.label}</h3>
+      return <h3 className="font-display text-ink border-line border-t pt-5 text-xl font-bold">{field.label}</h3>
     case 'paragraph':
-      return <p className="whitespace-pre-line text-black/80">{field.label}</p>
+      return <p className="text-muted whitespace-pre-line">{field.label}</p>
     case 'textarea':
       return (
         <div>
@@ -208,20 +212,23 @@ function Question({
       const list = Array.isArray(value) ? (value as string[]) : []
       return (
         <fieldset aria-describedby={described} aria-invalid={!!error}>
-          <legend className="mb-1 font-semibold">
+          <legend className="text-ink mb-1.5 font-semibold">
             {field.label}
             {field.required && <GroupRequired />}
           </legend>
           {help}
-          <div className="space-y-1">
+          <div className="grid gap-2 sm:grid-cols-2">
             {field.options?.map((o) => (
-              <label key={o.value} className="flex items-start gap-2">
+              <label
+                key={o.value}
+                className="border-ink/20 has-checked:border-brand has-checked:bg-brand-tint flex min-h-11 cursor-pointer items-start gap-2.5 rounded-lg border bg-white px-3 py-2.5"
+              >
                 <input
                   type={many ? 'checkbox' : 'radio'}
                   name={id}
                   // A required radio group: each radio says so. (Checkboxes: the legend says it, since any one will do.)
                   required={!many && field.required}
-                  className="accent-brand mt-1"
+                  className="accent-brand mt-1 h-4 w-4 shrink-0"
                   checked={many ? list.includes(o.value) : str === o.value}
                   onChange={(e) => onChange(many ? (e.target.checked ? [...list, o.value] : list.filter((v) => v !== o.value)) : o.value)}
                 />
@@ -239,11 +246,11 @@ function Question({
       return (
         <div>
           {help}
-          <label className="flex items-start gap-2">
+          <label className="flex cursor-pointer items-start gap-2.5">
             <input
               {...common}
               type="checkbox"
-              className="accent-brand mt-1"
+              className="accent-brand mt-1 h-4 w-4 shrink-0"
               checked={value === true}
               onChange={(e) => onChange(e.target.checked)}
             />
@@ -253,14 +260,14 @@ function Question({
                 <>
                   {' '}
                   (
-                  <a href={field.href} target="_blank" rel="noopener" className="text-brand underline">
+                  <a href={field.href} target="_blank" rel="noopener" className="link">
                     {field.type === 'vnsw_membership' ? 'get a membership' : 'read them'}
                   </a>
                   )
                 </>
               )}
               {field.required && (
-                <span className="text-red-700" aria-hidden="true">
+                <span className="text-danger" aria-hidden="true">
                   {' '}
                   *
                 </span>
@@ -282,15 +289,15 @@ function Question({
             ]
       return (
         <fieldset aria-describedby={described}>
-          <legend className="mb-1 font-semibold">
+          <legend className="text-ink mb-1.5 font-semibold">
             {field.label}
             {field.required && <GroupRequired />}
           </legend>
           {help}
-          <div className="grid gap-2 sm:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             {parts.map(([k, label, type]) => (
               <div key={k}>
-                <label htmlFor={`${id}-${k}`} className="block text-sm">
+                <label htmlFor={`${id}-${k}`} className="text-muted mb-1 block text-sm font-semibold">
                   {label}
                 </label>
                 <input
@@ -347,6 +354,38 @@ function Question({
   }
 }
 
+const CheckIcon = () => (
+  <svg
+    aria-hidden="true"
+    width="24"
+    height="24"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.5"
+    className="text-ok shrink-0"
+  >
+    <circle cx="12" cy="12" r="10" />
+    <path d="m7.5 12.5 3 3 6-6.5" />
+  </svg>
+)
+
+const MailIcon = () => (
+  <svg
+    aria-hidden="true"
+    width="24"
+    height="24"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    className="text-ok shrink-0"
+  >
+    <rect x="2" y="4" width="20" height="16" rx="2" />
+    <path d="m22 6-10 7L2 6" />
+  </svg>
+)
+
 function targetNote(t: PublicTarget) {
   const parts: string[] = []
   if (t.amountCents) parts.push(aud(t.amountCents))
@@ -400,13 +439,10 @@ export default function EnrolmentForm(props: EnrolmentFormComponentProps) {
     if (result) resultRef.current?.focus()
   }, [result])
 
-  if (!preview && !turnstileSiteKey)
-    return (
-      <p className="rounded border border-black/15 bg-white p-4">Online enrolment is unavailable right now. Please contact us to enrol.</p>
-    )
+  if (!preview && !turnstileSiteKey) return <p className="card">Online enrolment is unavailable right now. Please contact us to enrol.</p>
   if (choosable.length === 0)
     return (
-      <p className="rounded border border-black/15 bg-white p-4">
+      <p className="card">
         {targets.length > 0
           ? `${programme.name} is full.`
           : (props.closedText ?? `Enrolment for ${programme.name} isn't open at the moment.`)}
@@ -417,8 +453,11 @@ export default function EnrolmentForm(props: EnrolmentFormComponentProps) {
 
   if (result && (result.status === 'pending_email' || result.status === 'emailed'))
     return (
-      <div ref={resultRef} tabIndex={-1} role="status" className="rounded border border-green-300 bg-green-50 p-5 outline-none">
-        <h3 className="font-display text-lg font-bold">Check your email</h3>
+      <div ref={resultRef} tabIndex={-1} role="status" className="border-ok bg-ok-tint rounded-xl border-2 p-5 outline-none sm:p-6">
+        <h3 className="font-display flex items-center gap-2 text-xl font-bold">
+          <MailIcon />
+          Check your email
+        </h3>
         {result.status === 'pending_email' ? (
           <>
             <p className="mt-2">
@@ -426,7 +465,7 @@ export default function EnrolmentForm(props: EnrolmentFormComponentProps) {
               {result.teamName ? ` (team ${result.teamName})` : ''}. <strong>No spot is held until you click it</strong>
               {result.confirmHours ? `, and the link works for ${result.confirmHours} hours` : ''}.
             </p>
-            <p className="mt-2 text-sm text-black/70">
+            <p className="text-muted mt-2 text-sm">
               If you've entered before, the email has your reference instead. Nothing there? Check your spam folder, or contact us.
             </p>
           </>
@@ -439,7 +478,7 @@ export default function EnrolmentForm(props: EnrolmentFormComponentProps) {
               {result.amountCents ? ` The fee is ${aud(result.amountCents)}; use the reference as the payment description.` : ''}
             </p>
             {result.message && <p className="mt-2 whitespace-pre-line">{result.message}</p>}
-            <p className="mt-2 text-sm text-black/70">Nothing there? Check your spam folder, or contact us.</p>
+            <p className="text-muted mt-2 text-sm">Nothing there? Check your spam folder, or contact us.</p>
           </>
         )}
       </div>
@@ -447,21 +486,24 @@ export default function EnrolmentForm(props: EnrolmentFormComponentProps) {
 
   if (result)
     return (
-      <div ref={resultRef} tabIndex={-1} role="status" className="rounded border border-green-300 bg-green-50 p-5 outline-none">
-        <h3 className="font-display text-lg font-bold">{result.status === 'confirmed' ? "You're enrolled!" : "You're on the waitlist"}</h3>
+      <div ref={resultRef} tabIndex={-1} role="status" className="border-ok bg-ok-tint rounded-xl border-2 p-5 outline-none sm:p-6">
+        <h3 className="font-display flex items-center gap-2 text-xl font-bold">
+          <CheckIcon />
+          {result.status === 'confirmed' ? "You're enrolled!" : "You're on the waitlist"}
+        </h3>
         <p className="mt-2">
           {result.status === 'confirmed'
             ? `You're in ${whatOf(result)}${result.teamName ? ` with ${result.teamName}` : ''}.`
             : `${result.target} is full, so you're on the waitlist${result.position ? ` (number ${result.position})` : ''}. If a spot opens up we'll email you an offer.`}
         </p>
         <p className="mt-2">
-          Your reference is <strong className="tracking-wider">{result.reference}</strong>
+          Your reference is <strong className="bg-white px-2 py-0.5 text-lg tracking-wider">{result.reference}</strong>
           {result.status === 'confirmed' && result.amountCents
             ? `. The fee is ${aud(result.amountCents)}; use the reference as the payment description.`
             : '.'}
         </p>
         {result.message && <p className="mt-2 whitespace-pre-line">{result.message}</p>}
-        <p className="mt-2 text-sm text-black/70">We've emailed you a copy.</p>
+        <p className="text-muted mt-2 text-sm">We've emailed you a copy.</p>
       </div>
     )
 
@@ -517,32 +559,32 @@ export default function EnrolmentForm(props: EnrolmentFormComponentProps) {
   return (
     <form ref={formRef} onSubmit={(e) => void submit(e)} noValidate className="space-y-5" aria-busy={!ready}>
       {!ready && (
-        <p role="status" className="text-sm text-black/70">
+        <p role="status" className="text-muted text-sm">
           Getting the form ready…
         </p>
       )}
       {/* Disabled until hydrated, so nothing can be typed that hydration would clear. */}
-      <fieldset disabled={!ready} className="m-0 min-w-0 space-y-5 border-0 p-0">
+      <fieldset disabled={!ready} className="m-0 min-w-0 space-y-6 border-0 p-0 disabled:opacity-70">
         {targets.length > 1 && (
           <fieldset>
-            <legend className="mb-1 font-semibold">Choose</legend>
-            <div className="space-y-1">
+            <legend className="text-ink mb-1.5 font-semibold">Choose</legend>
+            <div className="grid gap-2">
               {targets.map((t) => (
                 <label
                   key={t.id}
-                  className={`flex items-start gap-2 rounded border px-3 py-2 ${t.id === targetId ? 'border-brand bg-brand/5' : 'border-black/15'} ${t.full ? 'opacity-60' : ''}`}
+                  className={`flex items-start gap-3 rounded-lg border-2 bg-white px-3.5 py-3 ${t.id === targetId ? 'border-brand bg-brand-tint' : 'border-line'} ${t.full ? 'opacity-60' : 'cursor-pointer'}`}
                 >
                   <input
                     type="radio"
                     name={`${idBase}-target`}
-                    className="accent-brand mt-1"
+                    className="accent-brand mt-1 h-4 w-4 shrink-0"
                     checked={t.id === targetId}
                     disabled={t.full}
                     onChange={() => setTargetId(t.id)}
                   />
                   <span>
                     <span className="font-semibold">{t.label}</span>
-                    {targetNote(t) && <span className="block text-sm text-black/70">{targetNote(t)}</span>}
+                    {targetNote(t) && <span className="text-muted block text-sm">{targetNote(t)}</span>}
                   </span>
                 </label>
               ))}
@@ -550,22 +592,25 @@ export default function EnrolmentForm(props: EnrolmentFormComponentProps) {
           </fieldset>
         )}
         {targets.length === 1 && target && (
-          <p className="font-semibold">
+          <p className="font-display text-lg font-bold">
             {target.label}
-            {targetNote(target) && <span className="block text-sm font-normal text-black/70">{targetNote(target)}</span>}
+            {targetNote(target) && <span className="text-muted block font-sans text-sm font-normal">{targetNote(target)}</span>}
           </p>
         )}
 
         {target && target.entryTypes.length > 1 && (
           <fieldset>
-            <legend className="mb-1 font-semibold">How are you entering?</legend>
-            <div className="flex flex-wrap gap-4">
+            <legend className="text-ink mb-1.5 font-semibold">How are you entering?</legend>
+            <div className="grid gap-2 sm:grid-cols-2">
               {target.entryTypes.map((t) => (
-                <label key={t} className="flex items-center gap-2">
+                <label
+                  key={t}
+                  className="border-line has-checked:border-brand has-checked:bg-brand-tint flex min-h-11 cursor-pointer items-center gap-2.5 rounded-lg border-2 bg-white px-3.5 py-2.5 font-semibold"
+                >
                   <input
                     type="radio"
                     name={`${idBase}-entry`}
-                    className="accent-brand"
+                    className="accent-brand h-4 w-4"
                     checked={entryType === t}
                     onChange={() => setEntryType(t)}
                   />
@@ -577,10 +622,10 @@ export default function EnrolmentForm(props: EnrolmentFormComponentProps) {
         )}
 
         <fieldset className="space-y-3">
-          <legend className="font-display text-brand mb-2 text-lg font-bold">
+          <legend className="font-display text-ink mb-3 text-xl font-bold">
             {team ? "Captain's details" : programme.kind === 'development' ? "Player's details" : 'Your details'}
           </legend>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-4 sm:grid-cols-2">
             {PERSON_FIELDS.map(([key, label, type, autoComplete]) => (
               <div key={key}>
                 <Label htmlFor={`${idBase}-${key}`} required>
@@ -636,19 +681,22 @@ export default function EnrolmentForm(props: EnrolmentFormComponentProps) {
         </p>
 
         {notice && (
-          <p role="alert" className="rounded border border-red-300 bg-red-50 px-4 py-3 text-red-800">
+          <p role="alert" className="border-danger bg-danger-tint text-danger rounded-lg border-l-4 px-4 py-3 font-semibold">
             {notice}
+            {Object.keys(errors).length > 1 && (
+              <span className="block font-normal">{Object.keys(errors).length} answers need fixing: they're marked below.</span>
+            )}
           </p>
         )}
 
         <button
           type="submit"
           disabled={busy || preview}
-          className="bg-brand hover:bg-brand-dark rounded px-6 py-3 font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
+          className="btn btn-enrol w-full px-8 text-lg disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
         >
           {busy ? 'Sending…' : target?.waitlistOnly ? 'Join the waitlist' : team ? 'Enter the team' : 'Enrol'}
         </button>
-        {preview && <p className="text-sm text-black/60">Preview: nothing is sent.</p>}
+        {preview && <p className="text-muted text-sm">Preview: nothing is sent.</p>}
       </fieldset>
     </form>
   )

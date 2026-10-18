@@ -169,3 +169,211 @@ For Michael or Jeremy, once `www.tempevb.com` serves the new Worker:
 4. **URL Inspection** on the home page, a league page and a post: "Page is indexable", the canonical is the
    www URL, and the structured data (Organization, Event, Article, Breadcrumbs) is detected without errors.
 5. Settings → Analytics → Search Console property, so Admin → Stats shows Google searches (docs/admin.md §2).
+
+## Design
+
+The public pages' design system: tokens, components and the decisions behind them.
+
+**Who it's for.** Players checking tonight's fixtures, court and duty, and the ladder, mostly on a phone at the
+venue; and newcomers deciding whether to join. So: the fixtures and ladder are one tap from every page, they read on
+a 390 px phone without zooming, and every page makes the next step (Enrol, Fixtures, Calendar) obvious.
+
+**What stays from the old site.** The club blue `#104293` and amber `#FFA800`, the hero photo of players at the net,
+the logo with the Sydney Uni Volleyball Club badge, the blue nav block over the photo, the amber rule under the
+header, blue tables with amber captions, the amber copyright bar. What changed: cooler, lighter greys, rounded white
+cards, sentence-case navigation, a shorter amber bar under each H1 instead of a full-width rule, and a lot more
+space.
+
+### Tokens
+
+`src/styles/tokens.css` (shared with the admin, so editor previews match the site). Tailwind exposes each as a
+utility (`bg-brand`, `text-muted`, `border-line` …).
+
+| Token                   | Value                 | Use                                                                                   |
+| ----------------------- | --------------------- | ------------------------------------------------------------------------------------- |
+| `brand`                 | `#104293`             | nav, buttons, table bodies                                                            |
+| `brand-dark`            | `#0b3170`             | hover on brand; table header rows (`header-row`, was the old grey `#555`)             |
+| `brand-deep`            | `#071d44`             | footer (`footer`, was `#111`), hero overlay                                           |
+| `brand-tint`            | `#e6ecf6`             | night rows in fixtures, info badges, selected choices in forms                        |
+| `brand-text`            | `#e8eef8`             | text on brand blue (AAA)                                                              |
+| `brand-soft`            | `#87a0c9`             | borders only: the old muted table numbers failed contrast (Lighthouse baseline)       |
+| `accent`                | `#ffa800`             | the main action (Enrol), table captions, the header rule, the H1 bar, the active item |
+| `accent-dark`           | `#e69500`             | hover on accent                                                                       |
+| `accent-tint` / `-ink`  | `#fff3d9` / `#6b4400` | "Enrolling now" badges, notices                                                       |
+| `ink`                   | `#1b2330`             | body text (dark text always on amber)                                                 |
+| `muted`                 | `#4a5568`             | secondary text, 7:1 on white                                                          |
+| `paper`                 | `#f2f4f8`             | page background (was `#e4e4e4`)                                                       |
+| `line`                  | `#d5dce7`             | card borders and rules                                                                |
+| `link`                  | `#0d3a85`             | text links: blue with a 2 px amber underline (amber text fails contrast on light)     |
+| `danger`, `ok` (+ tint) | `#9b1c1c`, `#146c2e`  | form errors, full sessions; success panels, spots left                                |
+| fonts                   | Lato 700, Noto Sans   | Lato for headings, nav, buttons; Noto Sans (Droid Sans's successor) for text          |
+
+Type scale: H1 `clamp(2rem … 3rem)`, section H2 `clamp(1.5rem … 1.875rem)`, card titles 1.25–1.5rem, body 1rem at
+1.7 line height, tables 0.875rem, labels and meta 0.8125rem. Body text is capped at 70ch.
+
+### Components
+
+All in `src/styles/site.css` (in Tailwind's components layer, so a utility on the same element always wins), used by
+the Astro components in `src/components/`.
+
+| Class                                                      | What                                                                                                                            |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `.page-title`, `.section-title`, `.page-lead`              | H1 with the amber bar, H2, the intro paragraph under an H1                                                                      |
+| `.btn` + `.btn-enrol` / `-brand` / `-outline` / `-light`   | 44 px buttons: amber for Enrol (the main action), blue for Fixtures and the next step, outline for the rest, light on the photo |
+| `.link`                                                    | a text link on a light background                                                                                               |
+| `.badge` + `-open` / `-closed` / `-info` / `-full` / `-ok` | enrolment state, season, waitlist, spots; `-moved`, `-off`, `-bye` inside tables                                                |
+| `.card`, `.empty`, `.notice`                               | white card; dashed empty state (what's missing and where to go instead); amber notice strip (retired, finished)                 |
+| `.meter`                                                   | spots-left bar: blue, amber at 20% or fewer left, red when none; always beside the words, `aria-hidden`                         |
+| `.crumbs`                                                  | breadcrumbs (`Breadcrumbs.astro`) on league, programme, category, index, enrol and news pages                                   |
+| `.facts`                                                   | When / Where / Next start under a programme's title                                                                             |
+| `.tabs`                                                    | the league page's Fixtures / Ladder / Results segmented control (sections stack without JavaScript)                             |
+| `.data-table`                                              | the blue tables; `.fixtures-table` and `.ladder-table` from `src/lib/tables.ts`                                                 |
+| `.prose`                                                   | stored page and post bodies, imported WordPress HTML included                                                                   |
+
+### Header
+
+`SiteHeader.astro`. The hero photo (`<picture>`, AVIF then WebP, 640–1500 px wide, `fetchpriority="high"`, preloaded
+in the head) with a blue gradient for legibility; the logo on the left; the blue nav block top right with the social
+icons beside it; a 4 px amber rule underneath. On phones (under 1024 px) a blue bar sits above the photo with the
+site name, the social icons and an amber **Menu** button; the menu opens as a panel under the bar.
+
+- The menu and its dropdowns are `<details>`, so they work without JavaScript. The small inline script keeps the menu
+  open on wide screens, closes dropdowns on an outside click or Escape, and closes the phone menu on an outside tap
+  or Escape (focus goes back to the button).
+- Inner pages use a short hero (128 px phone, 240 px desktop) so the content starts high on a phone; the home page
+  gets the tall one with the H1.
+
+### Home page
+
+The hero says what Tempe Volleyball is and how to join: **Settings → Home page** (`home`): heading, intro, two
+buttons (amber and outline; empty text and link hide one) and a switch for "Leagues this season". Defaults:
+"Social volleyball in Sydney's inner west", a line on the leagues, programs and venues, **Enrol now** → `/enrol`
+and **Fixtures and ladders** → `/leagues`.
+
+- The hero heading is the page's only H1. An empty heading uses the home page's title (Pages → Home). The home
+  page's own title then heads its body as an H2 (unless it's the same text), and the body's headings shift down a
+  level, so heading order holds.
+- **Leagues this season:** a card per league with a current season (night, suburb, Fixtures and Ladder buttons),
+  plus a link to this week's games in every league. It's generated, so a new league appears by itself.
+
+### Ladders: where the widgets go (QA "sidebar and footer ladders")
+
+The old layout showed the same five ladder widgets twice on content pages: in the right sidebar and again in the
+footer. **Settings → Ladders** (`ladders`) decides:
+
+| `placement`         | Widgets                                                                      | Footer                      |
+| ------------------- | ---------------------------------------------------------------------------- | --------------------------- |
+| `sidebar` (default) | beside the content of the home page, content pages, news and the league list | "Ladders: TNL, FNL …" links |
+| `footer`            | across the top of the footer on every page; no sidebar anywhere              | the widgets                 |
+| `off`               | none (league pages always have their full ladder)                            | "Ladders: …" links          |
+
+`rows` (1–12, default 4) is how many teams each widget shows. Widgets are compact (Pos to L), headed by the league
+name and "Week 4 of 9", with a "Full TNL ladder" link. Why the sidebar by default: it's where the old site's players
+look, and on a phone it stacks after the page's content rather than before it.
+
+### Tables
+
+`src/lib/tables.ts` renders both tables as HTML for the league pages (`FixturesTable.astro`, `LadderTable.astro`)
+and the page-editor data blocks (`src/lib/content/data-blocks.ts`), so a Fixtures block looks exactly like the league
+page.
+
+**Fixtures** are grouped by night: each night is a `<tbody>` headed by a light row with the date, "Match day 5" and,
+when the whole night moved, a **Moved from 15/10/2026** badge. Columns: Time (8pm), Match (teams in capitals, a quiet
+"vs", referee and a per-game "Moved from" badge), Result (score, sets, forfeit, Postponed/Cancelled/TBD badges and
+notes), Court, Duty (none for TVSL). Byes get a "Bye" badge; weeks off one italic line.
+
+- **Under 640 px each game is a small card:** time and court on top, the result on the right, the teams, then "Duty
+  AIM BOT". Nothing scrolls sideways. Every element carries its table role explicitly, because browsers drop table
+  semantics when `display` changes; the column headers stay for screen readers (visually hidden).
+- **A legend** under the table explains Duty, the Moved badge and Postponed, only for what the table contains.
+- The league page's **Results** tab reads newest night first; Fixtures soonest first.
+- `/leagues/fixtures` heads each date itself, so its tables leave the date out of the night rows.
+
+**Ladders**: Pos and Team first, then Pts, P, W, D, L, S+, S−, P+, P−, Ratio. Under 768 px a full ladder scrolls
+sideways with Pos and Team sticky (a shadow marks the edge), a fade at the right edge that goes once you reach the
+end (scroll-driven animation; it just stays where unsupported), and "Swipe the table for sets and points" under it.
+The amber caption is visually hidden on phones (it would scroll away; the section heading names the table).
+
+### Cards and programme pages
+
+- **Programme cards** (`ProgrammeCards.astro`: category pages, `/enrol`, `/training`, `/programs`, `/events`): the
+  enrolment badge, name, summary line, the "Next season starts …" sentence, when and where under a hand-written
+  summary, then the open seasons, sessions or terms with spots left and a meter (`spotsMeter()` in
+  `src/server/programmes/public.ts`: team places when teams are capped, else players; "Full" or "Waitlist only" as
+  badges). Actions: **Enrol** (while open), **Fixtures** (leagues), **Details**.
+- **Programme pages** (`ProgrammeIntro.astro`): badges (season, enrolment), the When / Where / Next start facts, Enrol
+  now, More info, the description. Training sessions, terms and event dates are a list of rows (date, times, venue
+  when it differs, notes, Postponed/Cancelled and spots badges), not a blue table: they're few, and a list reads
+  better on a phone.
+- **Enrol section and form**: the form sits in a card. 44 px fields with a blue focus ring; choices (session, team or
+  individual, radio groups) are tiles that turn blue when picked; errors are red with an icon under each field, plus
+  a summary ("3 answers need fixing") at the submit button; success is a green panel that takes focus, with the
+  reference in large type. Closed enrolment is an empty state linking to `/enrol`.
+- **Category pages** end with links to `/enrol` and the index page of each kind they list (All leagues, All
+  training, All development programs, All events), and the footer links them too, so `/news`, `/training`,
+  `/programs` and `/events` are reachable from every page (QA: they weren't linked).
+
+### Footer
+
+`SiteFooter.astro`, on `brand-deep`: the logo and a line about the club, **Explore** links, **Contact us** (Settings →
+Contact and Social), **Where we play** (Admin → Venues, each with a Map link), then the amber copyright bar.
+**Settings → Footer** (`footer`) holds the line and the links (up to 16; reorder, rename, remove, add). Defaults:
+Leagues, This week's games, Enrol, Training, Programs, Events, News, Where we play, Rules, FAQ, Contact.
+
+### Content pages (imported bodies)
+
+`.prose` makes old WordPress pages look decent without editing them: 70ch text, real list markers in brand blue,
+spacing after headings, rounded images, captions in `muted`, 16:9 embeds unless the iframe sets a height, white ruled
+tables that scroll sideways on phones, WordPress columns that stack on phones, and buttons styled as `.btn-brand`.
+The pages' words themselves are content work (the content map, docs/content-map.md).
+
+### Accessibility
+
+Kept at Lighthouse 100 on every page type (the baseline's failures were `button-name`, `color-contrast`,
+`heading-order` and `link-text`):
+
+- Every text colour pair is at least 4.5:1 (`brand-soft` text is gone; numbers on blue use `brand-text` or white).
+- One H1 per page, headings in order (the home page body shifts down a level under its H2).
+- The Menu button has a visible label; icon links (Instagram, Facebook, home logo) have names; "Map", "Fixtures",
+  "Enrol" and "Details" links carry hidden context ("Map of MLC School", "Enrol in Thursday Night League").
+- A visible focus ring everywhere: 3 px blue on light, amber on blue and dark (`.on-dark`, inside tables).
+- `prefers-reduced-motion` turns off transitions and the scroll fade.
+- Touch targets are at least 40–44 px (buttons, tabs, menu items, form fields and choice tiles).
+
+### Performance
+
+- **No render-blocking CSS.** The public stylesheet (`src/styles/global.css`) only scans public code (Tailwind
+  `source(none)` + `@source` for components, layouts, pages and lib; not the admin or API), about 45 KB raw / 10 KB
+  gzipped, and is inlined into each page (`astro.config.mjs`: `inlineStylesheets: 'auto'` with a 64 KB limit for
+  CSS only). The edge-cached HTML then needs no second request before it paints. The admin has its own entry,
+  `src/styles/admin.css` (Tailwind over everything, ~74 KB), which stays a cached file.
+- **Images:** AVIF and WebP at fixed widths (hero 640/960/1280/1500, logo 160/240/320/480), with width and height so
+  nothing shifts. `npx tsx scripts/brand-images.ts` regenerates them from `scripts/brand/` (the old site's
+  originals; the hero is 1500 px, so nothing is upscaled). The old `hero-800.webp`, `logo-200/400.webp` stay in
+  `public/images` for anything that still links them.
+- **Fonts:** self-hosted woff2 with metric-matched fallbacks; Lato 700 and Noto Sans 400 and 700 are preloaded (the
+  bold body face was the last layout shift: 0.10 CLS on programme pages before it was preloaded).
+- No JavaScript on public pages except the menu and tab scripts (about 1 KB each, inline) and the enrolment island,
+  which hydrates when it scrolls into view.
+
+**Lighthouse (mobile, default throttling), 2026-10-19, local built Worker (`wrangler dev`) with the imported data,
+the content map and test programmes:** performance 100 (97–100 before the font preload), accessibility 100, best
+practices 100 on `/`, `/leagues`, `/leagues/tnl`, `/leagues/tvsl`, an archived season, `/leagues/fixtures`,
+`/mixed-leagues`, `/enrol`, `/training`, `/programs`, a training, development and event page, `/news`,
+`/where-we-play`, `/rules`, `/faq` and `/contact` (with the new contact form); CLS 0–0.003, LCP 1.4–1.7 s. The
+one exception locally is a news post whose image is still on the old site (local import with `--skip-media`, LCP
+3.7 s, performance 90); staging serves it from R2. SEO shows 69 only because non-production pages are `noindex`.
+
+### Decisions (each the more robust or more configurable option)
+
+- **Ladder widgets are a setting** (sidebar by default, footer or off), and they're never shown twice on a page.
+- **The home page's first line is a setting** (heading, intro, buttons), falling back to the home page's title.
+- **The footer links are a setting**, with the kind index pages and News in the defaults.
+- **"Program" on the public site.** Australian usage, the club's own names (Junior Development Program) and the
+  `/programs` URL agree; the public copy that said "programme" now says "program" (QA info e). The admin and the code
+  keep "programme".
+- **Fixtures by night** with the date in a heading row, and stacked cards on phones, instead of a seven-column table
+  that scrolled sideways.
+- **One table renderer** for league pages and page blocks (`src/lib/tables.ts`), tested in `src/lib/tables.test.ts`.
+- **Inline CSS for the public site**, a separate admin stylesheet.
+- **Sessions, terms and event dates as lists**, not blue tables.

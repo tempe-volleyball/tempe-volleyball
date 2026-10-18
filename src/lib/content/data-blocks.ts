@@ -1,5 +1,4 @@
 import { programmeKinds, type PageDataRefKind, type ProgrammeKind, type ProgrammeStatus } from '../../server/db/schema/enums'
-import { formatAU } from '../fixtures/dates'
 import {
   WEEKDAYS,
   generatedSummaryLine,
@@ -10,6 +9,7 @@ import {
   type ProgrammeTextInput,
 } from '../programme-text'
 import { enrolmentOpen, isListedStatus, programmePath } from '../programmes'
+import { fixturesTableHtml, ladderTableHtml } from '../tables'
 import { leagueFixturesRoute, leagueLadderRoute } from '../wp-import/routes'
 import {
   DATA_BLOCK_REF_KIND,
@@ -449,65 +449,24 @@ export type LeagueBlockData = {
   dutyEnabled: boolean
 }
 
-const th = (label: string, title?: string, cls?: string) =>
-  `<th scope="col"${cls ? ` class="${cls}"` : ''}>${title ? `<abbr title="${escapeHtml(title)}">${label}</abbr>` : label}</th>`
-
 const link = (href: string, label: string) => `<p class="data-block-link"><a href="${escapeHtml(href)}">${label}</a></p>`
 
 /** A Ladder block: the league's current season ladder, compact (Pos, Team, Pts, P, W/D/L from small screens) or full. */
 export function renderLadder(attrs: LadderAttrs, data: LeagueBlockData | undefined): string {
   if (!data) return ''
   const full = attrs.display === 'full'
-  const rows = attrs.rows ? data.ladder.slice(0, attrs.rows) : data.ladder
   const title = attrs.title ?? `${data.league.name} Ladder`
-  const wide = full ? 'num' : 'num hidden sm:table-cell'
-  const head = [
-    th('Pos', undefined, 'w-10'),
-    th('Team'),
-    th('Pts', 'Ladder points', 'num'),
-    th('P', 'Played', 'num'),
-    th('W', 'Won', wide),
-    th('D', 'Drawn', wide),
-    th('L', 'Lost', wide),
-    ...(full
-      ? [
-          th('S+', 'Sets won', 'num'),
-          th('S-', 'Sets lost', 'num'),
-          th('P+', 'Points for', 'num'),
-          th('P-', 'Points against', 'num'),
-          th('Ratio', 'Points for ÷ all points', 'num'),
-        ]
-      : []),
-  ].join('')
-  const cols = full ? 12 : 7
-  const body = rows.length
-    ? rows
-        .map((r) => {
-          const cells = [
-            `<td>${r.pos}</td>`,
-            `<th scope="row" class="team">${escapeHtml(r.name)}</th>`,
-            `<td class="num font-bold text-white">${r.points}</td>`,
-            `<td class="num">${r.played}</td>`,
-            `<td class="${wide}">${r.won}</td>`,
-            `<td class="${wide}">${r.drawn}</td>`,
-            `<td class="${wide}">${r.lost}</td>`,
-            ...(full
-              ? [r.setsFor, r.setsAgainst, r.pointsFor, r.pointsAgainst]
-                  .map((n) => `<td class="num">${n}</td>`)
-                  .concat(`<td class="num">${escapeHtml(r.ratio)}</td>`)
-              : []),
-          ]
-          return `<tr>${cells.join('')}</tr>`
-        })
-        .join('')
-    : `<tr><td colspan="${cols}">No teams yet.</td></tr>`
   const meta = attrs.showHeading ? [data.heading, data.updated].filter(Boolean).join(' · ') : ''
   return [
     `<section class="data-block ladder-block">`,
     `<h2>${escapeHtml(title)}</h2>`,
     meta ? `<p class="data-block-meta">${escapeHtml(meta)}</p>` : '',
-    `<div class="table-scroll" tabindex="0" role="region" aria-label="${escapeHtml(`${data.seasonName} ladder`)}">`,
-    `<table class="data-table${full ? '' : ' compact'}"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`,
+    ladderTableHtml(data.ladder, {
+      label: `${data.seasonName} ladder`,
+      compact: !full,
+      narrow: true,
+      ...(attrs.rows ? { limit: attrs.rows } : {}),
+    }),
     attrs.showLink ? link(leagueLadderRoute(data.league.slug), `Full ${escapeHtml(data.league.code)} ladder`) : '',
     `</section>`,
   ].join('')
@@ -533,6 +492,7 @@ export type FixtureRowLike = {
   /** The status's public note ("Moved to 30/10/2026", "Venue unavailable"). */
   note?: string
   referee?: string
+  movedFrom?: string
 }
 
 /**
@@ -570,43 +530,19 @@ const EMPTY_FIXTURES: Record<FixturesAttrs['range'], string> = {
 export function renderFixtures(attrs: FixturesAttrs, data: LeagueBlockData | undefined, today: string): string {
   if (!data) return ''
   const full = attrs.display === 'full'
-  const duty = attrs.showDuty && data.dutyEnabled && full
-  const court = attrs.showCourt
   const rows = selectFixtureRows(attrs, data, today)
   const title = attrs.title ?? `${data.league.name} ${attrs.range === 'results' ? 'Results' : 'Fixtures'}`
-  const head = [
-    th('Date'),
-    th('Match'),
-    th('Time'),
-    th('Result'),
-    ...(court ? [th('Court')] : []),
-    ...(full ? [th('Match Day')] : []),
-    ...(duty ? [th('Duty')] : []),
-  ]
-  const cols = head.length
-  const body = rows.length
-    ? rows
-        .map((r) => {
-          if (r.kind === 'skip')
-            return `<tr><td class="whitespace-nowrap">${formatAU(r.date)}</td><td colspan="${cols - 1}" class="italic">${escapeHtml(r.match)}</td></tr>`
-          const result = `${escapeHtml(r.result)}${r.forfeit ? '<span class="block text-xs">(forfeit)</span>' : ''}${full && r.sets ? `<span class="block text-xs">${escapeHtml(r.sets)}</span>` : ''}${r.resultNote ? `<span class="block text-xs whitespace-normal">${escapeHtml(r.resultNote)}</span>` : ''}${r.note ? `<span class="block text-xs whitespace-normal">${escapeHtml(r.note)}</span>` : ''}`
-          return `<tr>${[
-            `<td class="whitespace-nowrap">${formatAU(r.date)}</td>`,
-            `<td class="team">${escapeHtml(r.match)}${full && r.referee ? `<span class="block text-xs">Referee: ${escapeHtml(r.referee)}</span>` : ''}</td>`,
-            `<td>${escapeHtml(r.time)}</td>`,
-            `<td class="whitespace-nowrap">${result}</td>`,
-            ...(court ? [`<td class="whitespace-nowrap">${escapeHtml(r.court)}</td>`] : []),
-            ...(full ? [`<td>${r.matchDay || ''}</td>`] : []),
-            ...(duty ? [`<td>${escapeHtml(r.duty)}</td>`] : []),
-          ].join('')}</tr>`
-        })
-        .join('')
-    : `<tr><td colspan="${cols}">${EMPTY_FIXTURES[attrs.range]}</td></tr>`
   return [
     `<section class="data-block fixtures-block">`,
     `<h2>${escapeHtml(title)}</h2>`,
-    `<div class="table-scroll" tabindex="0" role="region" aria-label="${escapeHtml(`${data.seasonName} ${attrs.range === 'results' ? 'results' : 'fixtures'}`)}">`,
-    `<table class="data-table${full ? '' : ' compact'}"><thead><tr>${head.join('')}</tr></thead><tbody>${body}</tbody></table></div>`,
+    fixturesTableHtml(rows, {
+      label: `${data.seasonName} ${attrs.range === 'results' ? 'results' : 'fixtures'}`,
+      duty: attrs.showDuty && data.dutyEnabled && full,
+      court: attrs.showCourt,
+      details: full,
+      legend: full,
+      emptyText: EMPTY_FIXTURES[attrs.range],
+    }),
     attrs.showLink ? link(leagueFixturesRoute(data.league.slug), `All ${escapeHtml(data.league.code)} fixtures and results`) : '',
     `</section>`,
   ].join('')

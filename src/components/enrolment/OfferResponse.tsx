@@ -63,14 +63,14 @@ function OfferResponseFor({ token }: { token: string }) {
 
   if (error && !offer)
     return (
-      <p role="alert" className="rounded border border-red-300 bg-red-50 p-4 text-red-800">
+      <p role="alert" className="border-danger bg-danger-tint text-danger rounded-lg border-l-4 p-4 font-semibold">
         {error}
       </p>
     )
   if (!offer) return <p>Loading your offer…</p>
   const what = `${offer.target === offer.programme ? offer.programme : `${offer.programme}: ${offer.target}`}${offer.teamName ? ` (team ${offer.teamName})` : ''}`
   return (
-    <div className="space-y-4 rounded border border-black/15 bg-white p-5" aria-live="polite">
+    <div className="card space-y-4" aria-live="polite">
       <p>Hi {offer.firstName},</p>
       {offer.state === 'live' && (
         <>
@@ -79,19 +79,14 @@ function OfferResponseFor({ token }: { token: string }) {
           </p>
           <p>Reference {offer.reference}</p>
           <div className="flex flex-wrap gap-3">
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void respond('accept')}
-              className="bg-brand hover:bg-brand-dark rounded px-6 py-3 font-bold text-white disabled:opacity-60"
-            >
+            <button type="button" disabled={busy} onClick={() => void respond('accept')} className="btn btn-enrol px-6 disabled:opacity-60">
               Accept the spot
             </button>
             <button
               type="button"
               disabled={busy}
               onClick={() => void respond('decline')}
-              className="border-brand text-brand rounded border bg-white px-6 py-3 font-bold disabled:opacity-60"
+              className="btn btn-outline px-6 disabled:opacity-60"
             >
               No thanks, pass it on
             </button>
@@ -111,7 +106,7 @@ function OfferResponseFor({ token }: { token: string }) {
         </p>
       )}
       {error && (
-        <p role="alert" className="text-red-800">
+        <p role="alert" className="text-danger font-semibold">
           {error}
         </p>
       )}

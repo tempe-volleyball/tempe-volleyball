@@ -62,7 +62,7 @@ function ConfirmResponseFor({ token }: { token: string }) {
 
   if (error && !view)
     return (
-      <p role="alert" className="rounded border border-red-300 bg-red-50 p-4 text-red-800">
+      <p role="alert" className="border-danger bg-danger-tint text-danger rounded-lg border-l-4 p-4 font-semibold">
         {error}
       </p>
     )
@@ -77,7 +77,7 @@ function ConfirmResponseFor({ token }: { token: string }) {
   const details = rows.filter((x): x is [string, string] => !!x[1])
   const what = `${view.target === view.programme ? view.programme : `${view.programme}: ${view.target}`}${view.teamName ? ` (team ${view.teamName})` : ''}`
   return (
-    <div className="space-y-4 rounded border border-black/15 bg-white p-5" aria-live="polite">
+    <div className="card space-y-4" aria-live="polite">
       <p>Hi {view.firstName},</p>
       {view.state === 'pending' && (
         <>
@@ -96,15 +96,10 @@ function ConfirmResponseFor({ token }: { token: string }) {
                   </Fragment>
                 ))}
               </dl>
-              <p className="mt-1 text-sm text-black/70">Not yours? Don't confirm: fill in the form again with the right details.</p>
+              <p className="mt-1 text-sm text-muted">Not yours? Don't confirm: fill in the form again with the right details.</p>
             </div>
           )}
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void confirm()}
-            className="bg-brand hover:bg-brand-dark rounded px-6 py-3 font-bold text-white disabled:opacity-60"
-          >
+          <button type="button" disabled={busy} onClick={() => void confirm()} className="btn btn-enrol px-6 disabled:opacity-60">
             {busy ? 'Confirming…' : 'Confirm my enrolment'}
           </button>
         </>
@@ -134,7 +129,7 @@ function ConfirmResponseFor({ token }: { token: string }) {
         </p>
       )}
       {error && (
-        <p role="alert" className="text-red-800">
+        <p role="alert" className="text-danger font-semibold">
           {error}
         </p>
       )}

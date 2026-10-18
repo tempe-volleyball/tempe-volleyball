@@ -1,13 +1,21 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
-import { MAX_TRUST_DEVICE_DAYS, type SettingKey, type SiteSettings } from '../../lib/content/settings'
+import {
+  MAX_FOOTER_LINKS,
+  MAX_TRUST_DEVICE_DAYS,
+  type LadderPlacement,
+  type LinkSetting,
+  type SettingKey,
+  type SiteSettings,
+} from '../../lib/content/settings'
 import { atLeast, type UserRole } from '../../lib/roles'
 import { api, type Me, type PurgeResult } from '../api'
 import { ImageField } from '../media/MediaLibrary'
 import { useUnsavedWarning } from '../unsaved'
 import { LoadError, Skeleton, toast, Button, Card, Field, Notice, Select, TextArea, errorMessage, purgeNote } from '../ui'
 
-// Site settings: contact details, announcement banner, social links, PayID, the Revolutionise link, enrolment and
-// email housekeeping, the contact form, the privacy page, and analytics. Each card saves its own key; PayID, Revolutionise, enrolment and analytics are
+// Site settings: contact details, announcement banner, the home page hero, where the ladders go, the footer links,
+// social links, PayID, the Revolutionise link, enrolment and email housekeeping, the contact form, the privacy page
+// and analytics. Each card saves its own key; PayID, Revolutionise, enrolment, the contact form and analytics are
 // admin+ (the server checks too).
 
 type Data = { settings: SiteSettings; minRole: Record<SettingKey, UserRole> }
@@ -73,6 +81,9 @@ function Section<K extends SettingKey>({
 
 const SECTIONS: [SettingKey, string][] = [
   ['announcement', 'Banner'],
+  ['home', 'Home page'],
+  ['ladders', 'Ladders'],
+  ['footer', 'Footer'],
   ['contact', 'Contact'],
   ['social', 'Social links'],
   ['seo', 'Search and sharing'],
@@ -86,6 +97,91 @@ const SECTIONS: [SettingKey, string][] = [
 ]
 
 const pad = (n: number) => String(n).padStart(2, '0')
+
+/** Text and link of one button or footer link (both, or neither). */
+function LinkFields({ label, value, onChange }: { label: string; value: LinkSetting; onChange: (v: LinkSetting) => void }) {
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      <Field label={`${label}: text`} maxLength={60} value={value.label} onChange={(e) => onChange({ ...value, label: e.target.value })} />
+      <Field
+        label={`${label}: link`}
+        placeholder="/enrol or https://…"
+        value={value.url}
+        onChange={(e) => onChange({ ...value, url: e.target.value })}
+      />
+    </div>
+  )
+}
+
+/** The footer's Explore links: edit, reorder, remove, add. */
+function FooterLinks({ links, onChange }: { links: LinkSetting[]; onChange: (v: LinkSetting[]) => void }) {
+  const move = (i: number, by: number) => {
+    const next = [...links]
+    const [item] = next.splice(i, 1)
+    if (item) next.splice(i + by, 0, item)
+    onChange(next)
+  }
+  return (
+    <fieldset className="space-y-3">
+      <legend className="mb-1 text-sm font-semibold">Explore links</legend>
+      <ol className="space-y-2">
+        {links.map((l, i) => (
+          <li key={i} className="flex flex-wrap items-end gap-2 rounded border border-black/10 p-2">
+            <div className="min-w-32 flex-1">
+              <Field
+                label={`Link ${i + 1} text`}
+                maxLength={60}
+                value={l.label}
+                onChange={(e) => onChange(links.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))}
+              />
+            </div>
+            <div className="min-w-40 flex-[2]">
+              <Field
+                label={`Link ${i + 1} address`}
+                placeholder="/news or https://…"
+                value={l.url}
+                onChange={(e) => onChange(links.map((x, j) => (j === i ? { ...x, url: e.target.value } : x)))}
+              />
+            </div>
+            <div className="flex gap-1">
+              <Button
+                variant="secondary"
+                className="px-2"
+                disabled={i === 0}
+                onClick={() => move(i, -1)}
+                aria-label={`Move link ${i + 1} up`}
+              >
+                ↑
+              </Button>
+              <Button
+                variant="secondary"
+                className="px-2"
+                disabled={i === links.length - 1}
+                onClick={() => move(i, 1)}
+                aria-label={`Move link ${i + 1} down`}
+              >
+                ↓
+              </Button>
+              <Button
+                variant="danger"
+                className="px-2"
+                onClick={() => onChange(links.filter((_, j) => j !== i))}
+                aria-label={`Remove link ${i + 1}`}
+              >
+                Remove
+              </Button>
+            </div>
+          </li>
+        ))}
+      </ol>
+      {links.length < MAX_FOOTER_LINKS && (
+        <Button variant="secondary" onClick={() => onChange([...links, { label: '', url: '' }])}>
+          Add a link
+        </Button>
+      )}
+    </fieldset>
+  )
+}
 
 /** ISO -> datetime-local value in the browser's zone. */
 const toLocal = (iso: string) => {
@@ -157,6 +253,84 @@ export function Settings({ me }: { me: Me }) {
                   onChange={(e) => set({ ...v, endsAt: e.target.value ? new Date(e.target.value).toISOString() : '' })}
                 />
               </div>
+            </>
+          )}
+        </Section>
+
+        <Section
+          {...common}
+          k="home"
+          title="Home page"
+          intro="The big heading over the photo on the home page, a line or two on what Tempe Volleyball is and how to join, and up to two buttons. The home page's own text (Pages → Home) follows underneath."
+        >
+          {(v, set) => (
+            <>
+              <Field
+                label="Heading"
+                maxLength={90}
+                value={v.heading}
+                hint="Leave empty to use the home page's title."
+                onChange={(e) => set({ ...v, heading: e.target.value })}
+              />
+              <TextArea label="Intro" rows={3} maxLength={400} value={v.intro} onChange={(e) => set({ ...v, intro: e.target.value })} />
+              <LinkFields label="Amber button" value={v.primary} onChange={(primary) => set({ ...v, primary })} />
+              <LinkFields label="Second button" value={v.secondary} onChange={(secondary) => set({ ...v, secondary })} />
+              <p className="text-xs text-black/60">Leave a button's text and link empty to hide it.</p>
+              <label className="flex items-center gap-2 text-sm font-semibold">
+                <input type="checkbox" checked={v.showLeagues} onChange={(e) => set({ ...v, showLeagues: e.target.checked })} /> Show
+                “Leagues this season” (each league's night, fixtures and ladder) under the heading
+              </label>
+            </>
+          )}
+        </Section>
+
+        <Section
+          {...common}
+          k="ladders"
+          title="Ladder widgets"
+          intro="The small top-of-the-ladder tables for every league. League pages always show their full ladder; this is about the widgets on other pages."
+        >
+          {(v, set) => (
+            <>
+              <Select
+                label="Show them"
+                value={v.placement}
+                onChange={(e) => set({ ...v, placement: e.target.value as LadderPlacement })}
+                hint="Beside the content: on the home page, content pages, news and the league list; the footer then just links each ladder. In the footer: on every page, and no sidebar."
+              >
+                <option value="sidebar">Beside the content</option>
+                <option value="footer">In the footer</option>
+                <option value="off">Nowhere (league pages only)</option>
+              </Select>
+              <Field
+                label="Teams in each"
+                type="number"
+                min={1}
+                max={12}
+                value={v.rows}
+                hint="The top teams shown. Default 4."
+                onChange={(e) => set({ ...v, rows: Number(e.target.value) })}
+              />
+            </>
+          )}
+        </Section>
+
+        <Section
+          {...common}
+          k="footer"
+          title="Footer"
+          intro="The line under the logo and the Explore links at the foot of every page. Contact details, social links and venues fill the rest by themselves."
+        >
+          {(v, set) => (
+            <>
+              <TextArea
+                label="Line about the club"
+                rows={2}
+                maxLength={200}
+                value={v.blurb}
+                onChange={(e) => set({ ...v, blurb: e.target.value })}
+              />
+              <FooterLinks links={v.links} onChange={(links) => set({ ...v, links })} />
             </>
           )}
         </Section>

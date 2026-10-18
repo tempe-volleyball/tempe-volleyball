@@ -21,7 +21,16 @@ export default defineConfig({
   // Astro sessions would need a KV namespace. Auth sessions live in D1 instead.
   session: false,
   integrations: [react()],
+  build: {
+    // The public stylesheet (src/styles/global.css) is small enough to inline into each page, so nothing blocks
+    // the first paint and the edge-cached HTML needs no second request. The admin's larger one stays a file.
+    inlineStylesheets: 'auto',
+  },
   vite: {
     plugins: [tailwindcss()],
+    build: {
+      // Decides which stylesheets 'auto' inlines; undefined keeps Vite's default for every other asset.
+      assetsInlineLimit: (file, content) => (file.endsWith('.css') ? content.length <= 64_000 : undefined),
+    },
   },
 })

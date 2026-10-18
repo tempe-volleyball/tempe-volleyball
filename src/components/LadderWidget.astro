@@ -1,27 +1,24 @@
 ---
+import { ladderWeekLabel } from '../lib/fixtures'
 import { leagueLadderRoute } from '../lib/wp-import/routes'
 import type { LeagueSeason } from '../server/site'
 import LadderTable from './LadderTable.astro'
 
-// A league's current ladder, top 4, with a link to the full table. `heading` renders an H2 above it (footer);
-// without it the league name is the table caption (sidebar).
-type Props = { item: LeagueSeason; heading?: boolean; dark?: boolean }
-const { item, heading = false, dark = false } = Astro.props
-const name = `${item.league.name} Ladder`
+// A league's current ladder, top N (Settings → Ladders), with a link to the full table. Used in the sidebar and,
+// when the ladders go there instead, across the footer (`dark`). The H3 sits under the "Ladders" H2.
+type Props = { item: LeagueSeason; rows: number; dark?: boolean }
+const { item, rows, dark = false } = Astro.props
+const week = ladderWeekLabel(item.competition.weeks)
 ---
 
 <section class="min-w-0">
-  {heading && <h2 class="mb-3 text-2xl leading-tight sm:text-3xl">{name}</h2>}
-  <LadderTable rows={item.ladder} caption={heading ? undefined : `${item.league.code} Ladder`} compact limit={4} />
+  <div class="mb-2 flex items-baseline justify-between gap-3">
+    <h3 class:list={['font-display text-lg leading-tight font-bold', dark && 'text-white']}>{item.league.name}</h3>
+    {week && <p class:list={['shrink-0 text-xs font-semibold', dark ? 'text-white/75' : 'text-muted']}>{week}</p>}
+  </div>
+  <LadderTable rows={item.ladder} compact limit={rows} />
   <p class="mt-2 text-sm">
-    <a
-      href={leagueLadderRoute(item.league.slug)}
-      class={
-        dark
-          ? 'text-accent underline-offset-2 hover:underline'
-          : 'text-link decoration-accent font-semibold underline decoration-2 underline-offset-2'
-      }
-    >
+    <a href={leagueLadderRoute(item.league.slug)} class={dark ? 'footer-link' : 'link'}>
       Full {item.league.code} ladder<span class="sr-only"> ({item.summary.name})</span>
     </a>
   </p>
