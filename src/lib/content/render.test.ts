@@ -86,6 +86,39 @@ describe('renderBlocks', () => {
     )
     expect(renderBlocks([{ type: 'embed', attrs: { src: 'https://evil.example/embed' } }])).toBe('')
     expect(renderBlocks([{ type: 'embed', attrs: { src: 'javascript:alert(1)' } }])).toBe('')
+    // Imported Google Forms are 100% wide; other values are dropped.
+    const form = renderBlocks([
+      { type: 'embed', attrs: { src: 'https://docs.google.com/forms/d/e/x/viewform', width: '100%', height: '4500' } },
+    ])
+    expect(form).toContain('width="100%" height="4500"')
+    expect(renderBlocks([{ type: 'embed', attrs: { src: 'https://www.youtube.com/embed/a', width: '100px;x' } }])).not.toContain('width')
+  })
+
+  it('renders image captions, size, alignment and links as a figure', () => {
+    const img = { src: '/media/a/800.webp', alt: 'Team' }
+    expect(renderBlocks([{ type: 'image', attrs: img }])).toMatch(/^<img src="\/media\/a\/800.webp" alt="Team"/)
+    const fig = renderBlocks([
+      { type: 'image', attrs: { ...img, caption: 'Grand final <2026>', align: 'right', size: 'small', href: '/leagues/tnl' } },
+    ])
+    expect(fig).toMatch(/^<figure class="figure figure-right figure-small"><a href="\/leagues\/tnl"><img [^>]+><\/a>/)
+    expect(fig).toContain('<figcaption>Grand final &lt;2026&gt;</figcaption></figure>')
+    const bad = renderBlocks([{ type: 'image', attrs: { ...img, align: 'top" onload="x', size: 'huge', href: 'javascript:alert(1)' } }])
+    expect(bad).toMatch(/^<img /)
+    expect(renderBlocks([{ type: 'image', attrs: { ...img, href: 'https://example.com' } }])).toContain(
+      '<a href="https://example.com" rel="noopener">',
+    )
+  })
+
+  it('renders button links, screen-reader-only text and sub/superscript', () => {
+    const link = (variant?: string) => ({ type: 'link', attrs: { href: '/enrol', ...(variant ? { variant } : {}) } })
+    expect(renderBlocks([p({ type: 'text', text: 'Enrol', marks: [link('button')] })])).toBe(
+      '<p><a href="/enrol" class="button">Enrol</a></p>',
+    )
+    expect(renderBlocks([p({ type: 'text', text: 'Enrol', marks: [link('primary"')] })])).toBe('<p><a href="/enrol">Enrol</a></p>')
+    expect(renderBlocks([p({ type: 'text', text: ' (x.com)', marks: [{ type: 'srOnly' }] })])).toBe(
+      '<p><span class="sr-only"> (x.com)</span></p>',
+    )
+    expect(renderBlocks([p({ type: 'text', text: '2', marks: [{ type: 'superscript' }] })])).toBe('<p><sup>2</sup></p>')
   })
 
   it('renders tables with spans', () => {
@@ -188,5 +221,23 @@ describe('helpers', () => {
   it('mediaIdsInHtml', () => {
     const id = '0b5a3c4e-1d2f-8a3b-9c4d-5e6f7a8b9c0d'
     expect([...mediaIdsInHtml(`<img src="/media/${id}/800.webp" srcset="/media/${id}/400.webp 400w">`)]).toEqual([id])
+  })
+})
+
+describe('links across text runs', () => {
+  it('puts neighbouring text with the same link in one <a>', () => {
+    const link = { type: 'link', attrs: { href: '/x' } }
+    const html = renderBlocks([
+      {
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: 'Go ' },
+          { type: 'text', text: 'here', marks: [link] },
+          { type: 'text', text: ' (x.com)', marks: [link, { type: 'srOnly' }] },
+          { type: 'text', text: ' now', marks: [{ type: 'link', attrs: { href: '/y' } }] },
+        ],
+      },
+    ])
+    expect(html).toBe('<p>Go <a href="/x">here<span class="sr-only"> (x.com)</span></a><a href="/y"> now</a></p>')
   })
 })

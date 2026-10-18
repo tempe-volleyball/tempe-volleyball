@@ -1,0 +1,1 @@
+ALTER TABLE `media` ADD `variant_ext` text DEFAULT 'webp' NOT NULL;

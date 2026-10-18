@@ -43,6 +43,13 @@
       "when": 1792294780088,
       "tag": "0005_enrolment_email_confirm",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1792297232206,
+      "tag": "0006_media_variant_ext",
+      "breakpoints": true
     }
   ]
 }

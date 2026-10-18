@@ -1,7 +1,8 @@
 import type { BetterAuthOptions } from 'better-auth'
 import { emailOTP, magicLink, twoFactor } from 'better-auth/plugins'
 import { userRoles } from '../db/schema/enums'
-import { TOTP_SIGN_IN_PAGE, passwordlessTwoFactor } from './passwordless-2fa'
+import { MAX_TRUST_DEVICE_DAYS } from '../../lib/content/settings'
+import { TOTP_SIGN_IN_PAGE, passwordlessTwoFactor, type TrustedDeviceHooks } from './passwordless-2fa'
 
 // The parts of the Better Auth config that shape the database schema. The runtime config (secret, base URL,
 // database, email senders, cookie cache …) is built on top of this by auth.ts, and the CLI config in
@@ -25,7 +26,10 @@ export const SIGN_IN_TTL_SECONDS = 300
  * Sign-up is disabled: users only come from invites (roles.ts) or the bootstrap script, so a code or link is only
  * ever sent to an existing admin. Codes and link tokens are stored hashed.
  */
-export const authPlugins = (senders: AuthSenders) => [
+/** The trust_device cookie and record live this long; Settings → Security's (shorter) period is checked on use. */
+const TRUST_MAX_AGE_SECONDS = MAX_TRUST_DEVICE_DAYS * 24 * 60 * 60
+
+export const authPlugins = (senders: AuthSenders, trust?: TrustedDeviceHooks) => [
   emailOTP({
     sendVerificationOTP: senders.sendVerificationOTP,
     disableSignUp: true,
@@ -38,8 +42,8 @@ export const authPlugins = (senders: AuthSenders) => [
   // allowPasswordless: our users have no password (no credential account), so Better Auth would otherwise demand
   // one to enable TOTP. With it, a signed-in session is enough. The sign-in challenge for passwordless sign-ins
   // comes from passwordless-2fa.ts, because twoFactor's own hook only covers password sign-ins.
-  twoFactor({ issuer: TOTP_ISSUER, allowPasswordless: true }),
-  passwordlessTwoFactor({ totpPage: TOTP_SIGN_IN_PAGE }),
+  twoFactor({ issuer: TOTP_ISSUER, allowPasswordless: true, trustDeviceMaxAge: TRUST_MAX_AGE_SECONDS }),
+  passwordlessTwoFactor({ totpPage: TOTP_SIGN_IN_PAGE, trust, trustMaxAgeSeconds: TRUST_MAX_AGE_SECONDS }),
 ]
 
 export const authUserOptions = {
@@ -49,9 +53,9 @@ export const authUserOptions = {
   },
 } satisfies BetterAuthOptions['user']
 
-export const authSchemaOptions = (senders: AuthSenders) =>
+export const authSchemaOptions = (senders: AuthSenders, trust?: TrustedDeviceHooks) =>
   ({
     appName: 'Tempe Volleyball',
     user: authUserOptions,
-    plugins: authPlugins(senders),
+    plugins: authPlugins(senders, trust),
   }) satisfies Partial<BetterAuthOptions>

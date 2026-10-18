@@ -1,10 +1,10 @@
 import { MEDIA_CACHE_CONTROL } from './cache'
 
-// Serving media from R2. Keys follow the importer and the future uploader: media/<id>/<width>.webp for resized
+// Serving media from R2. Keys follow the importer and the uploader: media/<id>/<width>.webp (or .jpg) for resized
 // variants and media/<id>/original.<ext> for the original (PDFs only have that).
 
 const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const FILE = /^(?:\d{2,5}\.webp|original\.[a-z0-9]{2,5})$/i
+const FILE = /^(?:\d{2,5}\.(?:webp|jpg)|original\.[a-z0-9]{2,5})$/i
 
 /** The R2 key for a /media/<id>/<file> URL, or null if the URL can't be one of ours (no R2 call then). */
 export function mediaKey(id: string, file: string): string | null {

@@ -6,6 +6,7 @@ import { createMailer, type Mailer } from './email'
 import { expirePendingStatements } from './enrolment/confirm'
 import { runEnrolmentCron } from './enrolment/offers'
 import { pruneRateLimits } from './ratelimit'
+import { sweepAbandonedUploads, type SweepBucket } from './content/media-sweep'
 
 /**
  * Cron Trigger entry point (see `triggers.crons` in wrangler.jsonc; schedules are UTC). Hourly. Every job is
@@ -19,6 +20,8 @@ import { pruneRateLimits } from './ratelimit'
  *  - expire admin invites past their expiry
  *  - send queued emails that went over Resend's daily limit
  *  - clear secret payloads (codes, sign-in and invite links) from outbox rows that can no longer be sent
+ *  - delete abandoned media uploads (R2 files with no media row after a day, one page of the bucket per run;
+ *    src/server/content/media-sweep.ts)
  *  - fetch analytics: at most one source per invocation, each about once a day (src/server/analytics/fetch.ts);
  *    skipped ("deferred") in an hour when the enrolment job queued emails, to stay inside 50 D1 queries
  * Still to come: release unpaid registrations past their hold time (Phase 5).
@@ -42,7 +45,7 @@ export async function runScheduled(cron: string, env: Env): Promise<void> {
     fetch: (input, init) => fetch(input, init),
   }
   const enrolment = secrets.BETTER_AUTH_SECRET ? { secret: secrets.BETTER_AUTH_SECRET, siteUrl: env.SITE_URL } : undefined
-  const result = await runJobs(db, mailer, new Date(), { analytics, enrolment })
+  const result = await runJobs(db, mailer, new Date(), { analytics, enrolment, media: env.MEDIA })
   console.info(`[cron] ${cron} in ${env.SITE_ENV}: ${JSON.stringify(result)}`)
 }
 
@@ -53,6 +56,8 @@ export type JobDeps = {
   analytics?: AnalyticsDeps
   /** The token secret and site URL for waitlist offer links; without it the enrolment job is skipped. */
   enrolment?: { secret: string; siteUrl: string }
+  /** The media bucket, for the abandoned-upload sweep; without it the sweep is skipped. */
+  media?: SweepBucket
 }
 
 /**
@@ -92,11 +97,12 @@ export async function runJobs(
   // A run where enrolment did work (up to ~20 D1 queries) sends fewer emails and leaves analytics to the next hour,
   // so the whole invocation stays inside the free plan's 50 queries.
   const busy = enrolment.status === 'fulfilled' && typeof enrolment.value === 'object' && enrolment.value.emailsQueued > 0
-  const [invites, email, scrubbed, stats] = await Promise.allSettled([
+  const [invites, email, scrubbed, stats, sweep] = await Promise.allSettled([
     expireInvites(db, now),
     busy ? mailer.drainOutbox(BUSY_DRAIN_BATCH) : mailer.drainOutbox(),
     mailer.scrubSensitivePayloads(),
     analytics && !busy ? runAnalytics(db, analytics, now) : Promise.resolve('deferred' as const),
+    deps.media ? sweepAbandonedUploads(db, deps.media, now) : Promise.resolve('skipped' as const),
   ])
   const value = <T>(r: PromiseSettledResult<T>) => (r.status === 'fulfilled' ? r.value : `error: ${String(r.reason)}`)
   return {
@@ -107,5 +113,6 @@ export async function runJobs(
     enrolment: value(enrolment),
     rateLimitsPruned: value(pruned),
     housekeeping: value(housekeeping),
+    ...(deps.media ? { mediaSweep: value(sweep) } : {}),
   }
 }

@@ -128,6 +128,11 @@ function UserRow({ me, row, ownerCount, onChange }: { me: Me; row: AdminUserRow;
     })
   }
 
+  const forgetDevices = () => {
+    if (!window.confirm(`Forget ${row.email}'s trusted devices? Their next sign-in on each will ask for their authenticator code.`)) return
+    void act(() => api(`/api/admin/users/${row.id}/trusted-devices`, { method: 'DELETE' }))
+  }
+
   return (
     <tr className="border-t border-black/10 align-top">
       <td className="py-2 pr-3">
@@ -158,7 +163,12 @@ function UserRow({ me, row, ownerCount, onChange }: { me: Me; row: AdminUserRow;
         )}
       </td>
       <td className="py-2 pr-3 text-sm">{row.twoFactorEnabled ? 'On' : <span className="text-black/50">Off</span>}</td>
-      <td className="py-2 text-right">
+      <td className="space-x-2 py-2 text-right whitespace-nowrap">
+        {row.twoFactorEnabled && canRemove(actor, row.role) && (
+          <Button variant="secondary" className="px-2 py-1 text-xs" onClick={forgetDevices} disabled={busy} title="Forget trusted devices">
+            Forget devices
+          </Button>
+        )}
         {removable && (
           <Button variant="danger" className="px-2 py-1 text-xs" onClick={remove} busy={busy}>
             Remove

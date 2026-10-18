@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { useSearch } from 'wouter'
 import { safeNext } from '../../server/auth/guard'
 import { authClient } from '../auth-client'
-import { Button, Card, Field, Notice } from '../ui'
+import { Button, Card, Checkbox, Field, Notice } from '../ui'
 
 // Sign in: email -> a 6-digit code (or a one-time link) -> a TOTP code if the user has an authenticator set up.
 // After signing in we do a full page load, so the server re-checks the session (and owner TOTP enrolment).
@@ -23,6 +23,10 @@ export function SignIn() {
   const [email, setEmail] = useState(params.get('email') ?? '')
   const [code, setCode] = useState('')
   const [useBackup, setUseBackup] = useState(false)
+  // Days "Trust this device" lasts (Settings → Security; 0 = off), from the challenge response or the magic link's
+  // redirect (…&trust=N).
+  const [trustDays, setTrustDays] = useState(() => Math.max(0, Number(params.get('trust')) || 0))
+  const [trustDevice, setTrustDevice] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(
     linkError ? (LINK_ERRORS[linkError] ?? 'That sign-in link did not work. Try again.') : null,
@@ -62,7 +66,11 @@ export function SignIn() {
       const { data, error } = await authClient.signIn.emailOtp({ email: email.trim(), otp: code.trim() })
       if (error) return setError(error.status === 400 ? "That code isn't right, or it has expired." : (error.message ?? 'Sign-in failed.'))
       setCode('')
-      if (data && 'twoFactorRedirect' in data && data.twoFactorRedirect) return setStep('totp')
+      if (data && 'twoFactorRedirect' in data && data.twoFactorRedirect) {
+        const days = (data as { trustDeviceDays?: unknown }).trustDeviceDays
+        setTrustDays(typeof days === 'number' && days > 0 ? days : 0)
+        return setStep('totp')
+      }
       window.location.assign(next)
     })
   }
@@ -71,9 +79,10 @@ export function SignIn() {
     e.preventDefault()
     return run(async () => {
       const value = code.trim().replaceAll(' ', '')
+      const trust = trustDays > 0 && trustDevice
       const { error } = useBackup
-        ? await authClient.twoFactor.verifyBackupCode({ code: value })
-        : await authClient.twoFactor.verifyTotp({ code: value })
+        ? await authClient.twoFactor.verifyBackupCode({ code: value, trustDevice: trust })
+        : await authClient.twoFactor.verifyTotp({ code: value, trustDevice: trust })
       if (error) {
         if (error.status === 401 && /cookie|session/i.test(error.message ?? '')) {
           setStep('email')
@@ -175,6 +184,14 @@ export function SignIn() {
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
               />
+              {trustDays > 0 && (
+                <Checkbox
+                  label={`Trust this device for ${trustDays} days`}
+                  hint="Email codes and links on this browser won't ask for the authenticator code until then. Don't tick this on a shared computer. You can forget trusted devices in Security."
+                  checked={trustDevice}
+                  onChange={setTrustDevice}
+                />
+              )}
               <div className="flex flex-wrap items-center gap-3">
                 <Button type="submit" busy={busy}>
                   Verify

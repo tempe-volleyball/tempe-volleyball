@@ -1,14 +1,74 @@
-import { useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { renderSVG } from 'uqr'
 import { useSearch } from 'wouter'
-import type { Me } from '../api'
+import { api, type Me } from '../api'
 import { authClient } from '../auth-client'
-import { Button, Card, Field, Notice } from '../ui'
+import { Button, Card, Field, Notice, errorMessage } from '../ui'
 
 // TOTP enrolment and backup codes. Owners must enrol before they can use anything else (the server enforces this
 // too, in src/server/auth/guard.ts); everyone else can opt in.
 
 type Enrolment = { totpURI: string; backupCodes: string[] }
+
+/** "Trust this device" on sign-in, and forgetting every trusted device at once. */
+function TrustedDevices() {
+  const [state, setState] = useState<{ days: number; count: number } | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
+  useEffect(() => {
+    api<{ days: number; count: number }>('/api/admin/me/trusted-devices')
+      .then(setState)
+      .catch((e) => setMessage({ kind: 'error', text: errorMessage(e) }))
+  }, [])
+  const days = state?.days ?? 0
+  const count = state?.count ?? 0
+  const setCount = (n: number) => setState((s) => (s ? { ...s, count: n } : s))
+
+  const forget = async () => {
+    if (
+      !window.confirm(
+        'Forget every trusted device? Each will ask for your authenticator code at its next sign-in. You stay signed in here.',
+      )
+    )
+      return
+    setBusy(true)
+    setMessage(null)
+    try {
+      const r = await api<{ revoked: number }>('/api/admin/me/trusted-devices', { method: 'DELETE' })
+      setCount(0)
+      setMessage({ kind: 'success', text: r.revoked === 1 ? 'Forgot 1 device.' : `Forgot ${r.revoked} devices.` })
+    } catch (e) {
+      setMessage({ kind: 'error', text: errorMessage(e) })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Card title="Trusted devices">
+      <div className="space-y-3 text-sm">
+        {!state ? (
+          <p className="text-black/60">Loading…</p>
+        ) : days > 0 ? (
+          <p>
+            When you sign in you can tick “Trust this device for {days} days”, and that browser won't ask for your authenticator code until
+            then.{' '}
+            {count === 0 ? 'No devices are trusted now.' : count === 1 ? '1 device is trusted now.' : `${count} devices are trusted now.`}
+          </p>
+        ) : (
+          <p>Trusted devices are turned off (Settings → Sign-in security), so every sign-in asks for your authenticator code.</p>
+        )}
+        <p className="text-xs text-black/60">
+          Trusted devices are also forgotten when you set up your authenticator again or turn it off, and when your role changes.
+        </p>
+        {message && <Notice kind={message.kind}>{message.text}</Notice>}
+        <Button variant="secondary" onClick={() => void forget()} busy={busy} disabled={count === 0 && days > 0}>
+          Forget all trusted devices
+        </Button>
+      </div>
+    </Card>
+  )
+}
 
 function BackupCodes({ codes }: { codes: string[] }) {
   const [copied, setCopied] = useState(false)
@@ -117,7 +177,9 @@ export function Security({ me }: { me: Me }) {
             {me.user.role === 'owner' && <p className="text-xs text-black/60">Owners can't turn two-factor sign-in off.</p>}
           </div>
         </Card>
-      ) : (
+      ) : null}
+      {enabled && <TrustedDevices />}
+      {enabled ? null : (
         <Card title="Set up two-factor sign-in">
           <div className="space-y-4">
             {required && (

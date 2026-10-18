@@ -108,6 +108,7 @@ export type MediaItem = {
   width: number | null
   height: number | null
   variants: number[]
+  variantExt: 'webp' | 'jpg'
   bytes: number
   createdAt: string
   uploadedByEmail: string | null

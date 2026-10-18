@@ -1,5 +1,5 @@
 import { env } from 'cloudflare:workers'
-import { createAuth, createAuthSenders, type Auth } from './auth/auth'
+import { authOrigin, createAuth, createAuthSenders, type Auth } from './auth/auth'
 import { getDb, type Db } from './db'
 import { createMailer, type Mailer } from './email'
 import { turnstileKeys } from './turnstile'
@@ -62,6 +62,8 @@ export const getTurnstileHostname = (request: Request) => {
   return !keys || keys.test ? null : new URL(request.url).hostname
 }
 
+const authEnv = () => ({ SITE_ENV: env.SITE_ENV, SITE_URL: env.SITE_URL, BETTER_AUTH_SECRET: secrets.BETTER_AUTH_SECRET })
+
 export const getServices = (): Services => {
   if (services) return services
   const db = getDb(env.DB)
@@ -71,11 +73,27 @@ export const getServices = (): Services => {
     // Salts the per-mailbox enrolment email limits (mailer.ts).
     hashSalt: secrets.BETTER_AUTH_SECRET,
   })
-  const auth = createAuth({
-    db,
-    env: { SITE_ENV: env.SITE_ENV, SITE_URL: env.SITE_URL, BETTER_AUTH_SECRET: secrets.BETTER_AUTH_SECRET },
-    senders: createAuthSenders(db, mailer),
-  })
+  const auth = createAuth({ db, env: authEnv(), senders: createAuthSenders(db, mailer) })
   services = { db, mailer, auth }
   return services
+}
+
+/** Better Auth instances for PR preview hosts (see authOrigin), one per host per isolate. */
+const previewAuths = new Map<string, Auth>()
+
+/**
+ * Better Auth for this request: the shared instance, or on a staging preview URL one whose base URL and trusted
+ * origin are that preview's, so sign-in works there. Other hosts always get SITE_URL's.
+ */
+export const getAuth = (requestUrl: string | URL): Auth => {
+  const services = getServices()
+  const origin = authOrigin(env, requestUrl)
+  if (origin === new URL(env.SITE_URL).origin) return services.auth
+  let auth = previewAuths.get(origin)
+  if (!auth) {
+    if (previewAuths.size >= 8) previewAuths.clear()
+    auth = createAuth({ db: services.db, env: authEnv(), senders: createAuthSenders(services.db, services.mailer), origin })
+    previewAuths.set(origin, auth)
+  }
+  return auth
 }

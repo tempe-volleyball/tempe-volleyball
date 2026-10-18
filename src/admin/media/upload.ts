@@ -1,9 +1,22 @@
-import { MAX_ORIGINAL_BYTES, UPLOAD_TYPES, isUploadMime, scaledHeight, variantWidths, type UploadMime } from '../../lib/content/media'
+import {
+  MAX_ORIGINAL_BYTES,
+  UPLOAD_TYPES,
+  VARIANT_MIME,
+  isUploadMime,
+  scaledHeight,
+  variantWidths,
+  type UploadMime,
+  type VariantExt,
+} from '../../lib/content/media'
 import { ApiError, api, type MediaItem } from '../api'
 
-// Browser side of a media upload: images are resized to WebP at 400/800/1600 px here (canvas), so the Worker never
+// Browser side of a media upload: images are resized at 400/800/1600 px here (canvas), so the Worker never
 // processes images. Then each file is PUT straight into R2 through the Worker, and the row is recorded last.
 // See src/server/content/media.ts for the protocol.
+//
+// The copies are WebP. Browsers whose canvas can't encode WebP (older Safari, some in-app browsers) quietly hand
+// back a PNG, so we test once and make JPEG copies there instead (on white, since JPEG has no transparency). The
+// server records which (media.variant_ext) and every URL follows it.
 
 export type UploadProgress = (message: string) => void
 
@@ -17,19 +30,43 @@ const makeCanvas = (w: number, h: number): Canvas => {
   return c
 }
 
-const toWebp = async (canvas: Canvas): Promise<Blob> => {
-  const blob =
-    canvas instanceof HTMLCanvasElement
-      ? await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/webp', 0.8))
-      : await canvas.convertToBlob({ type: 'image/webp', quality: 0.8 })
-  // Browsers that can't encode WebP silently hand back a PNG instead.
-  if (!blob || blob.type !== 'image/webp')
-    throw new Error("This browser can't make WebP images. Upload from Chrome, Edge or Firefox instead.")
+const QUALITY: Record<VariantExt, number> = { webp: 0.8, jpg: 0.85 }
+
+const encode = async (canvas: Canvas, ext: VariantExt): Promise<Blob | null> => {
+  const type = VARIANT_MIME[ext]
+  try {
+    return canvas instanceof HTMLCanvasElement
+      ? await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, type, QUALITY[ext]))
+      : await canvas.convertToBlob({ type, quality: QUALITY[ext] })
+  } catch {
+    return null
+  }
+}
+
+let formatCheck: Promise<VariantExt> | undefined
+
+/** WebP if this browser's canvas really encodes it (it falls back to PNG silently otherwise), else JPEG. */
+export const variantFormat = (): Promise<VariantExt> =>
+  (formatCheck ??= (async () => {
+    const probe = makeCanvas(2, 2)
+    const ctx = probe.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null
+    ctx?.fillRect(0, 0, 2, 2)
+    const blob = await encode(probe, 'webp')
+    return blob?.type === 'image/webp' ? 'webp' : 'jpg'
+  })())
+
+const toBlob = async (canvas: Canvas, ext: VariantExt): Promise<Blob> => {
+  const blob = await encode(canvas, ext)
+  if (!blob || blob.type !== VARIANT_MIME[ext])
+    throw new Error("This browser couldn't resize the image. Try again, or from another browser.")
   return blob
 }
 
-/** WebP copies of an image at the library's widths (largest first, each drawn from the previous for quality). */
-export async function resizeImage(file: Blob): Promise<{ width: number; height: number; variants: { width: number; blob: Blob }[] }> {
+/** Resized copies of an image at the library's widths (largest first, each drawn from the previous for quality). */
+export async function resizeImage(
+  file: Blob,
+  ext: VariantExt = 'webp',
+): Promise<{ width: number; height: number; variants: { width: number; blob: Blob }[] }> {
   let bitmap: ImageBitmap
   try {
     bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' })
@@ -51,8 +88,8 @@ export async function resizeImage(file: Blob): Promise<{ width: number; height: 
       sourceWidth = half
     }
     const canvas = makeCanvas(w, scaledHeight(width, height, w))
-    draw(canvas, source)
-    variants.push({ width: w, blob: await toWebp(canvas) })
+    draw(canvas, source, ext === 'jpg')
+    variants.push({ width: w, blob: await toBlob(canvas, ext) })
     source = canvas as CanvasImageSource
     sourceWidth = w
   }
@@ -60,9 +97,14 @@ export async function resizeImage(file: Blob): Promise<{ width: number; height: 
   return { width, height, variants }
 }
 
-function draw(canvas: Canvas, source: CanvasImageSource) {
+function draw(canvas: Canvas, source: CanvasImageSource, opaque = false) {
   const ctx = canvas.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null
   if (!ctx) throw new Error("This browser can't resize images.")
+  if (opaque) {
+    // JPEG has no alpha, so transparent pixels would turn black: put the image on white.
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+  }
   ctx.imageSmoothingEnabled = true
   ctx.imageSmoothingQuality = 'high'
   ctx.drawImage(source, 0, 0, canvas.width, canvas.height)
@@ -97,14 +139,20 @@ export async function uploadMedia(file: File, alt: string, progress: UploadProgr
   if (file.size > MAX_ORIGINAL_BYTES)
     throw new Error(`That file is ${Math.round(file.size / 1024 / 1024)} MB; the limit is ${MAX_ORIGINAL_BYTES / 1024 / 1024} MB.`)
   const id = crypto.randomUUID()
-  let meta: { width: number | null; height: number | null; variants: number[] } = { width: null, height: null, variants: [] }
+  let meta: { width: number | null; height: number | null; variants: number[]; variantExt: VariantExt } = {
+    width: null,
+    height: null,
+    variants: [],
+    variantExt: 'webp',
+  }
   if (mime.startsWith('image/')) {
     progress('Resizing…')
-    const resized = await resizeImage(file)
-    meta = { width: resized.width, height: resized.height, variants: resized.variants.map((v) => v.width) }
+    const ext = await variantFormat()
+    const resized = await resizeImage(file, ext)
+    meta = { width: resized.width, height: resized.height, variants: resized.variants.map((v) => v.width), variantExt: ext }
     for (const [i, v] of resized.variants.entries()) {
       progress(`Uploading ${i + 1} of ${resized.variants.length + 1}…`)
-      await put(id, `${v.width}.webp`, v.blob, 'image/webp')
+      await put(id, `${v.width}.${ext}`, v.blob, VARIANT_MIME[ext])
     }
   }
   progress('Uploading original…')

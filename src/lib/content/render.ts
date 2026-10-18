@@ -5,8 +5,9 @@
 // escaped, URLs are checked by scheme, and anything unknown is dropped (its text content is kept). That makes it
 // safe by construction and cheap: one linear pass, no HTML parser, well inside the Worker's 10 ms CPU budget.
 //
-// Node and mark names are TipTap 3's (StarterKit + Image + TableKit + TextAlign, and our own `embed` for iframes).
-// The admin editor (src/admin/editor/) registers exactly these.
+// Node and mark names are TipTap 3's (StarterKit + Image + TableKit + TextAlign), plus our own: `embed` for iframes,
+// the `subscript`, `superscript` and `srOnly` marks, the link mark's `variant: 'button'`, and the image's caption,
+// size, alignment and link (rendered as a <figure>). The admin editor (src/admin/editor/) registers exactly these.
 //
 // Data blocks (programmeList, ladder, fixtures; src/lib/content/blocks.ts) show live data, so they can't be baked
 // into the stored HTML: on save they render as nothing, and at view time the page route renders the body again with
@@ -111,6 +112,19 @@ const int = (v: unknown, min: number, max: number): number | null => {
 
 const ALIGNS = new Set(['left', 'center', 'right', 'justify'])
 
+/** Image layout options (the editor's image settings). */
+export const IMAGE_ALIGNS = ['center', 'left', 'right'] as const
+export const IMAGE_SIZES = ['small', 'medium', 'large', 'full'] as const
+export type ImageAlign = (typeof IMAGE_ALIGNS)[number]
+export type ImageSize = (typeof IMAGE_SIZES)[number]
+export const MAX_CAPTION_LENGTH = 500
+
+const oneOf = <T extends string>(list: readonly T[], v: unknown): T | null => (list.includes(v as T) ? (v as T) : null)
+
+/** An iframe width or height: pixels, or a percentage (imported Google Forms are width="100%"). */
+const dimension = (v: unknown, max: number): number | string | null =>
+  int(v, 1, max) ?? (typeof v === 'string' && /^(?:[1-9]\d?|100)%$/.test(v.trim()) ? v.trim() : null)
+
 type Attrs = [name: string, value: string | number | null | undefined | boolean][]
 
 const attrs = (list: Attrs) => {
@@ -144,13 +158,22 @@ function markTags(mark: JsonMark): [string, string] | null {
       return ['<sub>', '</sub>']
     case 'superscript':
       return ['<sup>', '</sup>']
+    case 'srOnly':
+      // Text only screen readers read (the importer's "(revolutionise.com.au)" after vague links, say).
+      return ['<span class="sr-only">', '</span>']
     case 'link': {
       const href = safeHref(mark.attrs?.href)
       if (!href) return null
       const external = /^https?:/i.test(href)
       const blank = mark.attrs?.target === '_blank'
+      const button = mark.attrs?.variant === 'button'
       return [
-        `<a${attrs([['href', href], ...(blank ? ([['target', '_blank']] as Attrs) : []), ['rel', blank || external ? 'noopener' : null]])}>`,
+        `<a${attrs([
+          ['href', href],
+          ['class', button ? 'button' : null],
+          ...(blank ? ([['target', '_blank']] as Attrs) : []),
+          ['rel', blank || external ? 'noopener' : null],
+        ])}>`,
         '</a>',
       ]
     }
@@ -179,7 +202,35 @@ const DATA_TYPES: ReadonlySet<string> = new Set(DATA_BLOCK_TYPES)
 export const isDataBlock = (node: { type?: unknown } | null | undefined) =>
   !!node && typeof node.type === 'string' && DATA_TYPES.has(node.type)
 
-const children = (node: JsonNode, depth: number, o: RenderOptions) => (node.content ?? []).map((c) => renderNode(c, depth + 1, o)).join('')
+const linkOf = (n: JsonNode | undefined) => (n?.type === 'text' ? n.marks?.find((m) => m.type === 'link') : undefined)
+
+/**
+ * A node's children. Neighbouring text with the same link (e.g. "here" plus bold or screen-reader-only text after it)
+ * goes in one <a>, not one per text run.
+ */
+function children(node: JsonNode, depth: number, o: RenderOptions): string {
+  const list = node.content ?? []
+  let out = ''
+  let i = 0
+  while (i < list.length) {
+    const link = linkOf(list[i])
+    const tags = link ? markTags(link) : null
+    if (!link || !tags) {
+      out += renderNode(list[i]!, depth + 1, o)
+      i++
+      continue
+    }
+    const key = JSON.stringify(link.attrs ?? {})
+    let inner = ''
+    while (i < list.length && JSON.stringify(linkOf(list[i])?.attrs ?? null) === key) {
+      const n = list[i]!
+      inner += renderText({ ...n, marks: (n.marks ?? []).filter((m) => m.type !== 'link') })
+      i++
+    }
+    out += tags[0] + inner + tags[1]
+  }
+  return out
+}
 
 function cellAttrs(a: Record<string, unknown> | undefined): Attrs {
   const colspan = int(a?.colspan, 1, 50)
@@ -226,7 +277,7 @@ function renderNode(node: JsonNode, depth: number, o: RenderOptions): string {
       if (!src) return ''
       const srcset = safeSrcset(a?.srcset)
       const sizes = typeof a?.sizes === 'string' && SIZES_RE.test(a.sizes) ? a.sizes : null
-      return `<img${attrs([
+      const img = `<img${attrs([
         ['src', src],
         ['srcset', srcset],
         ['sizes', srcset ? (sizes ?? '(max-width: 800px) 100vw, 800px') : null],
@@ -237,6 +288,20 @@ function renderNode(node: JsonNode, depth: number, o: RenderOptions): string {
         ['loading', 'lazy'],
         ['decoding', 'async'],
       ])}>`
+      // Caption, size, alignment and a link make it a <figure>; a plain image stays a bare <img> as before.
+      const caption = typeof a?.caption === 'string' ? a.caption.trim().slice(0, MAX_CAPTION_LENGTH) : ''
+      const align = oneOf(IMAGE_ALIGNS, a?.align)
+      const size = oneOf(IMAGE_SIZES, a?.size)
+      const href = safeHref(a?.href)
+      if (!caption && !align && !size && !href) return img
+      const linked = href
+        ? `<a${attrs([
+            ['href', href],
+            ['rel', /^https?:/i.test(href) ? 'noopener' : null],
+          ])}>${img}</a>`
+        : img
+      const cls = ['figure', align ? `figure-${align}` : '', size ? `figure-${size}` : ''].filter(Boolean).join(' ')
+      return `<figure class="${cls}">${linked}${caption ? `<figcaption>${escapeHtml(caption)}</figcaption>` : ''}</figure>`
     }
     case 'embed': {
       const src = safeEmbedSrc(a?.src)
@@ -245,8 +310,8 @@ function renderNode(node: JsonNode, depth: number, o: RenderOptions): string {
       return `<div class="embed"><iframe${attrs([
         ['src', src],
         ['title', title],
-        ['width', int(a?.width, 1, 4000)],
-        ['height', int(a?.height, 1, 4000)],
+        ['width', dimension(a?.width, 4000)],
+        ['height', dimension(a?.height, 10_000)],
         ['loading', 'lazy'],
         ['allowfullscreen', true],
         ['referrerpolicy', 'strict-origin-when-cross-origin'],
