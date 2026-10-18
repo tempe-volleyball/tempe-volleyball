@@ -175,12 +175,17 @@ export async function runAnalytics(db: AppDb, deps: AnalyticsDeps, now = new Dat
   // Claim the source (the cron and a "Fetch now" can overlap) and log the run, in one batch.
   const fetchId = crypto.randomUUID()
   const lockUntil = new Date(now.getTime() + LOCK_MS).toISOString()
+  // Query builders only: drizzle's D1 batch can't bind a raw db.all(sql``) statement's parameters.
   const [claimed] = (await runBatch(db, [
-    db.all(sql`insert into analytics_state (source, cursor, created_at, updated_at)
-      values (${source}, json_object('lockUntil', ${lockUntil}), ${nowIso}, ${nowIso})
-      on conflict (source) do update set cursor = json_set(analytics_state.cursor, '$.lockUntil', ${lockUntil}), updated_at = ${nowIso}
-      where coalesce(json_extract(analytics_state.cursor, '$.lockUntil'), '') <= ${nowIso}
-      returning source`),
+    db
+      .insert(analyticsState)
+      .values({ source, cursor: { lockUntil }, createdAt: nowIso, updatedAt: nowIso })
+      .onConflictDoUpdate({
+        target: analyticsState.source,
+        set: { cursor: sql`json_set(coalesce(${analyticsState.cursor}, '{}'), '$.lockUntil', ${lockUntil})`, updatedAt: nowIso },
+        setWhere: sql`coalesce(json_extract(${analyticsState.cursor}, '$.lockUntil'), '') <= ${nowIso}`,
+      })
+      .returning({ source: analyticsState.source }),
     db.insert(analyticsFetches).values({
       id: fetchId,
       source,
@@ -191,8 +196,8 @@ export async function runAnalytics(db: AppDb, deps: AnalyticsDeps, now = new Dat
       createdAt: nowIso,
       updatedAt: nowIso,
     }),
-  ])) as unknown as [unknown]
-  if (!returnedRows(claimed)) {
+  ])) as unknown as [{ source: Source }[]]
+  if (claimed.length === 0) {
     await db
       .update(analyticsFetches)
       .set({ status: 'skipped', finishedAt: nowIso, error: 'Another fetch of this source is running.' })
@@ -219,13 +224,6 @@ export async function runAnalytics(db: AppDb, deps: AnalyticsDeps, now = new Dat
   }
 }
 
-/** D1 gives `{ results: [...] }` for run(); the test driver gives `{ rows: [...] }`. */
-const returnedRows = (r: unknown) => {
-  const o = r as { results?: unknown[]; rows?: unknown[] } | unknown[] | undefined
-  if (Array.isArray(o)) return o.length
-  return o?.results?.length ?? o?.rows?.length ?? 0
-}
-
 async function writeRows(
   db: AppDb,
   source: Source,
@@ -249,12 +247,27 @@ async function writeRows(
     db
       .delete(analyticsDaily)
       .where(and(eq(analyticsDaily.source, source), gte(analyticsDaily.date, plan.start), sql`${analyticsDaily.date} <= ${plan.end}`)),
+    // INSERT … SELECT FROM json_each, through the insert builder (drizzle's D1 batch can't bind a raw db.run(sql``)).
+    // The select lists every analytics_daily column in schema order; `where true` keeps SQLite from reading the
+    // ON CONFLICT as part of the select.
     ...chunks.map((json) =>
-      db.run(sql`insert into analytics_daily (source, date, metric, dimension, dimension_value, value, created_at, updated_at)
-        select ${source}, json_extract(j.value, '$[0]'), json_extract(j.value, '$[1]'), json_extract(j.value, '$[2]'),
-          json_extract(j.value, '$[3]'), json_extract(j.value, '$[4]'), ${at}, ${at}
-        from json_each(${json}) as j where true
-        on conflict (source, date, metric, dimension, dimension_value) do update set value = excluded.value, updated_at = excluded.updated_at`),
+      db
+        .insert(analyticsDaily)
+        .select(
+          sql`select ${source}, json_extract(j.value, '$[0]'), json_extract(j.value, '$[1]'), json_extract(j.value, '$[2]'),
+            json_extract(j.value, '$[3]'), json_extract(j.value, '$[4]'), ${at}, ${at}
+            from json_each(${json}) as j where true`,
+        )
+        .onConflictDoUpdate({
+          target: [
+            analyticsDaily.source,
+            analyticsDaily.date,
+            analyticsDaily.metric,
+            analyticsDaily.dimension,
+            analyticsDaily.dimensionValue,
+          ],
+          set: { value: sql`excluded.value`, updatedAt: sql`excluded.updated_at` },
+        }),
     ),
     db
       .update(analyticsFetches)

@@ -1,5 +1,5 @@
 import { and, desc, eq, gt, isNull, lt, lte, sql } from 'drizzle-orm'
-import { runBatch, type AppDb } from '../db'
+import { batchGuard, runBatch, type AppDb } from '../db'
 import { adminInvites, auditLog, session, user } from '../db/schema'
 import type { AdminInvite, AuditAction, NewAuditLogEntry, UserRole } from '../db/schema'
 import { canAssign, canRemove, isRole, outranks } from '../../lib/roles'
@@ -59,12 +59,12 @@ export class RoleError extends Error {
 export type Actor = { id: string; ip?: string | null }
 
 // ── Batch guards ──────────────────────────────────────────────────────────────
-// SQLite has no RAISE outside triggers, so a guard is a SELECT that errors when its condition holds: json() on an
-// invalid string fails with "malformed JSON", which aborts and rolls back the whole D1 batch. Each batch has at
-// most one guard, so the message identifies it.
+// SQLite has no RAISE outside triggers, so a guard (batchGuard) is a SELECT that errors when its condition holds:
+// json() on an invalid string fails with "malformed JSON", which aborts and rolls back the whole D1 batch. Each
+// batch has at most one guard, so the message identifies it.
 
 const ownerCount = sql`(select count(*) from ${user} where ${user.role} = 'owner')`
-const lastOwnerGuard = sql`select case when ${ownerCount} < 1 then json('guard:last_owner') end`
+const lastOwnerGuard = (db: AppDb) => batchGuard(db, sql`${ownerCount} < 1`, 'last_owner')
 
 const errorText = (e: unknown): string => {
   let text = ''
@@ -178,7 +178,7 @@ export async function changeRole(db: AppDb, actor: Actor, targetId: string, to: 
       db
         .insert(auditLog)
         .values(audit(actor, action, { type: 'user', id: target.id }, { role: target.role }, { role: to, email: target.email }, at)),
-      db.run(lastOwnerGuard),
+      lastOwnerGuard(db),
     ])
   } catch (e) {
     if (isGuardFailure(e)) throw lastOwnerError()
@@ -220,7 +220,7 @@ export async function removeUser(db: AppDb, actor: Actor, targetId: string, now 
             now.toISOString(),
           ),
         ),
-      db.run(lastOwnerGuard),
+      lastOwnerGuard(db),
     ])
   } catch (e) {
     if (isGuardFailure(e)) throw lastOwnerError()
@@ -344,8 +344,10 @@ export async function acceptInvite(db: AppDb, input: { token: string; name?: str
         .set({ acceptedAt: at, updatedAt: at })
         .where(and(eq(adminInvites.id, invite.id), pendingInviteWhere(at))),
       // Fails the batch if the invite was used, revoked or expired since we read it (single use).
-      db.run(
-        sql`select case when not exists (select 1 from ${adminInvites} where ${adminInvites.id} = ${invite.id} and ${adminInvites.acceptedAt} = ${at}) then json('guard:invite') end`,
+      batchGuard(
+        db,
+        sql`not exists (select 1 from ${adminInvites} where ${adminInvites.id} = ${invite.id} and ${adminInvites.acceptedAt} = ${at})`,
+        'invite',
       ),
       db
         .insert(user)
