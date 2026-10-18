@@ -135,8 +135,12 @@ docs/reference/      Screenshots of the old site, the design to match.  docs/bas
   (`site` for menu, settings and page path/status changes; `page:<path>`; `news`, `page:/` and `post:<slug>`), and
   the route calls `purge(context.cache, …)`, which reports the outcome back to the admin.
 - **D1 batch gotcha:** inside `runBatch`, use query builders, not ``db.run(sql`…${param}`)``: drizzle's D1 batch can't bind
-  a raw statement's parameters (it crashes with "reading 'bind'"), and the node:sqlite test DB doesn't catch it.
-  D1 also caps bound parameters at 100 per statement, so chunk multi-row inserts.
+  a raw statement's parameters (it crashes with "reading 'bind'"). `createTestDb()` copies D1's batch behaviour (raw
+  statements with params throw, rows are keyed by column name, so alias same-named joined columns), and `batchGuard()`
+  in src/server/db/index.ts is the helper for guard statements. D1 also caps bound parameters at 100 per statement, so
+  chunk multi-row inserts.
+- **Admin screens:** build new ones from the src/admin/ui.tsx primitives (docs/admin.md §4.2): Skeleton, LoadError,
+  EmptyState, toasts, confirmAction, Dialog (guards unsaved edits), MoveButtons.
 - **Don't touch the tempevb.com domain or DNS** until the cutover in Phase 8 is explicitly approved.
 
 ## Domain rules
