@@ -13,6 +13,7 @@ import { enrolmentOpen, isListedStatus, programmePath } from '../programmes'
 import { leagueFixturesRoute, leagueLadderRoute } from '../wp-import/routes'
 import {
   DATA_BLOCK_REF_KIND,
+  DEFAULT_CONTACT_FORM_ATTRS,
   DEFAULT_FIXTURES_ATTRS,
   DEFAULT_LADDER_ATTRS,
   DEFAULT_PROGRAMME_LIST_ATTRS,
@@ -24,6 +25,7 @@ import {
   enrolmentFilters,
   fixtureRanges,
   type BlockDisplay,
+  type ContactFormAttrs,
   type EnrolmentFilter,
   type FixturesAttrs,
   type LadderAttrs,
@@ -150,11 +152,23 @@ export function parseVenuesAttrs(raw: unknown): VenuesAttrs {
   }
 }
 
+export function parseContactFormAttrs(raw: unknown): ContactFormAttrs {
+  const a = record(raw)
+  const d = DEFAULT_CONTACT_FORM_ATTRS
+  return {
+    title: text(a.title, BLOCK_LIMITS.title),
+    defaultTopic: text(a.defaultTopic, 60),
+    showTopic: bool(a.showTopic, d.showTopic),
+    submitLabel: text(a.submitLabel, 40),
+  }
+}
+
 export type ParsedDataBlock =
   | { type: 'programmeList'; attrs: ProgrammeListAttrs }
   | { type: 'ladder'; attrs: LadderAttrs }
   | { type: 'fixtures'; attrs: FixturesAttrs }
   | { type: 'venues'; attrs: VenuesAttrs }
+  | { type: 'contactForm'; attrs: ContactFormAttrs }
 
 export function parseDataBlock(node: JsonNode): ParsedDataBlock | null {
   switch (node.type) {
@@ -166,6 +180,8 @@ export function parseDataBlock(node: JsonNode): ParsedDataBlock | null {
       return { type: 'fixtures', attrs: parseFixturesAttrs(node.attrs) }
     case 'venues':
       return { type: 'venues', attrs: parseVenuesAttrs(node.attrs) }
+    case 'contactForm':
+      return { type: 'contactForm', attrs: parseContactFormAttrs(node.attrs) }
     default:
       return null
   }
@@ -671,6 +687,97 @@ export function renderVenues(attrs: VenuesAttrs, data: VenuesBlockData): string 
     `<section class="data-block venues-block">`,
     attrs.title ? `<h2>${escapeHtml(attrs.title)}</h2>` : '',
     venues.join(''),
+    `</section>`,
+  ].join('')
+}
+
+// ── Contact form ──────────────────────────────────────────────────────────────
+
+/** What a Contact form block needs from the site: Settings → Contact form and Contact details, and the Turnstile key. */
+export type ContactBlockData = {
+  enabled: boolean
+  topics: readonly string[]
+  /** Turnstile's site key; null = the form can't be used here (production without keys), so it shows the details. */
+  siteKey: string | null
+  /** The published privacy page, or null. */
+  privacyHref: string | null
+  contact: { name: string; email: string; phone: string }
+}
+
+/** "Email tempevb@gmail.com or phone Michael on 0414 911 544", linked, for when the form can't be used. */
+function contactFallback(c: ContactBlockData['contact'], lead: string) {
+  const parts = [
+    c.email ? `email <a href="mailto:${escapeHtml(c.email)}">${escapeHtml(c.email)}</a>` : '',
+    c.phone ? `phone ${c.name ? `${escapeHtml(c.name)} on ` : ''}<a href="${escapeHtml(telLink(c.phone))}">${escapeHtml(c.phone)}</a>` : '',
+  ].filter(Boolean)
+  return `<p class="contact-form-fallback">${escapeHtml(lead)}${parts.length ? ` Please ${parts.join(' or ')}.` : ''}</p>`
+}
+
+const telLink = (phone: string) => {
+  const digits = phone.replace(/[^\d+]/g, '')
+  return `tel:${digits.startsWith('+') ? digits : digits.startsWith('0') ? `+61${digits.slice(1)}` : digits}`
+}
+
+const INPUT =
+  'w-full rounded border border-black/25 bg-white px-3 py-2 text-base outline-none focus:border-brand focus:ring-2 focus:ring-brand/30 aria-[invalid=true]:border-red-600'
+
+/**
+ * A Contact form block: a plain HTML form that works with the small script PageBody adds when a page has one
+ * (src/components/ContactFormScript.astro): it renders Turnstile, sends the message as JSON and shows the answer.
+ * `n` keeps ids unique when a page has more than one. Without JavaScript the <noscript> line gives the details.
+ */
+export function renderContactForm(attrs: ContactFormAttrs, data: ContactBlockData, n = 1): string {
+  const title = attrs.title ? `<h2>${escapeHtml(attrs.title)}</h2>` : ''
+  if (!data.enabled || !data.siteKey)
+    return `<section class="data-block contact-form-block">${title}${contactFallback(data.contact, 'The contact form is unavailable right now.')}</section>`
+  const id = (k: string) => `cf${n}-${k}`
+  const req = '<span class="text-red-700" aria-hidden="true"> *</span>'
+  const label = (k: string, text: string, required = true) =>
+    `<label for="${id(k)}" class="mb-1 block font-semibold">${escapeHtml(text)}${required ? req : ''}</label>`
+  const err = (k: string) => `<p id="${id(k)}-error" class="mt-1 text-sm text-red-700" data-error-for="${k}" hidden></p>`
+  const field = (k: string, inner: string) => `<div class="cf-field">${inner}${err(k)}</div>`
+  const topics = attrs.showTopic ? data.topics : []
+  const preset = topics.find((t) => t.toLowerCase() === (attrs.defaultTopic ?? '').toLowerCase()) ?? null
+  const topicField = topics.length
+    ? field(
+        'topic',
+        `${label('topic', 'What is it about?')}<select id="${id('topic')}" name="topic" required aria-describedby="${id('topic')}-error" class="${INPUT}">` +
+          `${preset ? '' : '<option value="">Choose one…</option>'}${topics
+            .map((t) => `<option${t === preset ? ' selected' : ''}>${escapeHtml(t)}</option>`)
+            .join('')}</select>`,
+      )
+    : ''
+  const privacy = data.privacyHref ? ` See our <a href="${escapeHtml(data.privacyHref)}">privacy policy</a>.` : ''
+  return [
+    `<section class="data-block contact-form-block">`,
+    title,
+    `<form class="contact-form max-w-xl space-y-4" data-contact-form data-sitekey="${escapeHtml(data.siteKey)}" action="/api/contact" method="post" novalidate>`,
+    // Screen readers hear "required" from each field itself, so the legend is only for sighted people.
+    `<p class="text-sm text-black/70" aria-hidden="true">Fields marked <span class="text-red-700">*</span> are required.</p>`,
+    `<div class="grid gap-4 sm:grid-cols-2">`,
+    field(
+      'name',
+      `${label('name', 'Your name')}<input id="${id('name')}" name="name" autocomplete="name" required maxlength="100" aria-describedby="${id('name')}-error" class="${INPUT}">`,
+    ),
+    field(
+      'email',
+      `${label('email', 'Your email')}<input id="${id('email')}" name="email" type="email" autocomplete="email" required maxlength="254" aria-describedby="${id('email')}-error" class="${INPUT}">`,
+    ),
+    `</div>`,
+    topicField,
+    field(
+      'message',
+      `${label('message', 'Message')}<textarea id="${id('message')}" name="message" rows="6" required maxlength="5000" aria-describedby="${id('message')}-error" class="${INPUT}"></textarea>`,
+    ),
+    // The honeypot: off-screen, hidden from assistive tech and out of the tab order. People never fill it in.
+    `<div class="cf-hp" aria-hidden="true" style="position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden"><label for="${id('website')}">Leave this empty</label><input id="${id('website')}" name="website" tabindex="-1" autocomplete="off"></div>`,
+    `<div class="cf-turnstile min-h-[65px]" data-turnstile></div>`,
+    `<p class="text-sm text-black/70">We use your details only to reply to you.${privacy}</p>`,
+    `<p class="cf-alert rounded border border-red-300 bg-red-50 px-4 py-3 text-red-800" role="alert" data-alert hidden></p>`,
+    `<button type="submit" class="bg-brand hover:bg-brand-dark rounded px-6 py-3 font-bold text-white disabled:cursor-not-allowed disabled:opacity-60" data-submit>${escapeHtml(attrs.submitLabel ?? 'Send message')}</button>`,
+    `</form>`,
+    `<div class="cf-sent rounded border border-green-300 bg-green-50 p-5 outline-none" role="status" tabindex="-1" data-sent hidden></div>`,
+    `<noscript>${contactFallback(data.contact, 'The form needs JavaScript.')}</noscript>`,
     `</section>`,
   ].join('')
 }

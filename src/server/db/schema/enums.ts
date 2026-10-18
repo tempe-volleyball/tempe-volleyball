@@ -186,6 +186,9 @@ export const auditActions = [
   'enrolment.place',
   'enrolment.delete',
   'enrolment.export',
+  // Phase 7: the contact form's inbox (docs/admin.md §3.15)
+  'message.delete',
+  'message.export',
   'match_day.postpone',
   'match_day.cancel',
   'match_day.restore',
@@ -261,3 +264,9 @@ export type AnalyticsSource = (typeof analyticsSources)[number]
 
 export const analyticsFetchStatuses = ['running', 'ok', 'error', 'skipped'] as const
 export type AnalyticsFetchStatus = (typeof analyticsFetchStatuses)[number]
+
+// ── Contact form (Phase 7) ────────────────────────────────────────────────────
+
+/** A contact message: new (unread), read (opened in the admin), handled (done; pruned after the retention period). */
+export const contactMessageStatuses = ['new', 'read', 'handled'] as const
+export type ContactMessageStatus = (typeof contactMessageStatuses)[number]

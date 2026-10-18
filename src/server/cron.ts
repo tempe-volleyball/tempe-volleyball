@@ -8,6 +8,7 @@ import { expirePendingStatements, prunePlayersStatement, pruneUnconfirmedStateme
 import { runEnrolmentCron } from './enrolment/offers'
 import { pruneRateLimits } from './ratelimit'
 import { sweepAbandonedUploads, type SweepBucket } from './content/media-sweep'
+import { pruneMessagesStatement } from './contact/messages'
 
 /**
  * Cron Trigger entry point (see `triggers.crons` in wrangler.jsonc; schedules are UTC). Hourly. Every job is
@@ -18,7 +19,8 @@ import { sweepAbandonedUploads, type SweepBucket } from './content/media-sweep'
  *  - housekeeping (one settings read and one batch): expire public entries whose email address wasn't confirmed in
  *    time (src/server/enrolment/confirm.ts), and delete sent or failed emails, and unconfirmed entries that lapsed
  *    or were replaced (with a player row nothing else uses), older than Settings → Enrolment's "days to keep sent
- *    emails" (default 30), so addresses don't stay in the outbox or in unverified entries
+ *    emails" (default 30), so addresses don't stay in the outbox or in unverified entries; and contact messages
+ *    handled longer ago than Settings → Contact form's "days to keep handled messages" (default 365)
  *  - expire admin invites past their expiry
  *  - send queued emails that went over Resend's daily limit
  *  - clear secret payloads (codes, sign-in and invite links) from outbox rows that can no longer be sent
@@ -90,10 +92,12 @@ export async function runHousekeeping(db: AppDb, mailer: Partial<Pick<Mailer, 'p
   const days = settings.enrolment.emailRetentionDays
   const cutoff = new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString()
   const results = await runBatch(db, [
+    pruneMessagesStatement(db, settings.contactForm.retentionDays, now),
     ...expirePendingStatements(db, at),
     ...pruneUnconfirmedStatements(db, cutoff),
     ...(mailer.pruneStatement ? [mailer.pruneStatement(days, now)] : []),
   ])
+  const messagesPruned = (results.shift() as unknown[]).length
   const pruned = results[3] as { playerId: string }[]
   const playerIds = [...new Set(pruned.map((r) => r.playerId))]
   if (playerIds.length > 0) await prunePlayersStatement(db, playerIds)
@@ -101,6 +105,7 @@ export async function runHousekeeping(db: AppDb, mailer: Partial<Pick<Mailer, 'p
     pendingExpired: (results[0] as unknown[]).length,
     unconfirmedPruned: pruned.length,
     emailsPruned: mailer.pruneStatement ? (results[4] as unknown[]).length : 0,
+    messagesPruned,
   }
 }
 

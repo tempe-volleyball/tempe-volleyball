@@ -48,6 +48,8 @@ export const ACTIONS: Record<string, string> = {
   'match_day.restore': 'Restored night',
   'season.push_back': 'Pushed season back',
   'fixtures.import': 'Imported fixtures (CSV)',
+  'message.delete': 'Deleted messages',
+  'message.export': 'Exported messages (CSV)',
 }
 
 /** A merge can be undone from Admin → Teams for 30 days (the screen says whether this one still can). */
@@ -103,10 +105,14 @@ export const describe = (row: AuditRow) => {
     return `${String(after.season ?? '')} ${String(after.game ?? '')}: ${String(before.date ?? '?')} → ${String(after.date ?? '?')}`
   if (row.action === 'team.merge') return `${String(before.name ?? '?')} merged into ${String(after.name ?? '?')}`
   if (row.action === 'team.merge_undo') return `${String(after.name ?? '?')} split from ${String(before.name ?? '?')} again`
+  if (row.action === 'import.fix' && Array.isArray(before.trailingSlashLinks))
+    return `${before.trailingSlashLinks.length} imported pages and posts: links without the old trailing slash`
   if (row.action === 'import.fix') {
     const n = lengthOf
     return `${n(before.seasonsWithoutKey)} imported seasons' draw keys, ${n(before.placeholderTeams)} placeholder teams removed`
   }
+  if (row.action === 'message.delete') return `${String(after.count ?? '?')} contact ${after.count === 1 ? 'message' : 'messages'}`
+  if (row.action === 'message.export') return `${String(after.rows ?? '?')} rows (${String(after.filter ?? '')})`
   if (row.action === 'team.create') return String(after.name ?? '')
   if (row.action === 'team.rename') return `${String(before.name ?? '?')} → ${String(after.name ?? '?')}`
   return row.targetType ? `${row.targetType} ${row.targetId ?? ''}` : ''

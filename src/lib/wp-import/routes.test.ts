@@ -12,6 +12,8 @@ import {
   seasonRoute,
   seasonSlug,
   wordpressRedirects,
+  calendarFallback,
+  stripTrailingSlashes,
 } from './routes'
 import { decodeEntities, isAutoExcerpt, nameKey, slugify, titleCase } from './text'
 
@@ -34,7 +36,30 @@ describe('wordpressRedirects', () => {
     expect(r.get('/2023/12')).toBe('/news')
     expect(r.get('/2022/01')).toBe('/news')
     expect(r.has('/2023/11')).toBe(false)
+    expect(r.get('/category/uncategorized')).toBe('/news')
     expect([...r.keys()].every((k) => k === normalisePath(k))).toBe(true)
+  })
+})
+
+describe('stripTrailingSlashes', () => {
+  it('drops the trailing slash from same-site page links only', () => {
+    expect(stripTrailingSlashes('<a href="/contact/">x</a> <a href="/faq/#join">y</a> <a href="/new-player-2023/?a=1">z</a>')).toBe(
+      '<a href="/contact">x</a> <a href="/faq#join">y</a> <a href="/new-player-2023?a=1">z</a>',
+    )
+    for (const keep of [
+      '<a href="/">h</a>',
+      '<a href="https://x.com/a/">e</a>',
+      '<img src="/media/1/800.webp">',
+      '<a href="/docs/rules.pdf">p</a>',
+    ])
+      expect(stripTrailingSlashes(keep)).toBe(keep)
+  })
+})
+
+describe('calendarFallback', () => {
+  it('sends the old this-week calendar to the cross-league list', () => {
+    expect(calendarFallback('this-weeks-fixtures')).toBe('/leagues/fixtures')
+    expect(calendarFallback('gold-league-fixtures')).toBe('/leagues')
   })
 })
 

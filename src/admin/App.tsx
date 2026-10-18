@@ -1,6 +1,6 @@
 import { Suspense, lazy, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, Redirect, Route, Router, Switch, useLocation } from 'wouter'
-import type { Me } from './api'
+import { api, type Me } from './api'
 import { authClient } from './auth-client'
 import { aroundNav } from './leave-guard'
 import { bottomBar, isCurrent, navFor, navItemFor, HOME, type NavItem } from './nav'
@@ -20,6 +20,8 @@ const Home = lazy(() => import('./screens/Home'))
 const Stats = lazy(() => import('./screens/Stats'))
 const Audit = lazy(() => import('./screens/Audit').then((m) => ({ default: m.Audit })))
 const Matches = lazy(() => import('./screens/Matches').then((m) => ({ default: m.Matches })))
+const Messages = lazy(() => import('./screens/Messages').then((m) => ({ default: m.Messages })))
+const MessagePage = lazy(() => import('./screens/Messages').then((m) => ({ default: m.MessagePage })))
 const Media = lazy(() => import('./screens/Media').then((m) => ({ default: m.Media })))
 const Menu = lazy(() => import('./screens/Menu').then((m) => ({ default: m.Menu })))
 const PageEditor = lazy(() => import('./screens/Pages').then((m) => ({ default: m.PageEditor })))
@@ -70,8 +72,39 @@ function Icon({ name }: { name: string }) {
 
 // ── Navigation ───────────────────────────────────────────────────────────────
 
+/**
+ * Unread contact messages, for the Messages badge (admins and owners): fetched when the admin opens, when the tab
+ * comes back into view, every five minutes, and when the Messages screen changes something ('tvb:messages-changed').
+ */
+function useUnreadMessages(me: Me) {
+  const [unread, setUnread] = useState(0)
+  const allowed = me.user.role !== 'editor' && !me.totpRequired
+  useEffect(() => {
+    if (!allowed) return
+    let live = true
+    const refresh = () =>
+      api<{ unread: number }>('/api/admin/messages/unread').then(
+        (r) => live && setUnread(r.unread),
+        () => undefined,
+      )
+    void refresh()
+    const onVisible = () => document.visibilityState === 'visible' && void refresh()
+    const timer = setInterval(() => document.visibilityState === 'visible' && void refresh(), 5 * 60_000)
+    window.addEventListener('tvb:messages-changed', refresh)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      live = false
+      clearInterval(timer)
+      window.removeEventListener('tvb:messages-changed', refresh)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [allowed])
+  return allowed ? unread : 0
+}
+
 function NavLinks({ me, onNavigate }: { me: Me; onNavigate?: () => void }) {
   const [location] = useLocation()
+  const unread = useUnreadMessages(me)
   const groups = me.totpRequired ? [] : navFor({ role: me.user.role, canManageUsers: me.canManageUsers })
   const link = (item: NavItem) => {
     const current = isCurrent(item, location)
@@ -86,6 +119,12 @@ function NavLinks({ me, onNavigate }: { me: Me; onNavigate?: () => void }) {
         }`}
       >
         {item.label}
+        {item.href === '/messages' && unread > 0 && (
+          <span className={`ml-2 rounded-full px-1.5 py-0.5 text-xs font-bold ${current ? 'bg-white text-ink' : 'bg-accent text-ink'}`}>
+            {unread}
+            <span className="sr-only"> unread</span>
+          </span>
+        )}
       </Link>
     )
   }
@@ -326,6 +365,12 @@ function SignedIn({ me }: { me: Me }) {
           </Route>
         )}
         {admin && <Route path="/enrolments/:kind/:id">{(p) => <TargetPage key={`${p.kind}/${p.id}`} kind={p.kind} id={p.id} />}</Route>}
+        {admin && (
+          <Route path="/messages">
+            <Messages />
+          </Route>
+        )}
+        {admin && <Route path="/messages/:id">{(p) => <MessagePage key={p.id} id={p.id} />}</Route>}
         {admin && (
           <Route path="/forms">
             <FormList />

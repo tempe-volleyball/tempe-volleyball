@@ -6,13 +6,14 @@ import { documentTitle, metaDescription } from '../lib/content'
 import { SITE_NAME } from '../lib/site'
 import { cachePublic, tags } from '../server/cache'
 import { renderBody } from '../server/content/blocks'
+import { getTurnstileKeys } from '../server/services'
 import { publicDb, publicSite } from '../server/public'
 import { lookupPath } from '../server/site'
 
 const db = publicDb()
 const [site, found] = await Promise.all([publicSite(db), lookupPath(db, '/')])
 const page = found.page
-const body = page ? await renderBody(db, site, page.body) : null
+const body = page ? await renderBody(db, site, page.body, new Date(), { turnstileSiteKey: getTurnstileKeys()?.siteKey ?? null }) : null
 cachePublic(Astro.cache, tags.page('/'), ...(body?.tags ?? []))
 ---
 

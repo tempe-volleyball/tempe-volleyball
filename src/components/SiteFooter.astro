@@ -80,6 +80,17 @@ const { contact, social } = site.settings
     </div>
   </div>
   <div class="bg-accent text-ink px-4 py-3 text-sm">
-    <p class="mx-auto max-w-6xl">© {year} Tempe Volleyball League</p>
+    <p class="mx-auto max-w-6xl">
+      © {year} Tempe Volleyball League
+      {site.privacyHref && (
+        <>
+          {' '}
+          ·{' '}
+          <a class="underline" href={site.privacyHref}>
+            Privacy policy
+          </a>
+        </>
+      )}
+    </p>
   </div>
 </footer>

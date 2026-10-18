@@ -9,7 +9,7 @@
 import type { ProgrammeKind } from '../../src/server/db/schema/enums'
 import { slugify } from '../../src/lib/content/paths'
 import { programmePath } from '../../src/lib/programmes'
-import { body, h2, h3, p, programmeList, ul } from './doc'
+import { body, contactForm, h2, h3, p, programmeList, ul } from './doc'
 import type { ContentBody } from '../../src/server/db/schema/columns'
 
 /** Venue slugs (venues.slug, from the importer). */
@@ -244,11 +244,47 @@ const TVSL_DESCRIPTION = body([
   membership(),
 ])
 
+/**
+ * A social league's description (Phase 7: the league pages only said "TNL Q4 2026."). From the old site's home, rules
+ * and enrolment pages and CLAUDE.md's domain rules. The day, times and venue are left out: the line above the
+ * description is generated from the league's fields, so it can't go stale.
+ */
+const socialLeague = (opening: string) =>
+  body([
+    p(opening),
+    h2('How it works'),
+    ul(
+      'Each team plays one match a night, and each match is two sets, so a draw is possible',
+      'Ladder points: win 3, draw 2, loss 1',
+      'Teams referee each other: on your duty night your team brings five people (1st and 2nd referee, a scorer and two line judges)',
+      'After the round robin, the top four play the semi-finals, then the grand final and the 3rd place match',
+    ),
+    p('The details are in the [league rules](/rules).'),
+    h2('Joining'),
+    p(
+      'Enter a whole team, or enter on your own and we’ll place you in a team that suits your level. Entries open before each season starts; while they’re open, the form is below.',
+    ),
+    membership(),
+  ])
+
+export const TNL_DESCRIPTION = socialLeague(
+  'Our Thursday social mixed league, for players of every level. Teams play in an A Division (intermediate to advanced) or a B Division (beginner to intermediate, ideal if you’re new to volleyball or coming back to it).',
+)
+export const FNL_DESCRIPTION = socialLeague(
+  'Our Friday social mixed league: a relaxed way to finish the week, for players of every level. Teams play in an A Division (intermediate to advanced) or a B Division (beginner to intermediate, ideal if you’re new to volleyball or coming back to it).',
+)
+export const SNL_DESCRIPTION = socialLeague(
+  'Our Saturday social mixed league, for players of every level. Teams play in an A Division (intermediate to advanced) or a B Division (beginner to intermediate, ideal if you’re new to volleyball or coming back to it).',
+)
+export const SAL_DESCRIPTION = socialLeague(
+  'Our Sunday afternoon social mixed league, for players of every level: volleyball without giving up a weeknight. Teams play in an A Division (intermediate to advanced) or a B Division (beginner to intermediate, ideal if you’re new to volleyball or coming back to it).',
+)
+
 export const LEAGUE_UPDATES: LeagueUpdate[] = [
-  { code: 'TNL', startTime: '20:00', endTime: '22:00' },
-  { code: 'FNL', startTime: '20:00', endTime: '22:00' },
-  { code: 'SNL', startTime: '20:00', endTime: '22:00' },
-  { code: 'SAL', startTime: '15:00', endTime: '17:00' },
+  { code: 'TNL', startTime: '20:00', endTime: '22:00', description: TNL_DESCRIPTION },
+  { code: 'FNL', startTime: '20:00', endTime: '22:00', description: FNL_DESCRIPTION },
+  { code: 'SNL', startTime: '20:00', endTime: '22:00', description: SNL_DESCRIPTION },
+  { code: 'SAL', startTime: '15:00', endTime: '17:00', description: SAL_DESCRIPTION },
   { code: 'TVSL', startTime: '19:00', endTime: '22:00', description: TVSL_DESCRIPTION },
 ]
 
@@ -469,6 +505,49 @@ export const PAGE_DRAFTS: PageDraft[] = [
   },
 ]
 
+// ── Pages made live now (Phase 7) ─────────────────────────────────────────────
+
+/**
+ * A kept page whose reviewed draft goes live now, because the live version is broken rather than just dated. Same
+ * guard as the proposals (the page as the importer left it); the old version stays in Revisions (restorable).
+ */
+export type LivePage = {
+  path: string
+  wpId: number
+  importedTitle: string
+  title: string
+  metaDescription: string
+  body: ContentBody
+  /** Why it couldn't wait for review, for the audit row and the docs. */
+  why: string
+}
+
+/**
+ * /contact: the old page's embedded "contact form" is really the New Player Google Form (4.7 MB, third-party cookies,
+ * Lighthouse best practices 79). The proposal's text plus a real Contact form block replaces it.
+ */
+export const CONTACT_LIVE: LivePage = {
+  path: '/contact',
+  wpId: 62,
+  importedTitle: 'CONTACT',
+  title: 'Contact',
+  metaDescription:
+    'Contact Tempe Volleyball: send us a message, or email or phone Michael about our leagues, training and junior programs in Sydney.',
+  why: 'The embedded Google Form was the New Player form, not a contact form (QA: 4.7 MB and third-party cookies).',
+  body: body([
+    p('Questions about a league, a program or your enrolment? Send us a message with the form below, or get in touch with Michael:'),
+    ul(
+      'Email [tempevb@gmail.com](mailto:tempevb@gmail.com) or [m.mouhajer@bigpond.com](mailto:m.mouhajer@bigpond.com)',
+      'Phone [0414 911 544](tel:+61414911544)',
+    ),
+    contactForm({ title: 'Send us a message' }),
+    p('Ready to play? Enrol on the [Enrol](/enrol) page.'),
+    p('Directions to each venue are on [Where we play](/where-we-play).'),
+  ]),
+}
+
+export const LIVE_PAGES: LivePage[] = [CONTACT_LIVE]
+
 // ── /enrol intro: a new draft page ────────────────────────────────────────────
 
 export const ENROL_PAGE = {
@@ -488,6 +567,89 @@ export const ENROL_PAGE = {
     p('Questions? [Contact Michael](/contact).'),
   ]),
 }
+
+// ── /privacy: a new draft page (Phase 7) ──────────────────────────────────────
+
+/**
+ * The privacy policy, in plain English, for Michael to check and publish (Admin → Pages → Privacy policy). Enrolment
+ * collects juniors', guardians' and emergency contacts' details, so the site needs one. Every period here is a
+ * setting or a fact of the setup (docs/admin.md §3.7, §3.15); if one changes, change this page too. The footer, the
+ * contact form and the enrolment forms link to it once it's published (Settings → Privacy policy).
+ */
+export const PRIVACY_PAGE = {
+  path: '/privacy',
+  title: 'Privacy policy',
+  metaDescription: 'How Tempe Volleyball collects, uses, stores and deletes your details when you enrol or contact us.',
+  body: body([
+    p(
+      'This page explains what Tempe Volleyball collects when you enrol in a league or program or send us a message, why we need it, who can see it, where it’s kept, how long for, and how to ask us to delete it.',
+    ),
+    h2('What we collect'),
+    ul(
+      '**When you enrol:** your name, email address and mobile number, and only what that program’s form asks: for example your year of birth (not your full date of birth), your skill level, your team’s name, and an emergency contact (their name and phone number).',
+      '**For juniors:** a parent or guardian fills in the form, and the email address and phone number we keep are the parent’s or guardian’s.',
+      '**When you send us a message:** your name, email address, what it’s about, your message, and which page you sent it from.',
+      '**Payments:** whether you’ve paid and how (PayID, cash or bank transfer), marked by hand. We never see or keep card or bank details.',
+    ),
+    h2('Why we need it'),
+    ul(
+      'To take your enrolment, hold your spot or place you on the waitlist, and put you in a team',
+      'To email you about your enrolment, your games, changes to the draw and spots that come up',
+      'To contact your emergency contact, or a junior’s parent or guardian, if something happens at a game or session',
+      'To reply to your messages',
+      'To keep the forms free of spam and abuse',
+    ),
+    p(
+      'We don’t sell your details, use them for advertising, or share them with anyone outside the club except the services below that run the website.',
+    ),
+    h2('Who can see it'),
+    p(
+      'Only the club’s organisers with admin access to the website (admins and owners). People who only edit the website’s pages and results can’t see enrolments or messages. Every export of enrolments or messages is recorded.',
+    ),
+    h2('Where it’s stored'),
+    ul(
+      '**The website and its database** run on [Cloudflare](https://www.cloudflare.com/privacypolicy/). Cloudflare stores and processes data on its network in Australia and other countries.',
+      '**Emails** we send you (confirmations, waitlist offers) go through [Resend](https://resend.com/legal/privacy-policy), which processes them in the United States.',
+      '**The spam check** on our forms is Cloudflare Turnstile, which looks at your browser to tell people from bots.',
+      '**Visitor statistics:** on the live site, Google Analytics (which uses cookies) and Cloudflare Web Analytics (which doesn’t) count which pages are visited. They see page addresses, never what you type into a form.',
+      '**Volleyball NSW membership** is registered directly with Volleyball NSW through Sydney Uni’s portal, under their own privacy policies. We don’t see your membership payment.',
+    ),
+    h2('How long we keep it'),
+    ul(
+      '**Enrolments** are kept while we need them to run the season and for the club’s records, until we or you delete them.',
+      '**Enrolments that were never confirmed** (the confirmation email wasn’t clicked) are deleted 30 days after they lapse.',
+      '**Messages** are deleted 365 days after we’ve dealt with them.',
+      '**Copies of the emails we send you** (with your address) are deleted after 30 days.',
+      '**Backups:** the database is backed up every night and each backup is kept for 30 days; the database can also be restored to any point in the last 7 days. So after something is deleted, it’s completely gone within 30 days.',
+      '**Spam-check counters** keep a scrambled code of your internet address and email address (not the addresses themselves) for an hour or a day.',
+    ),
+    h2('Seeing, correcting or deleting your details'),
+    p(
+      'Ask us and we’ll tell you what we hold about you, correct it, or delete it. When we delete an enrolment for good, your details go with it unless you have another enrolment with us. Email [tempevb@gmail.com](mailto:tempevb@gmail.com) or use the [contact form](/contact).',
+    ),
+    h2('Keeping it safe'),
+    p(
+      'The website only works over a secure (HTTPS) connection. Your details are never put in web addresses or stored in shared caches, and organisers sign in with a one-time code sent to their email, plus an authenticator app for owners.',
+    ),
+    h2('Questions or complaints'),
+    p(
+      'Contact us first at [tempevb@gmail.com](mailto:tempevb@gmail.com). If you’re not happy with our answer, you can contact the [Office of the Australian Information Commissioner](https://www.oaic.gov.au/).',
+    ),
+    p('If we change how we handle your details, we’ll update this page.'),
+  ]),
+}
+
+// ── Redirect fixes (Phase 7): old URLs the first import missed ────────────────
+
+/**
+ * Old URLs that 404'd or went somewhere vaguer than they should (checked against the old site's sitemaps on
+ * 2026-10-19). The importer now writes the same (src/lib/wp-import/routes.ts), so these rows are 'wp-import' ones:
+ * written only where the importer's row is missing or still the old target, never over a redirect Michael edited.
+ */
+export const REDIRECT_FIXES: { from: string; to: string; was: string | null }[] = [
+  { from: '/category/uncategorized', to: '/news', was: null },
+  { from: '/calendar/this-weeks-fixtures', to: '/leagues/fixtures', was: '/leagues' },
+]
 
 // ── Pages archived now (clearly stale), each with a redirect to a page that's live today ──
 

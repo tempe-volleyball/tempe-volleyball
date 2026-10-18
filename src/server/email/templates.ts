@@ -40,7 +40,14 @@ export type TemplateData = {
   }
   /** Someone submitted the form again for an entry that already exists: its reference and where it stands. */
   'enrolment.already': EnrolmentEmail & { state: 'confirmed' | 'waitlist' | 'offered'; position?: number | null; teamName?: string | null }
+  /** A new contact-form message, to the organiser: replying goes straight to the sender (reply-to). */
+  'contact.notify': ContactEmail & { url: string; receivedAt: string }
+  /** The optional automatic reply to the sender (Settings → Contact form), with a copy of their message. */
+  'contact.ack': ContactEmail & { text: string }
 }
+
+/** What both contact emails show: who wrote, their address, the topic and the message. */
+export type ContactEmail = { name: string; email: string; topic: string; message: string; page?: string | null }
 
 /** What every enrolment email shows: who, what (programme and session/term/season/event) and the reference. */
 export type EnrolmentEmail = { name: string; programme: string; target: string; reference: string }
@@ -57,6 +64,8 @@ export const templateNames = [
   'enrolment.cancelled',
   'enrolment.confirm_email',
   'enrolment.already',
+  'contact.notify',
+  'contact.ack',
 ] as const satisfies readonly TemplateName[]
 
 /**
@@ -80,7 +89,8 @@ export const AUTH_TEMPLATES: ReadonlySet<TemplateName> = new Set(['auth.otp', 'a
 export const isSensitiveTemplate = (name: string) => (SENSITIVE_TEMPLATES as ReadonlySet<string>).has(name)
 export const isAuthTemplate = (name: string) => (AUTH_TEMPLATES as ReadonlySet<string>).has(name)
 
-export type RenderedEmail = { subject: string; text: string; html: string }
+/** `replyTo`: where a reply goes instead of the no-reply sender (a contact message's sender). */
+export type RenderedEmail = { subject: string; text: string; html: string; replyTo?: string }
 
 const escapeHtml = (s: string) =>
   s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;')
@@ -208,6 +218,40 @@ const enrolmentRenderers: { [K in Extract<TemplateName, `enrolment.${string}`>]:
   },
 }
 
+/** A message as plain text, quoted, and as HTML paragraphs (escaped, line breaks kept). */
+const quoteText = (m: string) =>
+  m
+    .split('\n')
+    .map((l) => `> ${l}`)
+    .join('\n')
+const messageHtml = (m: string) =>
+  `<div style="border-left:4px solid #ffa800;padding:4px 12px;margin:12px 0;white-space:pre-wrap">${escapeHtml(m)}</div>`
+
+const contactRenderers: { [K in Extract<TemplateName, `contact.${string}`>]: (data: TemplateData[K]) => RenderedEmail } = {
+  'contact.notify': (d) => {
+    const about = d.topic ? ` about ${d.topic}` : ''
+    const received = sydneyWhen(d.receivedAt)
+    const from = d.page ? ` on ${d.page}` : ''
+    return {
+      subject: `Message from ${d.name}${d.topic ? ` (${d.topic})` : ''}`,
+      replyTo: d.email,
+      text: `${d.name} <${d.email}> sent a message${about} through the website${from} (${received}).\n\n${quoteText(d.message)}\n\nReply to this email to answer them, or open it in the admin:\n${d.url}\n`,
+      html: layout(
+        `<p><b>${escapeHtml(d.name)}</b> &lt;${escapeHtml(d.email)}&gt; sent a message${escapeHtml(about)} through the website${escapeHtml(from)} (${escapeHtml(received)}).</p>` +
+          `${messageHtml(d.message)}<p>Reply to this email to answer them.</p>${button(d.url, 'Open in the admin')}`,
+      ),
+    }
+  },
+  'contact.ack': (d) => ({
+    subject: 'We got your message',
+    text: `Hi ${d.name},\n\n${d.text}\n\nYour message:\n${quoteText(d.message)}\n\n${IGNORE}\n`,
+    html: layout(
+      `<p>Hi ${escapeHtml(d.name)},</p><p style="white-space:pre-wrap">${escapeHtml(d.text)}</p><p>Your message:</p>${messageHtml(d.message)}` +
+        `<p style="color:#555;font-size:13px">${IGNORE}</p>`,
+    ),
+  }),
+}
+
 const renderers: { [K in TemplateName]: (data: TemplateData[K]) => RenderedEmail } = {
   'auth.otp': ({ otp }) => ({
     subject: `${otp} is your Tempe Volleyball sign-in code`,
@@ -237,6 +281,7 @@ const renderers: { [K in TemplateName]: (data: TemplateData[K]) => RenderedEmail
     }
   },
   ...enrolmentRenderers,
+  ...contactRenderers,
 }
 
 export const isTemplateName = (name: string): name is TemplateName => (templateNames as readonly string[]).includes(name)

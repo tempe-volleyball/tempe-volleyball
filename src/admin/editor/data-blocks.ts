@@ -1,6 +1,7 @@
 import { Node, type Extensions } from '@tiptap/core'
 import { ReactNodeViewRenderer } from '@tiptap/react'
 import {
+  DEFAULT_CONTACT_FORM_ATTRS,
   DEFAULT_FIXTURES_ATTRS,
   DEFAULT_LADDER_ATTRS,
   DEFAULT_PROGRAMME_LIST_ATTRS,
@@ -20,6 +21,7 @@ export const DATA_BLOCK_LABELS: Record<DataBlockType, string> = {
   ladder: 'Ladder',
   fixtures: 'Fixtures',
   venues: 'Venues',
+  contactForm: 'Contact form',
 }
 
 const DEFAULTS: Record<DataBlockType, Record<string, unknown>> = {
@@ -27,6 +29,7 @@ const DEFAULTS: Record<DataBlockType, Record<string, unknown>> = {
   ladder: { leagueId: '', ...DEFAULT_LADDER_ATTRS },
   fixtures: { leagueId: '', ...DEFAULT_FIXTURES_ATTRS },
   venues: DEFAULT_VENUES_ATTRS,
+  contactForm: DEFAULT_CONTACT_FORM_ATTRS,
 }
 
 const dataBlock = (name: DataBlockType) =>
@@ -68,4 +71,5 @@ export const dataBlockExtensions = (): Extensions => [
   dataBlock('ladder'),
   dataBlock('fixtures'),
   dataBlock('venues'),
+  dataBlock('contactForm'),
 ]

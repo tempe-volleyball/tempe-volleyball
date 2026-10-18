@@ -8,10 +8,11 @@ import { listAudit } from './auth/roles'
 import { runBatch, type AppDb } from './db'
 import { leagues, matchDays, matches, matchResults, pageRevisions, pages, posts, seasons, type UserRole } from './db/schema'
 import { listTargets, type TargetSummary } from './enrolment/admin'
+import { inboxSummary, type InboxSummary } from './contact/messages'
 
 // The admin home page (docs/admin.md §4): what needs attention today. One db.batch() of five small grouped reads,
 // plus the enrolment targets (listTargets, admins and owners) and the latest audit entries (admins and owners), so
-// about 15 D1 queries in all. Nothing here writes.
+// about 17 D1 queries in all (two for the inbox summary). Nothing here writes.
 
 /** How far back a played night with missing or unpublished results still shows. */
 export const DASHBOARD_LOOKBACK_DAYS = 120
@@ -56,6 +57,8 @@ export type Dashboard = {
   }
   /** Admins and owners. */
   recent: Awaited<ReturnType<typeof listAudit>> | null
+  /** Admins and owners: the contact form's inbox (unread and open counts, the latest open messages). */
+  messages: InboxSummary | null
   /** Admins and owners: what isn't connected yet. Empty when everything is. */
   setup: SetupItem[]
 }
@@ -166,9 +169,10 @@ export async function loadDashboard(db: AppDb, env: DashboardEnv, now = new Date
   const upcoming = days.filter((d) => d.date >= today)
   const needsResults = days.filter((d) => d.date < today && (d.published < d.games || d.unpublished > 0)).toReversed()
 
-  const [targets, audit] = await Promise.all([
+  const [targets, audit, messages] = await Promise.all([
     admin ? listTargets(db, {}, now) : Promise.resolve(null),
     admin ? listAudit(db, { limit: 8 }) : Promise.resolve(null),
+    admin ? inboxSummary(db) : Promise.resolve(null),
   ])
   const enrolment =
     targets?.filter(
@@ -224,6 +228,7 @@ export async function loadDashboard(db: AppDb, env: DashboardEnv, now = new Date
     enrolment,
     content: { draftProgrammes: progRows, draftPages: pageRows, pagesToReview: reviewRows, draftPosts: postRows },
     recent: audit,
+    messages,
     setup: setup.filter((s) => !s.ok),
   }
 }

@@ -20,6 +20,8 @@ import {
   postRoute,
   seasonRoute,
   wordpressRedirects,
+  calendarFallback,
+  stripTrailingSlashes,
 } from '../../src/lib/wp-import/routes'
 import { sqlLiteral, type SqlValue } from '../../src/lib/wp-import/sql'
 import { describeHtml } from '../../src/lib/content'
@@ -63,9 +65,14 @@ const SANITIZE: sanitizeHtml.IOptions = {
   exclusiveFilter: (frame) => frame.tag === 'iframe' && !frame.attribs.src,
 }
 
-/** Same-site absolute links become root-relative so they work on every environment. */
+/**
+ * Same-site absolute links become root-relative so they work on every environment, without WordPress's trailing
+ * slash (each would cost a 301).
+ */
 const relativiseLinks = (html: string) =>
-  html.replace(/(href|src)="https?:\/\/(?:www\.)?tempevb\.com(\/[^"]*)?"/gi, (_, attr: string, p?: string) => `${attr}="${p ?? '/'}"`)
+  stripTrailingSlashes(
+    html.replace(/(href|src)="https?:\/\/(?:www\.)?tempevb\.com(\/[^"]*)?"/gi, (_, attr: string, p?: string) => `${attr}="${p ?? '/'}"`),
+  )
 
 /** Old internal links pointing at pages that became routes or redirects are left for the redirect map to handle. */
 export function cleanBody(html: string, resolve: (url: string) => ResolvedMedia | null) {
@@ -206,7 +213,7 @@ export function buildContent(
   }
   for (const c of data.calendars) {
     const code = leagueOf(c.leagues, c.seasons)
-    add(c.link, code ? leagueFixturesRoute(leagueSlug(code)) : LEAGUES_ROUTE, 'calendar')
+    add(c.link, code ? leagueFixturesRoute(leagueSlug(code)) : calendarFallback(c.slug), 'calendar')
   }
   // SportsPress taxonomy archives.
   for (const s of data.seasons) add(`/season/${s.slug}`, seasonPath(s.id) ?? LEAGUES_ROUTE, 'taxonomy')

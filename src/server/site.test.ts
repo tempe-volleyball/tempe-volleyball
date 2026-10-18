@@ -1,7 +1,24 @@
+import { eq } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 import { createTestDb } from './db/testing'
-import { venues } from './db/schema'
-import { bumpSiteVersion, createSiteMemo } from './site'
+import { pages, siteSettings, venues } from './db/schema'
+import { bumpSiteVersion, createSiteMemo, loadSite } from './site'
+
+describe('Site.privacyHref', () => {
+  it('is the privacy page while it is published at the path in Settings, else null', async () => {
+    const { db } = createTestDb()
+    const body = { blocks: [], html: '<p>Policy</p>' }
+    expect((await loadSite(db)).privacyHref).toBeNull()
+    await db.insert(pages).values({ id: 'p1', path: '/privacy', title: 'Privacy', body, status: 'draft' })
+    expect((await loadSite(db)).privacyHref).toBeNull()
+    await db.update(pages).set({ status: 'published' }).where(eq(pages.id, 'p1'))
+    expect((await loadSite(db)).privacyHref).toBe('/privacy')
+    await db.insert(siteSettings).values({ key: 'privacy', value: { pagePath: '/about/privacy' }, updatedAt: new Date().toISOString() })
+    expect((await loadSite(db)).privacyHref).toBeNull()
+    await db.insert(pages).values({ id: 'p2', path: '/about/privacy', title: 'Privacy', body, status: 'published' })
+    expect((await loadSite(db)).privacyHref).toBe('/about/privacy')
+  })
+})
 
 const setup = () => {
   const t = createTestDb()

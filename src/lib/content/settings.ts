@@ -66,6 +66,37 @@ export type EnrolmentSettings = {
   offerCutoffHours: number
 }
 
+/**
+ * The contact form (docs/admin.md §3.15): its topics, who is told about new messages, the optional automatic reply
+ * to the sender, and how long handled messages are kept.
+ */
+export type ContactFormSettings = {
+  /** Off: Contact form blocks show the contact details instead of the form, and the API refuses messages. */
+  enabled: boolean
+  /** What the "About" choice offers, in this order. Empty = no topic question. */
+  topics: string[]
+  /** Email each new message to the notification addresses. */
+  notify: boolean
+  /** Where new messages are emailed. Empty = Settings → Contact details' email. */
+  notifyEmails: string[]
+  /**
+   * At most this many notification emails a day (Sydney), so a burst of spam can't use up the day's emails; messages
+   * past it are still saved and counted on the admin home page.
+   */
+  notifyPerDay: number
+  /** Send the sender an automatic "we got your message" email (off by default: it's mail to an unconfirmed address). */
+  autoReply: boolean
+  /** The automatic reply's text (plain text; the sender's name and a copy of their message are added). */
+  autoReplyText: string
+  /** What the form says once a message is sent. */
+  successText: string
+  /** Handled messages are deleted this many days after they were marked handled. Unhandled ones are kept. */
+  retentionDays: number
+}
+
+/** Where the privacy policy lives. Forms and the footer link to it only while a page is published there. */
+export type PrivacySettings = { pagePath: string }
+
 /** Sign-in security (owners only). */
 export type SecuritySettings = {
   /**
@@ -87,6 +118,8 @@ export type SiteSettings = {
   analytics: AnalyticsSettings
   enrolment: EnrolmentSettings
   security: SecuritySettings
+  contactForm: ContactFormSettings
+  privacy: PrivacySettings
 }
 
 export type SettingKey = keyof SiteSettings
@@ -99,6 +132,8 @@ export const settingKeys = [
   'analytics',
   'enrolment',
   'security',
+  'contactForm',
+  'privacy',
 ] as const satisfies readonly SettingKey[]
 
 /** Who may change each key. PayID is where players send money, so it's admin+ like other payment settings. */
@@ -111,6 +146,9 @@ export const settingMinRole: Record<SettingKey, UserRole> = {
   analytics: 'admin',
   enrolment: 'admin',
   security: 'owner',
+  // Where messages (personal data) are emailed and how long they're kept.
+  contactForm: 'admin',
+  privacy: 'editor',
 }
 
 /** Keys the public site never reads, so saving them doesn't purge the edge cache. */
@@ -138,7 +176,22 @@ export const DEFAULT_SETTINGS: SiteSettings = {
   },
   enrolment: { confirmHours: 24, emailRetentionDays: 30, offerCutoffHours: 2 },
   security: { trustDeviceDays: 30 },
+  contactForm: {
+    enabled: true,
+    topics: ['General', 'Leagues', 'Juniors', 'Training', 'Teams looking for players'],
+    notify: true,
+    notifyEmails: [],
+    notifyPerDay: 20,
+    autoReply: false,
+    autoReplyText: 'Thanks for getting in touch. We read every message and will reply as soon as we can, usually within a few days.',
+    successText: 'Thanks, your message has been sent. We’ll reply by email, usually within a few days.',
+    retentionDays: 365,
+  },
+  privacy: { pagePath: '/privacy' },
 }
+
+/** Bounds for the contact form settings. */
+export const CONTACT_FORM_LIMITS = { topics: 20, topic: 60, notifyEmails: 5, text: 1000 } as const
 
 export const isSettingKey = (k: unknown): k is SettingKey => typeof k === 'string' && (settingKeys as readonly string[]).includes(k)
 
@@ -278,6 +331,49 @@ const checkers: { [K in SettingKey]: (v: unknown) => SiteSettings[K] } = {
       emailRetentionDays: intIn(o.emailRetentionDays, 'Days to keep sent emails', 1, 365, d.emailRetentionDays),
       offerCutoffHours: intIn(o.offerCutoffHours, 'Hours before the start that waitlist offers stop', 0, 168, d.offerCutoffHours),
     }
+  },
+  contactForm: (v) => {
+    const o = obj(v, 'Contact form')
+    const d = DEFAULT_SETTINGS.contactForm
+    const L = CONTACT_FORM_LIMITS
+    const list = (x: unknown, label: string) => {
+      if (x === undefined || x === null) return []
+      if (!Array.isArray(x)) throw new Invalid(`${label} must be a list.`)
+      return x
+    }
+    // Trimmed, with repeats (in any case) dropped; the first spelling wins.
+    const topics: string[] = []
+    for (const raw of list(o.topics, 'Topics')) {
+      const t = str(raw, 'A topic', L.topic).replace(/\s+/g, ' ')
+      if (t && !topics.some((x) => x.toLowerCase() === t.toLowerCase())) topics.push(t)
+    }
+    if (topics.length > L.topics) throw new Invalid(`At most ${L.topics} topics.`)
+    const notifyEmails = [
+      ...new Set(
+        list(o.notifyEmails, 'Notification addresses')
+          .map((e) => email(e, 'A notification address'))
+          .filter(Boolean),
+      ),
+    ]
+    if (notifyEmails.length > L.notifyEmails) throw new Invalid(`At most ${L.notifyEmails} notification addresses.`)
+    return {
+      enabled: o.enabled !== false,
+      topics,
+      notify: o.notify !== false,
+      notifyEmails,
+      notifyPerDay: intIn(o.notifyPerDay, 'Notification emails a day', 1, 50, d.notifyPerDay),
+      autoReply: o.autoReply === true,
+      autoReplyText: str(o.autoReplyText, 'The automatic reply', L.text) || d.autoReplyText,
+      successText: str(o.successText, 'The thank-you text', L.text) || d.successText,
+      retentionDays: intIn(o.retentionDays, 'Days to keep handled messages', 30, 3650, d.retentionDays),
+    }
+  },
+  privacy: (v) => {
+    const o = obj(v, 'Privacy policy')
+    const path = str(o.pagePath, 'The privacy page', 200) || DEFAULT_SETTINGS.privacy.pagePath
+    if (!/^\/[a-z0-9][a-z0-9\-/]*$/.test(path) || path.endsWith('/') || path.includes('//'))
+      throw new Invalid('The privacy page is a page path such as /privacy.')
+    return { pagePath: path }
   },
   security: (v) => {
     const o = obj(v, 'Security')

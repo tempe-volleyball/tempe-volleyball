@@ -1,4 +1,4 @@
-// Cloudflare Turnstile for public forms (the enrolment form). The browser renders the widget with the site key and
+// Cloudflare Turnstile for public forms (the enrolment and contact forms). The browser renders the widget with the site key and
 // sends the token it gets; the server checks the token with siteverify before doing anything else.
 //
 // Keys: TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY (secrets, `wrangler secret put … --env <env>`). Development and
@@ -11,7 +11,7 @@
 // so a token solved on some other widget with our key can't be spent on this form.
 
 /** The action each widget is rendered with (the browser passes it to turnstile.render; siteverify echoes it). */
-export const TURNSTILE_ACTIONS = { enrol: 'enrol' } as const
+export const TURNSTILE_ACTIONS = { enrol: 'enrol', contact: 'contact' } as const
 
 export const TURNSTILE_VERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify'
 

@@ -49,6 +49,7 @@ export const NAV: NavGroup[] = [
   {
     label: 'Site',
     items: [
+      { href: '/messages', label: 'Messages', only: 'admin' },
       { href: '/stats', label: 'Stats' },
       { href: '/settings', label: 'Settings' },
     ],

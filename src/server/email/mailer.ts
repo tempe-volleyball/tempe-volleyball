@@ -117,7 +117,12 @@ export type SendOptions = {
 /** Templates that are always priority: nothing anonymous can trigger them. */
 export const PRIORITY_TEMPLATES: ReadonlySet<string> = new Set(['admin.invite', 'enrolment.offer', 'enrolment.cancelled'])
 
-const isEnrolmentTemplate = (t: string) => t.startsWith('enrolment.')
+/**
+ * Templates an anonymous form can send to an address it names, so they're limited per mailbox unless sent as
+ * priority: the enrolment emails and the contact form's automatic reply. (The contact form's notification goes to
+ * the organiser's own addresses and has its own daily limit, Settings → Contact form.)
+ */
+const isMailboxLimited = (t: string) => t.startsWith('enrolment.') || t === 'contact.ack'
 
 /**
  * What an offer email's payload carries so a send can start the hold (`hold`). `latest` (UTC ISO) caps it: the
@@ -204,7 +209,14 @@ async function sendViaResend(
     const res = await doFetch(RESEND_URL, {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json', 'Idempotency-Key': outboxId },
-      body: JSON.stringify({ from: FROM, to: [to], subject: email.subject, html: email.html, text: email.text }),
+      body: JSON.stringify({
+        from: FROM,
+        to: [to],
+        subject: email.subject,
+        html: email.html,
+        text: email.text,
+        ...(email.replyTo ? { reply_to: email.replyTo } : {}),
+      }),
     })
     const body = (await res.json().catch(() => ({}))) as { id?: string; message?: string; name?: string }
     if (res.ok && body.id) return { ok: true, id: body.id }
@@ -411,7 +423,7 @@ export function createMailer(deps: MailerDeps) {
         return { id: '', status: 'limited' }
       }
     }
-    if (isEnrolmentTemplate(template) && !priority) {
+    if (isMailboxLimited(template) && !priority) {
       const limit = await enrolmentLimit(to, at)
       if (limit.verdict === 'drop') {
         console.warn(`[email] ${template} not sent: per-mailbox limit for today reached`)

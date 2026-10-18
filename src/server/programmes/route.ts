@@ -82,7 +82,7 @@ export async function kindIndexRoute(astro: AstroGlobal, kind: IndexKind): Promi
   const db = publicDb()
   const [site, found, listings] = await Promise.all([publicSite(db), lookupPath(db, path), loadListings(db)])
   const page = found.page
-  const body = page ? await renderBody(db, site, page.body) : null
+  const body = page ? await renderBody(db, site, page.body, new Date(), { turnstileSiteKey: getTurnstileKeys()?.siteKey ?? null }) : null
   cachePublic(astro.cache, tags.page(path), tags.programmes, tags.venues, ...(body?.tags ?? []))
   return {
     site,

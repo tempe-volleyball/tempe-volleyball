@@ -211,6 +211,9 @@ it still lists a Monday league). A new league should appear everywhere it belong
   "Map and directions" link (its map link, else a Google Maps search for name and address), the directions as typed,
   and "Who plays here" (active programmes whose usual venue it is). Options turn each part off and add a heading.
   Purged by venue and programme edits (`tags.venues`, `tags.programmes`).
+- **Contact form block** (Phase 7, §3.15): name, email, topic and message, sent to Admin → Messages. A block chooses
+  its heading, whether to ask the topic, the topic selected to start with (Juniors on a junior page) and its button
+  text; the topics, notifications and thank-you text are site-wide in Settings → Contact form.
 - Everything around a block is ordinary editable text. Blocks render on the server from the same data as the programme
   pages, and publishing a season, results or a programme change purges every page that uses them.
 
@@ -695,6 +698,46 @@ Each the more robust or more configurable option:
   may take those slugs).
 - **Copy:** cards show the "Next season starts …" sentence as on the programme page (no more "Next / Season starts");
   fixture tables show "(moved from …)" once per night, on its first row, so a pushed-back season doesn't crowd phones.
+
+### 3.15 Contact form and messages (Phase 7, 2026-10-19)
+
+**Status: Done.** A real contact form replaces the old site's embedded Google Form (which was really the New Player
+form, and cost /contact 4.7 MB and its Lighthouse best-practices score). It's a **Contact form** page block, so it can
+go on any page; /contact uses it. Messages land in **Admin → Messages** (admins and owners), with an unread badge in
+the nav and a card on the home page. API: [api/contact.md](api/contact.md).
+
+Decisions (each the more robust or more configurable option):
+
+- **Stored first, emailed second.** Every message is a `contact_messages` row before any email goes, so nothing is
+  lost without Resend, past the daily cap or when an email fails. The inbox is the record; email is a nudge.
+- **A page block, not a fixed page.** Michael can put the form anywhere (contact, juniors, a programme page) with the
+  text around it hand-editable; the block's own settings are just heading, topic question, starting topic and button
+  text. What's the same everywhere (topics, who's notified, thank-you text, automatic reply, retention, on/off) is
+  one Settings card, so a new topic shows on every form at once.
+- **Plain HTML plus a small script, not a React island.** The form is server-rendered inside the page body (so it
+  reads like the text around it and costs nothing until used); `ContactFormScript.astro` is added only to pages that
+  have one and loads Turnstile only when the form nears the viewport. No React runtime on /contact.
+- **Spam is cheap to discard:** a honeypot field (bots that fill it get the normal "sent" answer, and nothing is
+  stored, emailed or checked with Turnstile), Turnstile with its own action (`contact`), the IP limit before Turnstile
+  and the mailbox limit after it (as for enrolment), and in the inbox, multi-select **Delete for good**.
+- **Notifications are ordinary mail with a daily limit of their own** (Settings, default 20 a day): a burst of spam
+  can't use up the day's emails (sign-in codes and waitlist offers have their reserved shares anyway), and messages
+  past the limit are still in the inbox and counted on the home page. Replying to a notification replies to the
+  sender (reply-to), and it links to the message in the admin.
+- **The automatic reply is off by default.** Anyone can type any address into the form, so it's mail to someone who
+  may not have asked for it; when on, it's limited per mailbox like the enrolment emails.
+- **Admins and owners only**, with the role re-read from D1, like enrolments: messages are names, addresses and
+  whatever people write. Deleting and exporting are audited (`message.delete` with the count and ids only;
+  `message.export` with the filter and rows); reading, notes and status changes aren't (they're the inbox's normal
+  use).
+- **Open → handled, then pruned.** New messages are unread until opened; "Mark handled" (one or many) takes them out
+  of the Open list and starts the retention clock: the cron deletes handled messages after Settings → Contact form →
+  "Days to keep handled messages" (default 365). Open ones are never pruned, so nothing is deleted before someone
+  has dealt with it. "Reply by email" is a `mailto:` link with the sender's address, a subject and their message
+  quoted, so replies come from Michael's own mailbox (and stay in his sent mail), not the site's no-reply address.
+- **The privacy policy link** (footer, contact form, enrolment forms) shows only while a page is published at
+  Settings → Privacy policy's path (default `/privacy`; `Site.privacyHref`, read in the `loadSite()` batch), so it
+  never points at a 404 while the draft waits for Michael.
 
 ## 4. Admin UI/UX
 

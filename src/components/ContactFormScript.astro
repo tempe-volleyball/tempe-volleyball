@@ -1,0 +1,172 @@
+---
+// The script behind Contact form blocks (src/lib/content/data-blocks.ts renderContactForm). PageBody renders it only
+// on a page that has one, so other pages carry no JavaScript for it. Plain DOM code rather than a React island: the
+// form is server-rendered HTML inside the page body, and this is a few KB instead of React's runtime.
+//
+// It loads Turnstile when the form scrolls near the viewport (or on the first focus inside it), posts the fields as
+// JSON to /api/contact, shows field errors next to their fields, and swaps the form for the thank-you text when the
+// message is stored. Nothing typed goes in the URL, local storage or analytics.
+---
+
+<script>
+  import { loadTurnstile } from './turnstile'
+
+  type Answer = { status?: string; message?: string; error?: string; fieldErrors?: Record<string, string> }
+
+  const NETWORK = "Couldn't reach the server. Check your connection and try again."
+
+  function enhance(form: HTMLFormElement) {
+    if (form.dataset.ready) return
+    form.dataset.ready = '1'
+    const siteKey = form.dataset.sitekey ?? ''
+    const box = form.querySelector<HTMLElement>('[data-turnstile]')
+    const alert = form.querySelector<HTMLElement>('[data-alert]')
+    const submit = form.querySelector<HTMLButtonElement>('[data-submit]')
+    const sent = form.parentElement?.querySelector<HTMLElement>('[data-sent]') ?? null
+    const label = submit?.textContent ?? 'Send message'
+    let token: string | null = null
+    let widget: string | null = null
+    let started = false
+
+    const showAlert = (text: string | null) => {
+      if (!alert) return
+      alert.textContent = text ?? ''
+      alert.hidden = !text
+    }
+
+    const start = () => {
+      if (started || !box) return
+      started = true
+      loadTurnstile().then(
+        () => {
+          if (!window.turnstile || widget) return
+          widget = window.turnstile.render(box, {
+            sitekey: siteKey,
+            // The server checks it (src/server/turnstile.ts TURNSTILE_ACTIONS.contact).
+            action: 'contact',
+            callback: (t) => (token = t),
+            'expired-callback': () => (token = null),
+            'error-callback': () => (token = null),
+          })
+        },
+        () => showAlert('The "are you human" check couldn\'t load. Check your connection, or turn off a blocker, and reload.'),
+      )
+    }
+
+    if ('IntersectionObserver' in window) {
+      const io = new IntersectionObserver(
+        (entries) => {
+          if (entries.some((e) => e.isIntersecting)) {
+            io.disconnect()
+            start()
+          }
+        },
+        { rootMargin: '300px' },
+      )
+      io.observe(form)
+    } else start()
+    form.addEventListener('focusin', start, { once: true })
+
+    const fields = ['name', 'email', 'topic', 'message'] as const
+    const control = (k: string) => form.elements.namedItem(k) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null
+
+    const setErrors = (errors: Record<string, string>) => {
+      for (const k of fields) {
+        const el = control(k)
+        const msg = form.querySelector<HTMLElement>(`[data-error-for="${k}"]`)
+        const text = errors[k] ?? ''
+        if (el) el.setAttribute('aria-invalid', text ? 'true' : 'false')
+        if (msg) {
+          msg.textContent = text
+          msg.hidden = !text
+        }
+      }
+      const first = fields.find((k) => errors[k])
+      if (first) control(first)?.focus()
+    }
+
+    // Clear a field's error as it's corrected.
+    for (const k of fields)
+      control(k)?.addEventListener('input', () => {
+        const el = control(k)
+        if (el?.getAttribute('aria-invalid') !== 'true') return
+        el.setAttribute('aria-invalid', 'false')
+        const msg = form.querySelector<HTMLElement>(`[data-error-for="${k}"]`)
+        if (msg) msg.hidden = true
+      })
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault()
+      showAlert(null)
+      const value = (k: string) => (control(k)?.value ?? '').trim()
+      const errors: Record<string, string> = {}
+      if (!value('name')) errors.name = 'Enter your name.'
+      if (!value('email')) errors.email = 'Enter your email address, so we can reply.'
+      else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value('email'))) errors.email = "That email address doesn't look right."
+      if (control('topic') && !value('topic')) errors.topic = 'Choose what your message is about.'
+      if (!value('message')) errors.message = 'Write your message.'
+      setErrors(errors)
+      if (Object.keys(errors).length) return
+      start()
+      if (!token) {
+        showAlert('Please complete the "are you human" check above the button, then send again.')
+        return
+      }
+      if (submit) {
+        submit.disabled = true
+        submit.textContent = 'Sending…'
+      }
+      let answer: Answer = {}
+      let status = 0
+      try {
+        const res = await fetch('/api/contact', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: value('name'),
+            email: value('email'),
+            topic: value('topic'),
+            message: control('message')?.value ?? '',
+            website: (control('website')?.value ?? '').trim(),
+            pagePath: location.pathname,
+            turnstileToken: token,
+          }),
+        })
+        status = res.status
+        answer = (await res.json().catch(() => ({}))) as Answer
+      } catch {
+        showAlert(NETWORK)
+      }
+      // A Turnstile token works once.
+      token = null
+      if (widget && window.turnstile) window.turnstile.reset(widget)
+      if (submit) {
+        submit.disabled = false
+        submit.textContent = label
+      }
+      if (status === 201 && answer.status === 'sent') {
+        if (sent) {
+          const h = document.createElement('h3')
+          h.className = 'font-display mt-0 text-lg font-bold'
+          h.textContent = 'Message sent'
+          const p = document.createElement('p')
+          p.className = 'mt-2 whitespace-pre-line'
+          p.textContent = answer.message ?? 'Thanks, your message has been sent.'
+          sent.replaceChildren(h, p)
+          sent.hidden = false
+          form.hidden = true
+          sent.focus()
+        } else showAlert(answer.message ?? 'Thanks, your message has been sent.')
+        form.reset()
+        return
+      }
+      if (status === 0) return
+      if (answer.fieldErrors) setErrors(answer.fieldErrors)
+      showAlert(answer.message ?? 'Something went wrong. Please try again, or email us.')
+    })
+  }
+
+  const run = () => document.querySelectorAll<HTMLFormElement>('form[data-contact-form]').forEach(enhance)
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run)
+  else run()
+</script>

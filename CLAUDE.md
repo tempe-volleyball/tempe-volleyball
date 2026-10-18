@@ -88,6 +88,7 @@ src/server/          Code that touches bindings: db/schema.ts + db/index.ts (Dri
                      twoFactor doesn't do itself), roles.ts (all role/invite/audit rules), guard.ts, bootstrap.ts.
                      content/: pages, posts, menu, media (R2 streaming), settings: validation, batched writes,
                      audit, 301s on path changes. cache.ts: edge-cache tags + purge() after publishes.
+                     contact/messages.ts: the contact form (POST /api/contact) and Admin → Messages (Phase 7).
                      email/: createMailer().sendEmail(to, template, data) via email_outbox + 95/day cap + Resend. db/schema.ts re-exports the tables in db/schema/ (one file per
                      area; enums.ts holds the `as const` value lists). db/testing.ts gives tests an in-memory
                      SQLite (node:sqlite) with every migration applied: `const { db } = createTestDb()`.
