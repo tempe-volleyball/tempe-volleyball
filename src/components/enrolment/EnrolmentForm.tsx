@@ -55,7 +55,13 @@ declare global {
     turnstile?: {
       render: (
         el: HTMLElement,
-        opts: { sitekey: string; callback: (t: string) => void; 'expired-callback'?: () => void; 'error-callback'?: () => void },
+        opts: {
+          sitekey: string
+          action?: string
+          callback: (t: string) => void
+          'expired-callback'?: () => void
+          'error-callback'?: () => void
+        },
       ) => string
       reset: (id?: string) => void
       remove: (id: string) => void
@@ -91,6 +97,8 @@ function Turnstile({ siteKey, onToken, resetKey }: { siteKey: string; onToken: (
         if (cancelled || !ref.current || !window.turnstile || widget.current) return
         widget.current = window.turnstile.render(ref.current, {
           sitekey: siteKey,
+          // The server checks it (src/server/turnstile.ts TURNSTILE_ACTIONS.enrol).
+          action: 'enrol',
           callback: (t) => onToken(t),
           'expired-callback': () => onToken(null),
           'error-callback': () => onToken(null),
@@ -122,6 +130,19 @@ function Turnstile({ siteKey, onToken, resetKey }: { siteKey: string; onToken: (
         </p>
       )}
     </div>
+  )
+}
+
+/** The "*" after a required group's legend, with "(required)" for screen readers (the legend names the group). */
+function GroupRequired() {
+  return (
+    <>
+      <span className="text-red-700" aria-hidden="true">
+        {' '}
+        *
+      </span>
+      <span className="sr-only"> (required)</span>
+    </>
   )
 }
 
@@ -222,12 +243,7 @@ function Question({
         <fieldset aria-describedby={described} aria-invalid={!!error}>
           <legend className="mb-1 font-semibold">
             {field.label}
-            {field.required && (
-              <span className="text-red-700" aria-hidden="true">
-                {' '}
-                *
-              </span>
-            )}
+            {field.required && <GroupRequired />}
           </legend>
           {help}
           <div className="space-y-1">
@@ -236,6 +252,8 @@ function Question({
                 <input
                   type={many ? 'checkbox' : 'radio'}
                   name={id}
+                  // A required radio group: each radio says so. (Checkboxes: the legend says it, since any one will do.)
+                  required={!many && field.required}
                   className="accent-brand mt-1"
                   checked={many ? list.includes(o.value) : str === o.value}
                   onChange={(e) => onChange(many ? (e.target.checked ? [...list, o.value] : list.filter((v) => v !== o.value)) : o.value)}
@@ -299,12 +317,7 @@ function Question({
         <fieldset aria-describedby={described}>
           <legend className="mb-1 font-semibold">
             {field.label}
-            {field.required && (
-              <span className="text-red-700" aria-hidden="true">
-                {' '}
-                *
-              </span>
-            )}
+            {field.required && <GroupRequired />}
           </legend>
           {help}
           <div className="grid gap-2 sm:grid-cols-3">
@@ -317,6 +330,8 @@ function Question({
                   id={`${id}-${k}`}
                   type={type}
                   autoComplete="off"
+                  required={field.required}
+                  aria-required={field.required}
                   aria-invalid={!!error}
                   className={inputClass(!!error)}
                   value={obj[k] ?? ''}
@@ -449,10 +464,16 @@ export default function EnrolmentForm(props: EnrolmentFormComponentProps) {
             </p>
           </>
         ) : (
-          <p className="mt-2">
-            We've emailed <strong>{person.email}</strong> about your entry in {whatOf(result)}. Nothing there? Check your spam folder, or
-            contact us.
-          </p>
+          // The same answer whether this is a new entry or a repeat (docs/admin.md §3.7): what stands is in the email.
+          <>
+            <p className="mt-2">
+              Thanks! We've emailed <strong>{person.email}</strong> about your entry in {whatOf(result)}: your reference, and whether you
+              have a spot or are on the waitlist.
+              {result.amountCents ? ` The fee is ${aud(result.amountCents)}; use the reference as the payment description.` : ''}
+            </p>
+            {result.message && <p className="mt-2 whitespace-pre-line">{result.message}</p>}
+            <p className="mt-2 text-sm text-black/70">Nothing there? Check your spam folder, or contact us.</p>
+          </>
         )}
       </div>
     )

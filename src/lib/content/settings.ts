@@ -54,8 +54,16 @@ export type AnalyticsSettings = {
 export type EnrolmentSettings = {
   /** How long someone has to click the confirm link before an unconfirmed entry expires (hours). */
   confirmHours: number
-  /** Sent and failed emails (with their addresses) are deleted from the outbox after this many days. */
+  /**
+   * Sent and failed emails (with their addresses) are deleted from the outbox after this many days, and so are
+   * unconfirmed entries that lapsed or were replaced (with their player row when nothing else uses it).
+   */
   emailRetentionDays: number
+  /**
+   * Waitlist offers stop this many hours before the session, event or season's first game starts: an offer's hold
+   * never runs past that point, and once it has passed no new offers go out (the admin can still confirm by hand).
+   */
+  offerCutoffHours: number
 }
 
 /** Sign-in security (owners only). */
@@ -128,7 +136,7 @@ export const DEFAULT_SETTINGS: SiteSettings = {
     backfillDays: 90,
     retentionDays: 1095,
   },
-  enrolment: { confirmHours: 24, emailRetentionDays: 30 },
+  enrolment: { confirmHours: 24, emailRetentionDays: 30, offerCutoffHours: 2 },
   security: { trustDeviceDays: 30 },
 }
 
@@ -268,6 +276,7 @@ const checkers: { [K in SettingKey]: (v: unknown) => SiteSettings[K] } = {
     return {
       confirmHours: intIn(o.confirmHours, 'Hours to confirm an email address', 1, 168, d.confirmHours),
       emailRetentionDays: intIn(o.emailRetentionDays, 'Days to keep sent emails', 1, 365, d.emailRetentionDays),
+      offerCutoffHours: intIn(o.offerCutoffHours, 'Hours before the start that waitlist offers stop', 0, 168, d.offerCutoffHours),
     }
   },
   security: (v) => {

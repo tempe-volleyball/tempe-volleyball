@@ -64,5 +64,9 @@ export function canonicalSearch(pathname: string, params: URLSearchParams): stri
 export function queryRedirect(pathname: string, search: string): string | null {
   if (!search || !normalisesQuery(pathname)) return null
   const canonical = canonicalSearch(pathname, new URLSearchParams(search))
-  return canonical === search ? null : `${pathname}${canonical}`
+  if (canonical === search) return null
+  // Defence in depth: Astro collapses "//" in the path today, but a Location starting "//" or "/\" would be a
+  // protocol-relative redirect to another site. Such a path is sent to its single-slash form on this site instead.
+  const safe = /^\/[/\\]/.test(pathname) ? `/${pathname.replace(/^[/\\]+/, '')}` : pathname
+  return `${safe}${canonical}`
 }

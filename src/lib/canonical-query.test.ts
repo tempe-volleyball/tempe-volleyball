@@ -21,6 +21,16 @@ describe('queryRedirect', () => {
     expect(queryRedirect('/leagues/fixtures', '?league=../etc')).toBe('/leagues/fixtures')
   })
 
+  it('never answers with a protocol-relative Location (// or /\\), even if a double slash reaches it', () => {
+    for (const path of ['//evil.com', '/\\evil.com', '///evil.com', '/\\/evil.com', '//evil.com/x']) {
+      const to = queryRedirect(path, '?x=1')!
+      expect(to).toMatch(/^\/[^/\\]/)
+      expect(new URL(to, 'https://www.tempevb.com').origin).toBe('https://www.tempevb.com')
+    }
+    expect(queryRedirect('//evil.com', '?x=1')).toBe('/evil.com')
+    expect(queryRedirect('/\\evil.com', '?utm_source=a&x=1')).toBe('/evil.com?utm_source=a')
+  })
+
   it('keeps campaign tracking parameters after the page’s own, in a fixed order', () => {
     expect(queryRedirect('/', '?utm_source=instagram&utm_medium=social')).toBeNull()
     expect(queryRedirect('/', '?utm_medium=social&utm_source=instagram&x=1')).toBe('/?utm_source=instagram&utm_medium=social')

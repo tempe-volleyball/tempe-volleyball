@@ -2,8 +2,9 @@ import { runAnalytics, type AnalyticsDeps } from './analytics/fetch'
 import { expireInvites } from './auth/roles'
 import { getSettings } from './content/settings'
 import { getDb, runBatch, type AppDb } from './db'
+import { describeError } from './log'
 import { createMailer, type Mailer } from './email'
-import { expirePendingStatements } from './enrolment/confirm'
+import { expirePendingStatements, prunePlayersStatement, pruneUnconfirmedStatements } from './enrolment/confirm'
 import { runEnrolmentCron } from './enrolment/offers'
 import { pruneRateLimits } from './ratelimit'
 import { sweepAbandonedUploads, type SweepBucket } from './content/media-sweep'
@@ -15,8 +16,9 @@ import { sweepAbandonedUploads, type SweepBucket } from './content/media-sweep'
  *    queueing the emails, which is why it runs before the outbox is drained
  *  - delete ended rate-limit windows
  *  - housekeeping (one settings read and one batch): expire public entries whose email address wasn't confirmed in
- *    time (src/server/enrolment/confirm.ts), and delete sent or failed emails older than Settings → Enrolment's
- *    "days to keep sent emails" (default 30), so addresses don't stay in the outbox
+ *    time (src/server/enrolment/confirm.ts), and delete sent or failed emails, and unconfirmed entries that lapsed
+ *    or were replaced (with a player row nothing else uses), older than Settings → Enrolment's "days to keep sent
+ *    emails" (default 30), so addresses don't stay in the outbox or in unverified entries
  *  - expire admin invites past their expiry
  *  - send queued emails that went over Resend's daily limit
  *  - clear secret payloads (codes, sign-in and invite links) from outbox rows that can no longer be sent
@@ -34,10 +36,17 @@ export async function runScheduled(cron: string, env: Env): Promise<void> {
     BETTER_AUTH_SECRET?: string
     GOOGLE_SERVICE_ACCOUNT_JSON?: string
     CF_ANALYTICS_TOKEN?: string
+    TURNSTILE_SITE_KEY?: string
+    TURNSTILE_SECRET_KEY?: string
   }
   const mailer = createMailer({
     db,
-    env: { SITE_ENV: env.SITE_ENV, RESEND_API_KEY: secrets.RESEND_API_KEY },
+    env: {
+      SITE_ENV: env.SITE_ENV,
+      RESEND_API_KEY: secrets.RESEND_API_KEY,
+      TURNSTILE_SITE_KEY: secrets.TURNSTILE_SITE_KEY,
+      TURNSTILE_SECRET_KEY: secrets.TURNSTILE_SECRET_KEY,
+    },
     hashSalt: secrets.BETTER_AUTH_SECRET,
   })
   const analytics: AnalyticsDeps = {
@@ -45,7 +54,17 @@ export async function runScheduled(cron: string, env: Env): Promise<void> {
     fetch: (input, init) => fetch(input, init),
   }
   const enrolment = secrets.BETTER_AUTH_SECRET ? { secret: secrets.BETTER_AUTH_SECRET, siteUrl: env.SITE_URL } : undefined
-  const result = await runJobs(db, mailer, new Date(), { analytics, enrolment, media: env.MEDIA })
+  let result
+  try {
+    result = await runJobs(db, mailer, new Date(), { analytics, enrolment, media: env.MEDIA })
+  } catch (e) {
+    // Logged scrubbed here: the runtime would log an escaping error's message as it is (src/server/log.ts).
+    console.error(`[cron] ${cron} in ${env.SITE_ENV} failed: ${describeError(e)}`)
+    // Still fail the invocation (so it shows as an error), with a message that carries nothing personal: the
+    // original is deliberately not attached as the cause.
+    // oxlint-disable-next-line preserve-caught-error
+    throw new Error(`cron ${cron} failed (see the log line above)`)
+  }
   console.info(`[cron] ${cron} in ${env.SITE_ENV}: ${JSON.stringify(result)}`)
 }
 
@@ -61,19 +80,27 @@ export type JobDeps = {
 }
 
 /**
- * Expires unconfirmed entries and prunes the outbox: one settings read plus one batch of three statements, whatever
- * the amount of work (each statement is bounded).
+ * Expires unconfirmed entries, deletes the ones that lapsed (or were replaced) longer ago than the retention period
+ * with any player row nothing else uses, and prunes the outbox: one settings read plus one batch, whatever the
+ * amount of work (each statement is bounded), plus one statement when there are players to check.
  */
 export async function runHousekeeping(db: AppDb, mailer: Partial<Pick<Mailer, 'pruneStatement'>>, now = new Date()) {
   const settings = await getSettings(db)
   const at = now.toISOString()
+  const days = settings.enrolment.emailRetentionDays
+  const cutoff = new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString()
   const results = await runBatch(db, [
     ...expirePendingStatements(db, at),
-    ...(mailer.pruneStatement ? [mailer.pruneStatement(settings.enrolment.emailRetentionDays, now)] : []),
+    ...pruneUnconfirmedStatements(db, cutoff),
+    ...(mailer.pruneStatement ? [mailer.pruneStatement(days, now)] : []),
   ])
+  const pruned = results[3] as { playerId: string }[]
+  const playerIds = [...new Set(pruned.map((r) => r.playerId))]
+  if (playerIds.length > 0) await prunePlayersStatement(db, playerIds)
   return {
     pendingExpired: (results[0] as unknown[]).length,
-    emailsPruned: mailer.pruneStatement ? (results[2] as unknown[]).length : 0,
+    unconfirmedPruned: pruned.length,
+    emailsPruned: mailer.pruneStatement ? (results[4] as unknown[]).length : 0,
   }
 }
 
@@ -104,7 +131,7 @@ export async function runJobs(
     analytics && !busy ? runAnalytics(db, analytics, now) : Promise.resolve('deferred' as const),
     deps.media ? sweepAbandonedUploads(db, deps.media, now) : Promise.resolve('skipped' as const),
   ])
-  const value = <T>(r: PromiseSettledResult<T>) => (r.status === 'fulfilled' ? r.value : `error: ${String(r.reason)}`)
+  const value = <T>(r: PromiseSettledResult<T>) => (r.status === 'fulfilled' ? r.value : `error: ${describeError(r.reason)}`)
   return {
     invitesExpired: value(invites),
     email: value(email),

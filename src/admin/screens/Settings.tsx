@@ -229,7 +229,7 @@ export function Settings({ me }: { me: Me }) {
           {...common}
           k="enrolment"
           title="Enrolment and email"
-          intro="Where a programme asks people to confirm their email address before a spot is held, how long the link works. And how long sent emails (with their addresses) stay in the outbox before they're deleted."
+          intro="Where a programme asks people to confirm their email address before a spot is held, how long the link works. When waitlist offers stop before a session, event or season starts. And how long sent emails (with their addresses) and lapsed unconfirmed entries are kept before they're deleted."
         >
           {(v, set) => (
             <div className="grid gap-4 sm:grid-cols-2">
@@ -248,8 +248,17 @@ export function Settings({ me }: { me: Me }) {
                 min={1}
                 max={365}
                 value={v.emailRetentionDays}
-                hint="Default 30. Queued emails are always kept."
+                hint="Default 30. Also how long lapsed unconfirmed entries are kept. Queued emails are always kept."
                 onChange={(e) => set({ ...v, emailRetentionDays: Number(e.target.value) })}
+              />
+              <Field
+                label="Hours before the start that waitlist offers stop"
+                type="number"
+                min={0}
+                max={168}
+                value={v.offerCutoffHours}
+                hint="Default 2. An offer is never held past this, and none go out after it. Development terms aren't affected."
+                onChange={(e) => set({ ...v, offerCutoffHours: Number(e.target.value) })}
               />
             </div>
           )}

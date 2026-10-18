@@ -1,3 +1,4 @@
+import { describeError } from '../log'
 import { desc, eq, or, sql } from 'drizzle-orm'
 import { runBatch, type AppDb } from '../db'
 import { media, pages, posts, user, type Media } from '../db/schema'
@@ -217,7 +218,7 @@ export async function deleteMedia(db: AppDb, bucket: MediaBucket, actor: Editor,
   try {
     await bucket.delete(mediaKeys(row))
   } catch (e) {
-    console.error('[media] R2 delete failed', id, e)
+    console.error(`[media] R2 delete failed for ${id}: ${describeError(e)}`)
   }
   return { id }
 }

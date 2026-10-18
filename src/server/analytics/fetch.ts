@@ -1,3 +1,4 @@
+import { describeError, scrubMessage } from '../log'
 import { and, eq, gte, lt, sql } from 'drizzle-orm'
 import { runBatch, type AppDb } from '../db'
 import { analyticsDaily, analyticsFetches, analyticsState, siteSettings, type AnalyticsState } from '../db/schema'
@@ -210,7 +211,8 @@ export async function runAnalytics(db: AppDb, deps: AnalyticsDeps, now = new Dat
     const written = await writeRows(db, source, plan, rows, { fetchId, now, warning, settings, states })
     return { status: 'ok', source, ...plan, rows: written, ...(warning ? { warning } : {}) }
   } catch (e) {
-    const error = (e instanceof Error ? e.message : String(e)).slice(0, 1000)
+    // Shown on the Stats page and in the cron's log line: never a failed query's text or values.
+    const error = e instanceof Error ? scrubMessage(e.message) : describeError(e)
     // The run's own clock, not the wall clock: the retry back-off compares lastErrorAt with `now`.
     const at = nowIso
     await runBatch(db, [

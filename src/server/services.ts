@@ -69,7 +69,12 @@ export const getServices = (): Services => {
   const db = getDb(env.DB)
   const mailer = createMailer({
     db,
-    env: { SITE_ENV: env.SITE_ENV, RESEND_API_KEY: secrets.RESEND_API_KEY },
+    env: {
+      SITE_ENV: env.SITE_ENV,
+      RESEND_API_KEY: secrets.RESEND_API_KEY,
+      TURNSTILE_SITE_KEY: secrets.TURNSTILE_SITE_KEY,
+      TURNSTILE_SECRET_KEY: secrets.TURNSTILE_SECRET_KEY,
+    },
     // Salts the per-mailbox enrolment email limits (mailer.ts).
     hashSalt: secrets.BETTER_AUTH_SECRET,
   })

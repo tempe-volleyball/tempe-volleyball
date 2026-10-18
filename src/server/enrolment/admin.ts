@@ -37,10 +37,14 @@ import {
   labelOfRow,
   loadProduct,
   loadTarget,
+  mergePendingDetailsStatements,
   notFound,
   offerEmail,
+  offerExpiry,
   offerNext,
+  offersClosed,
   offersMadeAt,
+  offerWindowFor,
   programmeColumns,
   refOfProduct,
   resolveForm,
@@ -51,6 +55,7 @@ import {
   waitlistRanks,
   type Effective,
   type NotifyDeps,
+  type OfferWindow,
   type ProgrammeInfo,
   type Target,
 } from './core'
@@ -93,6 +98,8 @@ export type TargetSummary = {
   caps: { players: number | null; teams: number | null }
   counts: Counts
   open: boolean
+  /** The effective waitlist setting: a full target with it off is "Full", not "Waitlist only". */
+  waitlistEnabled: boolean
 }
 
 const emptyCounts = (): Counts => ({
@@ -265,6 +272,7 @@ export async function listTargets(
       caps: { players: eff.capPlayers, teams: eff.capTeams },
       counts: (product && counts.get(product.id)) ?? emptyCounts(),
       open: isOpen(target, nowIso),
+      waitlistEnabled: eff.waitlistEnabled,
     })
   }
   for (const s of seasonRows) add('season', s, s.name, s.startDate, null, s.status === 'archived' ? 'archived' : null)
@@ -333,6 +341,8 @@ export type RegistrationRow = {
   answers: Record<string, unknown>
   formVersion: number | null
   vnswConfirmed: boolean
+  /** The player details shown include ones sent with an entry whose address isn't confirmed (not saved yet). */
+  detailsUnconfirmed: boolean
   player: {
     id: string
     firstName: string
@@ -375,6 +385,11 @@ export type TargetDetail = {
   groups: GroupRow[]
   /** Other targets of the same programme, for "Move to". */
   moveTargets: { ref: TargetRef; label: string }[]
+  /**
+   * When waitlist offers stop (Settings → Enrolment → hours before the start): `closed` once that has passed, so a
+   * freed spot isn't offered and the admin confirms someone by hand instead. `latest` null = no cut-off (terms).
+   */
+  offers: OfferWindow
 }
 
 const entryTypeOf = (r: { freeAgent: boolean; groupId: string | null }): EntryType =>
@@ -432,7 +447,20 @@ async function loadRegistrationRows(db: AppDb, productId: string): Promise<Regis
     answers: r.answers,
     formVersion: r.formVersion,
     vnswConfirmed: r.vnswConfirmed,
-    player: p,
+    // An unconfirmed entry's details wait on the registration (never on the player): shown filling the blanks, as
+    // confirming would.
+    player: r.pendingDetails
+      ? {
+          ...p,
+          phone: p.phone ?? r.pendingDetails.phone,
+          birthYear: p.birthYear ?? r.pendingDetails.birthYear,
+          guardianName: p.guardianName ?? r.pendingDetails.guardianName,
+          guardianEmail: p.guardianEmail ?? r.pendingDetails.guardianEmail,
+          guardianPhone: p.guardianPhone ?? r.pendingDetails.guardianPhone,
+          emergencyContact: p.emergencyContact ?? r.pendingDetails.emergencyContact,
+        }
+      : p,
+    detailsUnconfirmed: !!r.pendingDetails,
   }))
 }
 
@@ -520,6 +548,7 @@ export async function getTargetDetail(db: AppDb, ref: TargetRef, now = new Date(
     siblingTargets(db, target.programme, ref, today),
     product ? countsByProduct(db, [product.id]) : Promise.resolve(new Map<string, Counts>()),
   ])
+  const offers = product ? await offerWindowFor(db, product.id, now) : { latest: null, closed: false, startsAt: null, cutoffHours: 0 }
   const groupRanks = waitlistRanks(groupRows)
   const p = target.programme
   return {
@@ -534,6 +563,7 @@ export async function getTargetDetail(db: AppDb, ref: TargetRef, now = new Date(
       caps: { players: eff.capPlayers, teams: eff.capTeams },
       counts: (product && counts.get(product.id)) ?? emptyCounts(),
       open: isOpen(target, now.toISOString()),
+      waitlistEnabled: eff.waitlistEnabled,
     },
     product,
     effective: eff,
@@ -543,6 +573,7 @@ export async function getTargetDetail(db: AppDb, ref: TargetRef, now = new Date(
     registrations: regs,
     groups: groupRows.map((g) => ({ ...g, waitlistRank: groupRanks.get(g.id) ?? null })),
     moveTargets,
+    offers,
   }
 }
 
@@ -849,9 +880,10 @@ async function loadRegistration(db: AppDb, id: string) {
   return { ...row, label: labelOfRow(row) }
 }
 
-/** The deadline a resent confirm link gets: now plus Settings → Enrolment's hours. */
+/** The deadline a resent confirm link gets: now plus Settings → Enrolment's hours (restarted again when it's sent). */
 async function confirmDeadline(db: AppDb, now: Date) {
-  return new Date(now.getTime() + (await getSettings(db)).enrolment.confirmHours * 3_600_000).toISOString()
+  const hours = (await getSettings(db)).enrolment.confirmHours
+  return { until: new Date(now.getTime() + hours * 3_600_000).toISOString(), hours }
 }
 
 const text = (v: unknown, label: string, max: number, required = false) => {
@@ -953,6 +985,8 @@ export async function registrationAction(deps: EnrolmentDeps, actor: Editor, id:
             .where(same)
             .returning({ id: registrations.id }),
           ...settleStatements(db, { productId: product.id, registrationId: id, groupId: null }, { ...eff, waitlistEnabled: true }),
+          // A lapsed unconfirmed entry brought back by hand: its held details go onto the player now.
+          ...mergePendingDetailsStatements(db, id),
           auditOf('enrolment.status', { status: r.status }, { status: 'reinstated' }),
         ])
       } catch (e) {
@@ -968,7 +1002,7 @@ export async function registrationAction(deps: EnrolmentDeps, actor: Editor, id:
       if (r.status !== 'pending_email') throw wrongState(r.status)
       if (action === 'resend_confirm') {
         // A fresh deadline, so the person has the full time again from this email.
-        const until = await confirmDeadline(db, now)
+        const { until, hours } = await confirmDeadline(db, now)
         await run([
           db.update(registrations).set({ holdExpiresAt: until, updatedBy: actor.id }).where(same).returning({ id: registrations.id }),
           auditOf('enrolment.update', { confirmBy: r.holdExpiresAt }, { confirmBy: until }),
@@ -976,7 +1010,7 @@ export async function registrationAction(deps: EnrolmentDeps, actor: Editor, id:
         const sent = await emailConfirmLink(
           deps,
           player.email,
-          { firstName: player.firstName, ...what, teamName: null, registrationId: id, createdAt: r.createdAt, expiresAt: until },
+          { firstName: player.firstName, ...what, teamName: null, registrationId: id, createdAt: r.createdAt, expiresAt: until, hours },
           { priority: true },
         )
         return { id, offers: 0, emailed: sent }
@@ -1014,6 +1048,7 @@ export async function registrationAction(deps: EnrolmentDeps, actor: Editor, id:
               offeredAt: r.offeredAt,
               expiresAt: r.offerExpiresAt ?? at,
               hours: effective(programme, product).offerHours,
+              latest: (await offerWindowFor(db, product.id, now)).latest,
             },
           ],
           what,
@@ -1021,16 +1056,22 @@ export async function registrationAction(deps: EnrolmentDeps, actor: Editor, id:
         return { id, offers: sent }
       }
       const eff = effective(programme, product)
-      const expires = new Date(now.getTime() + eff.offerHours * 3_600_000).toISOString()
+      // An offer is never held past the cut-off before the start, and can't be made after it (confirm instead).
+      const span = action === 'offer' ? await offerWindowFor(db, product.id, now) : null
+      const expires = span ? offerExpiry(span, eff.offerHours, now) : null
+      if (span && !expires) throw offersClosed(span)
       const set =
         action === 'offer'
           ? { status: 'offered' as const, offeredAt: at, offerExpiresAt: expires, waitlistPosition: null, updatedBy: actor.id }
           : { status: 'confirmed' as const, offerExpiresAt: null, holdExpiresAt: null, waitlistPosition: null, updatedBy: actor.id }
       await run([
         db.update(registrations).set(set).where(same).returning({ id: registrations.id }),
+        // Confirming an unconfirmed entry by hand: its details go onto the player as a click on the link would.
+        ...mergePendingDetailsStatements(db, id),
         auditOf(action === 'offer' ? 'enrolment.offer' : 'enrolment.status', { status: r.status }, { status: set.status }),
       ])
-      if (action === 'offer') offers += await sendOfferEmails(deps, await offersMadeAt(db, product.id, at, eff.offerHours), what)
+      if (action === 'offer')
+        offers += await sendOfferEmails(deps, await offersMadeAt(db, product.id, at, eff.offerHours, undefined, span?.latest ?? null), what)
       else if (input.notify !== false)
         await emailNewEntry(
           db,
@@ -1285,7 +1326,7 @@ export async function groupAction(
     case 'resend_confirm': {
       if (g.status !== 'pending_email' || !captain) throw wrongState(g.status)
       if (action === 'resend_confirm') {
-        const until = await confirmDeadline(db, now)
+        const { until, hours } = await confirmDeadline(db, now)
         await run([
           db.update(groups).set({ updatedBy: actor.id }).where(same).returning({ id: groups.id }),
           db
@@ -1304,6 +1345,7 @@ export async function groupAction(
             registrationId: captain.id,
             createdAt: captain.createdAt,
             expiresAt: until,
+            hours,
           },
           { priority: true },
         )
@@ -1341,6 +1383,7 @@ export async function groupAction(
               offeredAt: g.offeredAt,
               expiresAt: g.offerExpiresAt ?? at,
               hours: effective(programme, product).offerHours,
+              latest: (await offerWindowFor(db, product.id, now)).latest,
             },
           ],
           what,
@@ -1348,7 +1391,9 @@ export async function groupAction(
         return { id, offers: sent }
       }
       const eff = effective(programme, product)
-      const expires = new Date(now.getTime() + eff.offerHours * 3_600_000).toISOString()
+      const span = action === 'offer' ? await offerWindowFor(db, product.id, now) : null
+      const expires = span ? offerExpiry(span, eff.offerHours, now) : null
+      if (span && !expires) throw offersClosed(span)
       const set =
         action === 'offer'
           ? { status: 'offered' as const, offeredAt: at, offerExpiresAt: expires, waitlistPosition: null, updatedBy: actor.id }
@@ -1363,9 +1408,11 @@ export async function groupAction(
               : { status: 'confirmed', offerExpiresAt: null, holdExpiresAt: null },
           )
           .where(and(captainRows, sql`${registrations.status} in ('waitlist', 'offered', 'pending_email')`)),
+        ...(captain ? mergePendingDetailsStatements(db, captain.id) : []),
         auditOf(action === 'offer' ? 'enrolment.offer' : 'enrolment.status', { status: g.status }, { status: set.status }),
       ])
-      if (action === 'offer') offers += await sendOfferEmails(deps, await offersMadeAt(db, product.id, at, eff.offerHours), what)
+      if (action === 'offer')
+        offers += await sendOfferEmails(deps, await offersMadeAt(db, product.id, at, eff.offerHours, undefined, span?.latest ?? null), what)
       else if (input.notify !== false && captain && base)
         await emailNewEntry(
           db,

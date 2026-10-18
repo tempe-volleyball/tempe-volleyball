@@ -55,7 +55,10 @@ export type CardTarget = { label: string; startsOn: string | null; spots: string
  * "12 spots left", "3 team spots left", "Waitlist only", "Full" or '' (no cap), from a target's caps and live counts.
  * Players win over teams when both are capped and players are the tighter limit.
  */
-export function spotsText(t: Pick<TargetSummary, 'caps' | 'counts'>, waitlist = true): string {
+export function spotsText(
+  t: Pick<TargetSummary, 'caps' | 'counts'> & { waitlistEnabled?: boolean },
+  waitlist = t.waitlistEnabled ?? true,
+): string {
   const players = t.caps.players === null ? null : Math.max(0, t.caps.players - t.counts.players)
   const teams = t.caps.teams === null ? null : Math.max(0, t.caps.teams - t.counts.teams)
   const waiting = t.counts.waitlist > 0 || t.counts.teamsWaitlist > 0
@@ -98,7 +101,7 @@ export function programmeCard(
     venue: venueText(venue),
     nextStarts: nextStartsLine(p, nextDate),
     enrolmentOpen: !!open && open.targets.length > 0,
-    targets: (open?.targets ?? []).map((t) => ({ label: t.label, startsOn: t.startsOn, spots: spotsText(t) })),
+    targets: (open?.targets ?? []).map((t) => ({ label: t.label, startsOn: t.startsOn, spots: spotsText(t, t.waitlistEnabled) })),
   }
 }
 

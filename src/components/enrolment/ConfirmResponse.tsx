@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
+import { useHashToken } from './hash-token'
 
 // The confirm page's island (/enrol/confirm#<token>): reads the token from the URL fragment (never sent to the
 // server in a URL, so it stays out of logs), shows the entry and confirms it on a click. Opening the link alone
@@ -13,6 +14,7 @@ type ConfirmView = {
   expiresAt: string | null
   reference: string | null
   position: number | null
+  details: { phone: string | null; birthYear: number | null; guardianName: string | null; emergencyContact: string | null } | null
 }
 
 const when = (iso: string) =>
@@ -29,9 +31,13 @@ async function call(token: string, action: 'view' | 'confirm'): Promise<ConfirmV
   return data
 }
 
+/** Keyed by the link's token, so a second link opened in the same tab starts afresh (hash-token.ts). */
 export default function ConfirmResponse() {
-  // Rendered with client:only, so window is there.
-  const [token] = useState(() => window.location.hash.slice(1))
+  const token = useHashToken()
+  return <ConfirmResponseFor key={token} token={token} />
+}
+
+function ConfirmResponseFor({ token }: { token: string }) {
   const [view, setView] = useState<ConfirmView | null>(null)
   const [error, setError] = useState<string | null>(
     token ? null : 'This page needs the link from your enrolment email. Open the email and use its button.',
@@ -61,6 +67,14 @@ export default function ConfirmResponse() {
       </p>
     )
   if (!view) return <p>Loading your enrolment…</p>
+  const d = view.details
+  const rows: [string, string | null | undefined][] = [
+    ['Mobile', d?.phone],
+    ['Year of birth', d?.birthYear ? String(d.birthYear) : null],
+    ['Parent or guardian', d?.guardianName],
+    ['Emergency contact', d?.emergencyContact],
+  ]
+  const details = rows.filter((x): x is [string, string] => !!x[1])
   const what = `${view.target === view.programme ? view.programme : `${view.programme}: ${view.target}`}${view.teamName ? ` (team ${view.teamName})` : ''}`
   return (
     <div className="space-y-4 rounded border border-black/15 bg-white p-5" aria-live="polite">
@@ -71,6 +85,20 @@ export default function ConfirmResponse() {
             Confirm your email address to finish enrolling in <strong>{what}</strong>. No spot is held until you do; the link works until{' '}
             <strong>{when(view.expiresAt!)}</strong>.
           </p>
+          {details.length > 0 && (
+            <div>
+              <p>Confirming also saves these details from the form:</p>
+              <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+                {details.map(([label, value]) => (
+                  <Fragment key={label}>
+                    <dt className="font-semibold">{label}</dt>
+                    <dd>{value}</dd>
+                  </Fragment>
+                ))}
+              </dl>
+              <p className="mt-1 text-sm text-black/70">Not yours? Don't confirm: fill in the form again with the right details.</p>
+            </div>
+          )}
           <button
             type="button"
             disabled={busy}

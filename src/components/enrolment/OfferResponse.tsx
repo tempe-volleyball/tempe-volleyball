@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useHashToken } from './hash-token'
 
 // The waitlist offer page's island (/enrol/offer#<token>): reads the token from the URL fragment (never sent to the
 // server in a URL, so it stays out of logs), shows the offer and lets the person accept or decline it.
@@ -27,9 +28,13 @@ async function call(token: string, action: 'view' | 'accept' | 'decline'): Promi
   return data
 }
 
+/** Keyed by the link's token, so a second link opened in the same tab starts afresh (hash-token.ts). */
 export default function OfferResponse() {
-  // Rendered with client:only, so window is there.
-  const [token] = useState(() => window.location.hash.slice(1))
+  const token = useHashToken()
+  return <OfferResponseFor key={token} token={token} />
+}
+
+function OfferResponseFor({ token }: { token: string }) {
   const [offer, setOffer] = useState<OfferView | null>(null)
   const [error, setError] = useState<string | null>(
     token ? null : 'This page needs the link from your offer email. Open the email and use its button.',

@@ -1,3 +1,4 @@
+import { describeError } from '../log'
 import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { eq } from 'drizzle-orm'
@@ -46,8 +47,8 @@ export function createAuthSenders(db: AppDb, mailer: Mailer): AuthSenders {
       if (res.status === 'failed' || res.status === 'queued' || res.status === 'limited')
         console.warn(`[auth] ${template} email not sent (${res.status})`)
     } catch (e) {
-      const reason = e instanceof EmailNotConfiguredError ? 'email is not configured' : e instanceof Error ? e.name : 'error'
-      console.warn(`[auth] ${template} email not sent: ${reason}`)
+      const why = e instanceof EmailNotConfiguredError ? 'email is not configured' : describeError(e)
+      console.warn(`[auth] ${template} email not sent: ${why}`)
     }
   }
   return {

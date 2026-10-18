@@ -8,6 +8,7 @@ import { guard, isAdminApi, isAdminPage, isInviteApi, needsSession } from './ser
 import { cachePublic, tags } from './server/cache'
 import { followRedirect, publicDb, siteMemo } from './server/public'
 import { getAuth } from './server/services'
+import { describeError } from './server/log'
 import { bumpSiteVersion, slashRedirect } from './server/site'
 
 // 0. Public paths with a trailing slash (every old WordPress URL) get a 301 to the slashless path, or straight to
@@ -85,7 +86,7 @@ async function bumpVersion() {
   try {
     await bumpSiteVersion(publicDb())
   } catch (e) {
-    console.error('site version bump failed', e instanceof Error ? e.message : String(e))
+    console.error(`site version bump failed: ${describeError(e)}`)
   }
 }
 

@@ -25,6 +25,7 @@ import {
   programmePageTags,
   programmeSeo,
   publicTargetSpots,
+  programmeCard,
   spotsText,
 } from './public'
 
@@ -294,6 +295,16 @@ describe('text helpers', () => {
     expect(spotsText(c(10, null, 10))).toBe('Waitlist only')
     expect(spotsText(c(10, null, 3, 1))).toBe('Waitlist only')
     expect(spotsText(c(10, null, 10), false)).toBe('Full')
+    // The target's own waitlist setting decides it (listings pass the summary's waitlistEnabled).
+    expect(spotsText({ ...c(10, null, 10), waitlistEnabled: false })).toBe('Full')
+    expect(spotsText({ ...c(10, null, 10), waitlistEnabled: true })).toBe('Waitlist only')
+    const card = programmeCard(
+      { id: 'p', kind: 'training', name: 'T', code: 'T', slug: 't', categoryId: null, defaultVenueId: null } as never,
+      new Map(),
+      null,
+      { targets: [{ label: 'Thu 29 Oct', startsOn: '2026-10-29', ...c(1, null, 1), waitlistEnabled: false } as never] },
+    )
+    expect(card.targets[0]!.spots).toBe('Full')
     expect(publicTargetSpots({ full: false, waitlistOnly: false, spotsLeft: null, teamSpotsLeft: null })).toBe('Open')
     expect(publicTargetSpots({ full: true, waitlistOnly: false, spotsLeft: 0, teamSpotsLeft: null })).toBe('Full')
   })

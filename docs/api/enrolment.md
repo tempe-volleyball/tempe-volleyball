@@ -63,18 +63,20 @@ the 50-query limit; the hourly cron offers the rest.
 }
 ```
 
-The body is capped at 64 KB (`413 too_large`, checked while reading, with or without Content-Length) and the answers
-at 32 KB of JSON. Order of checks: IP rate limit → Turnstile → email rate limits → target exists, isn't draft and is
-open → entry type allowed → answers validated against the target's form → duplicate / team name → cap. `201`:
+The body is capped at 64 KB (`413 too_large`, checked while reading, with or without Content-Length; `readJson`'s
+default outside `/api/admin`) and the answers at 32 KB of JSON. Order of checks: IP rate limit → Turnstile (token,
+hostname and the widget's action `enrol`, with real keys) → email rate limits → target exists, isn't draft and is
+open → entry type allowed → answers validated against the target's form → duplicate / team name → cap. `201`, one of
+two answers, both "check your email", decided only by the target's email-confirmation setting:
 
 ```jsonc
 {
-  "status": "confirmed", // 'confirmed' | 'waitlist' | 'pending_email' | 'emailed'
-  "reference": "TVB-7K3Q", // null for pending_email and emailed
-  "position": null, // 1-based waitlist place when waitlisted
-  "teamName": null,
+  "status": "emailed", // 'pending_email' (confirmation on) | 'emailed' (off)
+  "reference": null, // always null on the page: it's in the email
+  "position": null, // always null on the page
+  "teamName": null, // as submitted
   "amountCents": 2000, // null = no fee
-  "message": null, // the form's confirmation text
+  "message": null, // emailed: the form's confirmation text
   "programme": "Scrim & Coached Training",
   "target": "Tue 27 Oct 2026, 6:30–8pm",
   "confirmHours": 24, // pending_email only
@@ -83,15 +85,23 @@ open → entry type allowed → answers validated against the target's form → 
 
 - **`pending_email`** (the target asks for email confirmation, see below): nothing is held yet; the person is emailed a
   confirm link. No reference until they click it.
-- **`confirmed` / `waitlist`**: no confirmation asked for. A confirmation or waitlisted email goes through the outbox
-  (a mail failure never fails the enrolment).
-- **`emailed`**: a repeat of an entry that already exists, where no confirmation is asked for.
+- **`emailed`** (no confirmation asked for): the entry is settled straight away (confirmed, or on the waitlist), and
+  the `enrolment.confirmed` / `enrolment.waitlisted` email has the reference and the place (a mail failure never
+  fails the enrolment). The page doesn't show them: a repeat gets exactly this answer too.
 
-**Repeats don't say so.** A submission matching a live entry (same email and name) answers like a new one instead of
-`409 duplicate`, so the form can't be used to find out whether someone (possibly a junior) is enrolled. The address on
-file gets the news instead: a pending entry gets its confirm link again (same link, same deadline), any other gets
-`enrolment.already` with its reference and where it stands. Where confirmation is on, the answer is exactly the
-`pending_email` one a new entry gets; where it's off (uncapped targets by default) it's `emailed`.
+**Repeats don't say so** (docs/admin.md §3.7). A submission matching an entry that holds or waits for a spot (same
+email and name) answers exactly as a new one would, instead of `409 duplicate`, so the form can't be used to find out
+whether someone (possibly a junior) is enrolled; the address on file gets `enrolment.already` with its reference and
+where it stands. With the waitlist off and no room, a repeat is refused `409 full`, as a new entry would be. **A
+repeat of an unconfirmed (`pending_email`) entry replaces it**: the old one is cancelled with the reason "Replaced by
+a newer form before the email address was confirmed" (its link stops working, its team entry is cancelled with it)
+and the new submission is entered afresh with a new link, so the address owner confirms what was typed last.
+
+**Unconfirmed details stay on the registration.** A `pending_email` entry writes nothing onto a player: its mobile,
+year of birth, guardian and emergency contact are kept in `registrations.pending_details`, and a new player row gets
+only the name and email. Confirming (the link, `verify`, or `confirm` from the admin) merges them into the player,
+filling blanks only (`core.ts` `mergePendingDetailsStatements`, in the same batch), and clears them. The admin's
+target detail shows them on the entry's player with `detailsUnconfirmed: true`.
 
 ### Email confirmation
 
@@ -103,7 +113,14 @@ counted against a cap; the admin sees it as "Awaiting email". The `enrolment.con
 `/enrol/confirm#<token>`; the page shows the entry and a "Confirm my enrolment" button (opening the link alone changes
 nothing, so mail scanners can't confirm). Clicking settles it against the caps (above), then emails the confirmation
 or waitlist place. Admin-added entries never need it. The hourly cron expires unconfirmed entries past their deadline
-(status `expired`, reason "Email address not confirmed in time"; no email, nothing is offered on).
+(status `expired`, reason "Email address not confirmed in time"; no email, nothing is offered on), except while the
+entry's confirm link is still queued in the outbox.
+
+**The deadline starts when the link is sent.** The email's payload names the entry (`pending: { id, hours }`); when
+the mailer actually sends it (straight away, or from the queue after the day's cap) it sets `hold_expires_at` to the
+send time plus the hours (only ever later), and the email shows that deadline. The drain drops a queued link whose
+entry is no longer `pending_email` (confirmed by hand, replaced, expired). Confirm links are mailed from their own
+share of the reserve (see Emails).
 
 | Status | `error`            | When                                                                                                |
 | ------ | ------------------ | --------------------------------------------------------------------------------------------------- |
@@ -141,7 +158,10 @@ siteverify answer's `hostname` must be the host the form posted to, so a token s
 
 The confirm page (`/enrol/confirm#<token>`, island `ConfirmResponse.tsx`) posts `{ token, action: 'view' | 'confirm' }`
 (64 KB body cap). Answers `{ state: 'pending' | 'confirmed' | 'waitlist' | 'full' | 'expired', firstName, programme,
-target, teamName, expiresAt, reference, position }`; `reference` once confirmed or waitlisted. Confirming twice is
+target, teamName, expiresAt, reference, position, details }`; `reference` once confirmed or waitlisted; `details`
+while pending: `{ phone, birthYear, guardianName, emergencyContact }` as sent with the form, which the page lists as
+"Confirming also saves these details" (or null). The page re-reads the token on `hashchange` (a second link opened in
+the same tab starts afresh); so does the offer page. Confirming twice is
 harmless. `404 not_found` for a bad or tampered token. Tokens (`tokens.ts`) are `c1.<registration id>.<createdAt
 base36>.<HMAC-SHA-256>` with their own key label; they're single-use because they only act while the registration is
 still `pending_email` and inside its deadline. `enrolment.confirm_email` is a sensitive template (payload scrubbed).
@@ -161,9 +181,18 @@ server checks `offered_at` and the status. Offer emails are in `SENSITIVE_TEMPLA
 
 **The hold starts when the email goes.** An offer email's payload names the offer (`hold`); when the mailer actually
 sends it (straight away, or from the queue after the day's cap) it sets `offer_expires_at` to the send time plus the
-offer hours, and the email shows that deadline. The cron never lapses an offer whose email is still queued, and the
-drain drops an offer email whose offer was answered, cancelled or re-offered meanwhile. Resending an offer restarts its
-hold.
+offer hours, never past `hold.latest`, and the email shows that deadline. The cron never lapses an offer whose email is
+still queued (unless its `latest` has passed), and the drain drops an offer email whose offer was answered, cancelled
+or re-offered meanwhile, or whose `latest` has passed. Resending an offer restarts its hold (still capped).
+
+**Offers stop before the start.** Settings → Enrolment → `offerCutoffHours` (default 2): an offer is held until the
+target's start minus that at the latest (`core.ts` `offerWindow` / `offerExpiry`), and once that point has passed
+`offerNext()` makes none, the admin's `offer` action answers `409 offers_closed`, and the cron's work-finder skips the
+product (so it can't take the run's one product slot every hour). The start (`targetStartSql`, Sydney wall clock):
+a session's date and start time; an event's start date and time; a season's first match day that isn't a skipped
+week, at the earliest game start that night, else the league's start time; midnight when no time is known. Terms have
+none. `GET /enrolment/targets/:kind/:id` returns it as `offers: { latest, closed, startsAt, cutoffHours }`, and the
+admin's target page says when offers stop or that they have.
 
 ### Public form component
 
@@ -226,7 +255,8 @@ lapsed offer) offers it straight away and emails the offer.
 | `PUT /forms/:id/programmes`                              | Make this the default form for exactly `{ programmeIds }`.                                                                                                                                                                                                                             |
 
 Registration actions: `mark_paid { method: payid|cash|bank|card|other, note? }`, `mark_unpaid { note? }`,
-`cancel { reason?, notify? }`, `reinstate` (back through the cap check), `offer` (a waitlisted person, now),
+`cancel { reason?, notify? }`, `reinstate` (back through the cap check), `offer` (a waitlisted person, now;
+`409 offers_closed` once offers have stopped before the start),
 `confirm { notify? }` (promote from the waitlist, an offer or a pending email, past the cap), `resend_offer`,
 `verify { notify? }` (confirm a pending entry's email by hand: it's settled against the caps as if they'd clicked),
 `resend_confirm` (email the confirm link again; the deadline restarts), `move { to: { kind, id }, force? }` (within the
@@ -261,12 +291,19 @@ deadline in Sydney time; sensitive), `enrolment.cancelled` (by the admin with `n
 `enrolment.confirm_email` (the confirm link and its deadline; sensitive) and `enrolment.already` (a repeat
 submission: the reference and where the entry stands).
 
-The mailer (`src/server/email/mailer.ts`) treats enrolment email in two classes. **Priority** (offers, cancellations,
+The mailer (`src/server/email/mailer.ts`) treats enrolment email in three tiers. **Priority** (offers, cancellations,
 admin actions, and anything after a confirmed address or an accepted offer; `sendEmail(…, { priority: true })`,
-stored as `email_outbox.priority`) may use the whole general pool and isn't limited per recipient. **Everything else**
-(what an anonymous form triggers) stops `PRIORITY_RESERVE` (20) short of the general pool's daily cap, so junk entries
-can't hold up a real offer, and is limited per canonical mailbox: `ENROLMENT_PER_HOUR` (5; more are queued until the
-hour has passed) and `ENROLMENT_PER_DAY` (10; more are dropped).
+stored as `email_outbox.priority`) may use the whole general pool and isn't limited per recipient. **Confirm links**
+(`enrolment.confirm_email`, not priority) may use `CONFIRM_LINK_RESERVE` (10) of the reserve. **Everything else**
+(what an anonymous form triggers: `enrolment.already`, confirmations on uncapped forms) stops `PRIORITY_RESERVE` (20)
+short of the general pool's daily cap, so junk entries can't hold up a real offer or confirm link. Both non-priority
+tiers are limited per canonical mailbox: `ENROLMENT_PER_HOUR` (5; more are queued until the hour has passed) and
+`ENROLMENT_PER_DAY` (10; more are dropped). The tier of a queued email is worked out again from its template and
+`priority` when the cron drains it.
+
+**No real email on the test keys.** `emailMode()` ignores `RESEND_API_KEY` (and logs instead) while the public forms
+use Turnstile's always-pass test keys, i.e. in development and staging without real `TURNSTILE_*` keys: otherwise
+`/api/enrol` would mail any address for anyone. Set real Turnstile keys there too before giving staging a Resend key.
 
 ## Cron
 
@@ -277,6 +314,8 @@ queries), and that hour the drain sends 5 emails instead of 10 and analytics wai
 inside 50 D1 queries. It's skipped without `BETTER_AUTH_SECRET` (no key to sign offer links).
 
 Housekeeping (`runHousekeeping()` in `src/server/cron.ts`) runs every hour too: one settings read and one batch that
-expires unconfirmed entries past their deadline (at most 200 a run) and deletes sent and failed outbox rows older than
-Settings → Enrolment → "Days to keep sent emails" (default 30). With every job doing work an hourly run is about 26
+expires unconfirmed entries past their deadline (at most 200 a run, never one whose link is still queued), deletes
+unconfirmed entries that lapsed or were replaced more than Settings → Enrolment → "Days to keep sent emails" (default 30) ago (at most 90 a run, with their unconfirmed team entries; `confirm.ts` `pruneUnconfirmedStatements`), and
+deletes sent and failed outbox rows older than that; then, when it pruned any, one statement deleting the player rows
+they used that nothing else uses (`prunePlayersStatement`). With every job doing work an hourly run is about 27
 queries (`confirm.test.ts` holds it to 35).
