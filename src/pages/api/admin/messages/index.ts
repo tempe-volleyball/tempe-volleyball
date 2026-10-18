@@ -13,7 +13,9 @@ export const GET: APIRoute = ({ locals, request, url }) =>
     const { db } = getServices()
     await requireRole(locals.user, 'admin', request, db, { fresh: true })
     const p = url.searchParams
-    return json(await listMessages(db, { filter: parseFilter(p.get('filter')), q: p.get('q'), topic: p.get('topic'), before: p.get('before') }))
+    return json(
+      await listMessages(db, { filter: parseFilter(p.get('filter')), q: p.get('q'), topic: p.get('topic'), before: p.get('before') }),
+    )
   })
 
 export const POST: APIRoute = ({ locals, request }) =>

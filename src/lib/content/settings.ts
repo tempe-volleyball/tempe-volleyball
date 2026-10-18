@@ -341,16 +341,20 @@ const checkers: { [K in SettingKey]: (v: unknown) => SiteSettings[K] } = {
       if (!Array.isArray(x)) throw new Invalid(`${label} must be a list.`)
       return x
     }
-    const topics = [
-      ...new Map(
-        list(o.topics, 'Topics')
-          .map((t) => str(t, 'A topic', L.topic).replace(/\s+/g, ' '))
-          .filter(Boolean)
-          .map((t) => [t.toLowerCase(), t] as const),
-      ).values(),
-    ]
+    // Trimmed, with repeats (in any case) dropped; the first spelling wins.
+    const topics: string[] = []
+    for (const raw of list(o.topics, 'Topics')) {
+      const t = str(raw, 'A topic', L.topic).replace(/\s+/g, ' ')
+      if (t && !topics.some((x) => x.toLowerCase() === t.toLowerCase())) topics.push(t)
+    }
     if (topics.length > L.topics) throw new Invalid(`At most ${L.topics} topics.`)
-    const notifyEmails = [...new Set(list(o.notifyEmails, 'Notification addresses').map((e) => email(e, 'A notification address')).filter(Boolean))]
+    const notifyEmails = [
+      ...new Set(
+        list(o.notifyEmails, 'Notification addresses')
+          .map((e) => email(e, 'A notification address'))
+          .filter(Boolean),
+      ),
+    ]
     if (notifyEmails.length > L.notifyEmails) throw new Invalid(`At most ${L.notifyEmails} notification addresses.`)
     return {
       enabled: o.enabled !== false,

@@ -12,7 +12,10 @@
 // - empty venue directions (venue.update audits);
 // - for each kept page, its proposed version as a revision just behind a copy of the live version, so the admin's
 //   Revisions list offers it under View → Restore this version, and nothing changes on the live page;
-// - a draft page at /enrol (the /enrol intro) with its first revision;
+// - a draft page at /enrol (the /enrol intro) and one at /privacy (the privacy policy), each with its first revision;
+// - (Phase 7) /contact's reviewed text with a Contact form block, live, since the old page's embed was the wrong
+//   form; the old version stays in its Revisions;
+// - (Phase 7) the importer's redirects for old URLs the first import missed;
 // - archives clearly stale pages (page.unpublish audits) and adds their redirects;
 // - redirects for pages that move later, which wait behind the published page until it's archived.
 
@@ -27,7 +30,10 @@ import {
   ENROL_PAGE,
   LATER_REDIRECTS,
   LEAGUE_UPDATES,
+  LIVE_PAGES,
   PAGE_DRAFTS,
+  PRIVACY_PAGE,
+  REDIRECT_FIXES,
   VENUE_DIRECTIONS,
   programmeSlug,
 } from './drafts'
@@ -37,6 +43,8 @@ export const SOURCE = 'scripts/content (content map)'
 const NOW = `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`
 /** A second before NOW, so a proposed revision sorts just behind the copy of the live version written after it. */
 const JUST_BEFORE = `strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 second')`
+/** A second after NOW, so a page made live sorts above the copy of its old version written in the same run. */
+const JUST_AFTER = `strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+1 second')`
 
 const q = (v: SqlValue) => sqlLiteral(v)
 const json = (v: unknown) => sqlLiteral(JSON.stringify(v))
@@ -181,14 +189,53 @@ export function pageDraftStatements(): string[] {
   })
 }
 
-export function enrolPageStatements(): string[] {
-  const id = contentId('page', ENROL_PAGE.path)
+/** A new draft page, with its first revision as createPage writes one. Nothing happens if the path is taken. */
+function draftPageStatements(page: { path: string; title: string; metaDescription: string; body: ContentBody }): string[] {
+  const id = contentId('page', page.path)
   return [
-    `INSERT INTO "pages" ("id", "path", "title", "meta_description", "template", "body", "status") SELECT ${q(id)}, ${q(ENROL_PAGE.path)}, ${q(ENROL_PAGE.title)}, ${q(ENROL_PAGE.metaDescription)}, 'content', ${bodyJson(ENROL_PAGE.body)}, 'draft' WHERE NOT EXISTS (SELECT 1 FROM "pages" WHERE "path" = ${q(ENROL_PAGE.path)} OR "id" = ${q(id)});`,
-    // Its first revision, as createPage writes one.
-    `INSERT INTO "page_revisions" ("id", "page_id", "title", "body", "created_by", "created_at") SELECT ${q(contentId('revision-current', ENROL_PAGE.path))}, "id", "title", "body", NULL, ${NOW} FROM "pages" WHERE "id" = ${q(id)} AND "updated_by" IS NULL AND NOT EXISTS (SELECT 1 FROM "page_revisions" WHERE "page_id" = ${q(id)});`,
+    `INSERT INTO "pages" ("id", "path", "title", "meta_description", "template", "body", "status") SELECT ${q(id)}, ${q(page.path)}, ${q(page.title)}, ${q(page.metaDescription)}, 'content', ${bodyJson(page.body)}, 'draft' WHERE NOT EXISTS (SELECT 1 FROM "pages" WHERE "path" = ${q(page.path)} OR "id" = ${q(id)});`,
+    `INSERT INTO "page_revisions" ("id", "page_id", "title", "body", "created_by", "created_at") SELECT ${q(contentId('revision-current', page.path))}, "id", "title", "body", NULL, ${NOW} FROM "pages" WHERE "id" = ${q(id)} AND "updated_by" IS NULL AND NOT EXISTS (SELECT 1 FROM "page_revisions" WHERE "page_id" = ${q(id)});`,
   ]
 }
+
+export const enrolPageStatements = () => draftPageStatements(ENROL_PAGE)
+export const privacyPageStatements = () => draftPageStatements(PRIVACY_PAGE)
+
+/**
+ * Pages whose reviewed version goes live now (drafts.ts LIVE_PAGES), after the proposals above have copied the live
+ * version into Revisions: an audit row, the page itself (title, body, meta description; still never "edited in the
+ * admin"), and a revision of the new version on top, so the old one is "Restore this version" one below it. Its
+ * updated_at matches that revision, so the home page doesn't list it under "pages to review".
+ */
+export function livePageStatements(): string[] {
+  return LIVE_PAGES.flatMap((d) => {
+    const current = contentId('revision-current', d.path)
+    const live = contentId('revision-live', d.path)
+    const where = `${untouchedPage(d.path, d.wpId, d.importedTitle)} AND "pages"."status" = 'published' AND EXISTS (SELECT 1 FROM "page_revisions" r WHERE r."id" = ${q(current)} AND r."page_id" = "pages"."id")`
+    return [
+      audit(
+        'page.publish',
+        'page',
+        `(SELECT "id" FROM "pages" WHERE "path" = ${q(d.path)})`,
+        { title: d.importedTitle, path: d.path },
+        { title: d.title, path: d.path, why: d.why },
+        `EXISTS (SELECT 1 FROM "pages" WHERE ${where})`,
+      ),
+      `UPDATE "pages" SET "title" = ${q(d.title)}, "body" = ${bodyJson(d.body)}, "meta_description" = ${q(d.metaDescription)}, "updated_at" = ${JUST_AFTER} WHERE ${where};`,
+      `INSERT INTO "page_revisions" ("id", "page_id", "title", "body", "created_by", "created_at") SELECT ${q(live)}, "id", "title", "body", NULL, "updated_at" FROM "pages" WHERE "path" = ${q(d.path)} AND "title" = ${q(d.title)} AND "updated_by" IS NULL AND NOT EXISTS (SELECT 1 FROM "page_revisions" WHERE "id" = ${q(live)});`,
+    ]
+  })
+}
+
+/**
+ * The importer's own redirect rows (source 'wp-import') for URLs the first import missed: inserted, or a row still
+ * pointing at the old target corrected. A row Michael edited (source 'manual') is left alone.
+ */
+export const redirectFixStatements = () =>
+  REDIRECT_FIXES.map(
+    (r) =>
+      `INSERT INTO "redirects" ("id", "from_path", "to_path", "status", "source") VALUES (${q(stableId('redirect', r.from))}, ${q(r.from)}, ${q(r.to)}, 301, 'wp-import') ON CONFLICT ("from_path") ${r.was === null ? 'DO NOTHING' : `DO UPDATE SET "to_path" = excluded."to_path", "updated_at" = ${NOW} WHERE "redirects"."source" = 'wp-import' AND "redirects"."to_path" = ${q(r.was)}`};`,
+  )
 
 /** Our redirect rows: new ones are inserted, and only a row the importer wrote is taken over (never Michael's). */
 const redirectStatement = (from: string, to: string) =>
@@ -222,9 +269,12 @@ export function contentMapStatements(): string[] {
     ...categoryStatements(),
     ...venueStatements(),
     ...pageDraftStatements(),
+    ...livePageStatements(),
     ...enrolPageStatements(),
+    ...privacyPageStatements(),
     ...archiveStatements(),
     ...laterRedirectStatements(),
+    ...redirectFixStatements(),
   ]
 }
 

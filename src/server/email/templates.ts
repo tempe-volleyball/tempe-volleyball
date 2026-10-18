@@ -219,7 +219,11 @@ const enrolmentRenderers: { [K in Extract<TemplateName, `enrolment.${string}`>]:
 }
 
 /** A message as plain text, quoted, and as HTML paragraphs (escaped, line breaks kept). */
-const quoteText = (m: string) => m.split('\n').map((l) => `> ${l}`).join('\n')
+const quoteText = (m: string) =>
+  m
+    .split('\n')
+    .map((l) => `> ${l}`)
+    .join('\n')
 const messageHtml = (m: string) =>
   `<div style="border-left:4px solid #ffa800;padding:4px 12px;margin:12px 0;white-space:pre-wrap">${escapeHtml(m)}</div>`
 

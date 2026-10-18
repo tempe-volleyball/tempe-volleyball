@@ -323,6 +323,9 @@ The public website only; the admin is Phase 6.
 - Meta descriptions, Open Graph, JSON-LD, sitemap (real pages only), one H1 per page, fix the homepage's first line.
 - UX: a real contact form (with Turnstile), the sidebar/footer ladder duplication from the QA review, mobile layout of
   long fixtures tables, and the small Lighthouse leftovers (responsive hero/logo sizes, render-blocking CSS).
+  **Contact form: done** (2026-10-19): a Contact form page block on /contact, Admin → Messages, notifications and
+  retention (docs/admin.md §3.15, docs/api/contact.md). A draft privacy policy at /privacy waits for Michael
+  (docs/content-map.md, Phase 7).
 - Accessibility fixes from the baseline (contrast on blue tables, labelled menu button, heading order, descriptive link
   text), kept at Lighthouse 100.
 - Remove or redirect stale pages: 2021 Monday leagues, COVID guidelines, "Sample Page", duplicates (two Thursday fixtures
@@ -379,6 +382,8 @@ These don't block Phase 1 or 2.
    - Do JDP juniors need guardian consent wording or a Working With Children note?
    - Should old match stub pages (`/event/<slug>/`) redirect to the season fixtures page or to a new match page?
    - Do historical seasons before 2023 need importing, or only what the API has?
+   - Privacy policy (Phase 7 draft at /privacy): do team captains or others see players' contact details, are photos
+     taken and posted, and which address takes privacy requests? (docs/content-map.md, question 13.)
 
 ---
 

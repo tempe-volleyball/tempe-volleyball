@@ -18,9 +18,14 @@ import {
   CATEGORY_INTROS,
   DRAFT_PROGRAMMES,
   ENROL_PAGE,
+  CONTACT_LIVE,
   LATER_REDIRECTS,
   LEAGUE_UPDATES,
+  LIVE_PAGES,
   PAGE_DRAFTS,
+  PRIVACY_PAGE,
+  REDIRECT_FIXES,
+  TNL_DESCRIPTION,
   VENUE_DIRECTIONS,
   draftPath,
   programmeSlug,
@@ -112,7 +117,9 @@ describe('the drafted content', () => {
       ...LEAGUE_UPDATES.flatMap((u) => (u.description ? [u.description] : [])),
       ...Object.values(CATEGORY_INTROS),
       ...PAGE_DRAFTS.map((d) => d.body),
+      ...LIVE_PAGES.map((d) => d.body),
       ENROL_PAGE.body,
+      PRIVACY_PAGE.body,
     ]
     for (const b of bodies) {
       expect(checkBlocks(b.blocks).ok).toBe(true)
@@ -125,8 +132,9 @@ describe('the drafted content', () => {
     }
     expect(new Set(DRAFT_PROGRAMMES.map((d) => d.code)).size).toBe(DRAFT_PROGRAMMES.length)
     expect(checkPagePath(ENROL_PAGE.path)).toEqual({ ok: true, path: '/enrol' })
-    for (const a of contentMapSql().matchAll(/'(page\.unpublish|programme\.\w+|category\.\w+|venue\.\w+)'/g))
-      expect(auditActions).toContain(a[1])
+    expect(checkPagePath(PRIVACY_PAGE.path)).toEqual({ ok: true, path: '/privacy' })
+    for (const d of LIVE_PAGES) expect(d.metaDescription.length).toBeLessThanOrEqual(155)
+    for (const a of contentMapSql().matchAll(/'(page\.\w+|programme\.\w+|category\.\w+|venue\.\w+)'/g)) expect(auditActions).toContain(a[1])
   })
 
   it('redirects nowhere that is itself archived, and keeps statements small', () => {
@@ -160,7 +168,7 @@ describe('applying it to an imported site', () => {
     const tvsl = await db.select().from(leagues).where(eq(leagues.code, 'TVSL')).get()
     expect(tvsl).toMatchObject({ status: 'active', startTime: '19:00', endTime: '22:00' })
     expect(tvsl!.description.html).toContain('Best of five sets')
-    expect((await db.select().from(leagues).where(eq(leagues.code, 'TNL')).get())?.description.html).toBe('')
+    expect((await db.select().from(leagues).where(eq(leagues.code, 'TNL')).get())?.description.html).toBe(TNL_DESCRIPTION.html)
 
     for (const c of await db.select().from(categories).all()) expect(c.intro.html).toBe(CATEGORY_INTROS[c.id]!.html)
     const tempe = await db.select().from(venues).where(eq(venues.id, 'v-tempe')).get()
@@ -175,7 +183,7 @@ describe('applying it to an imported site', () => {
     run()
     const ed = { id: 'ed', ip: '203.0.113.9' }
     await db.insert(user).values({ id: 'ed', name: 'ed', email: 'ed@example.com', emailVerified: true, role: 'editor' })
-    for (const d of PAGE_DRAFTS) {
+    for (const d of PAGE_DRAFTS.filter((x) => !LIVE_PAGES.some((l) => l.path === x.path))) {
       const { page, revisions } = await getPage(db, pageId(d.wpId))
       expect(page).toMatchObject({ status: 'published', title: d.importedTitle, body: { html: IMPORTED_HTML }, updatedBy: null })
       // Newest first: the live version ("current" in the admin), then the proposal.
@@ -187,6 +195,40 @@ describe('applying it to an imported site', () => {
     // The home page's Programme list blocks are recorded for cache purges once restored.
     const home = (await getPage(db, pageId(3465))).page
     expect((home.body.blocks as JsonNode[]).filter((b) => b.type === 'programmeList')).toHaveLength(2)
+  })
+
+  it('makes /contact live with a Contact form block, keeping the old version and the proposal in Revisions', async () => {
+    run()
+    const { page, revisions } = await getPage(db, pageId(CONTACT_LIVE.wpId))
+    expect(page).toMatchObject({ status: 'published', title: 'Contact', updatedBy: null, metaDescription: CONTACT_LIVE.metaDescription })
+    expect((page.body.blocks as JsonNode[]).map((b) => b.type)).toContain('contactForm')
+    // The new version on top, then the old live one (restorable), then the content map's proposal.
+    expect(revisions.map((r) => r.id)).toEqual([
+      contentId('revision-live', '/contact'),
+      contentId('revision-current', '/contact'),
+      contentId('revision-proposed', '/contact'),
+    ])
+    expect(revisions[1]).toMatchObject({ title: 'CONTACT' })
+    expect(Date.parse(revisions[0]!.createdAt)).toBe(Date.parse(page.updatedAt))
+    const [audit] = await db.select().from(auditLog).where(eq(auditLog.action, 'page.publish')).all()
+    expect(audit).toMatchObject({ actorUserId: null, before: { title: 'CONTACT' }, after: { title: 'Contact', path: '/contact' } })
+  })
+
+  it('adds /privacy as a draft and the missed redirects, without overwriting a redirect Michael edited', async () => {
+    await db.insert(redirects).values({ fromPath: '/calendar/this-weeks-fixtures', toPath: '/leagues', source: 'wp-import' })
+    run()
+    const privacy = await db.select().from(pages).where(eq(pages.path, '/privacy')).get()
+    expect(privacy).toMatchObject({ status: 'draft', title: 'Privacy policy', updatedBy: null })
+    expect(privacy!.body.html).toContain('365 days')
+    for (const r of REDIRECT_FIXES) expect((await lookupPath(db, r.from)).redirect).toMatchObject({ toPath: r.to, status: 301 })
+
+    ;({ db, sqlite } = createTestDb())
+    await seed()
+    await db.insert(redirects).values({ fromPath: '/calendar/this-weeks-fixtures', toPath: '/somewhere', source: 'manual' })
+    await db.insert(redirects).values({ fromPath: '/category/uncategorized', toPath: '/elsewhere', source: 'wp-import' })
+    run()
+    expect((await lookupPath(db, '/calendar/this-weeks-fixtures')).redirect?.toPath).toBe('/somewhere')
+    expect((await lookupPath(db, '/category/uncategorized')).redirect?.toPath).toBe('/elsewhere')
   })
 
   it('adds /enrol as a draft page, archives stale pages and wires their redirects', async () => {

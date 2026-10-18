@@ -117,6 +117,20 @@ export const ENROL_REDIRECTS = [
   '/returning-team',
 ] as const
 
+/**
+ * Where an old SportsPress calendar without a league should go: the old "this week's fixtures" calendar has a real
+ * successor (the cross-league list); anything else is the league index.
+ */
+export const calendarFallback = (slug: string) => (slug === 'this-weeks-fixtures' ? THIS_WEEK_TARGET : LEAGUES_ROUTE)
+
+/**
+ * Same-site links in imported HTML without the trailing slash WordPress gave them ("/contact/" -> "/contact",
+ * "/faq/#x" -> "/faq#x"), so they don't cost a 301 each. Only root-relative page links: files (with an extension)
+ * and "/" itself are left alone.
+ */
+export const stripTrailingSlashes = (html: string) =>
+  html.replace(/(href=")(\/[^"?#]*?[^/"?#.]+)\/+([?#][^"]*)?"/gi, (_, a: string, p: string, rest?: string) => `${a}${p}${rest ?? ''}"`)
+
 /** Where an old league-data page should go. */
 export function leagueDataPageTarget(slug: string): string | null {
   if (slug === 'this-weeks-fixtures') return THIS_WEEK_TARGET
@@ -140,6 +154,8 @@ export function wordpressRedirects(postDates: readonly string[]): [from: string,
     ['/feed', NEWS_FEED_ROUTE],
     ['/category/news/feed', NEWS_FEED_ROUTE],
     ['/comments/feed', NEWS_ROUTE],
+    // WordPress's default category: in the old sitemap, with no posts of its own.
+    ['/category/uncategorized', NEWS_ROUTE],
   ]
   const archives = new Set<string>()
   for (const d of postDates) {

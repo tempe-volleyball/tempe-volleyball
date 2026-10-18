@@ -120,7 +120,7 @@ function NavLinks({ me, onNavigate }: { me: Me; onNavigate?: () => void }) {
       >
         {item.label}
         {item.href === '/messages' && unread > 0 && (
-          <span className="bg-accent text-ink ml-2 rounded-full px-1.5 py-0.5 text-xs font-bold">
+          <span className={`ml-2 rounded-full px-1.5 py-0.5 text-xs font-bold ${current ? 'bg-white text-ink' : 'bg-accent text-ink'}`}>
             {unread}
             <span className="sr-only"> unread</span>
           </span>

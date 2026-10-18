@@ -132,7 +132,10 @@ function summary(type: DataBlockType, attrs: Record<string, unknown>, choices: C
   }
   if (type === 'contactForm') {
     const a = parseContactFormAttrs(attrs)
-    return [a.title ?? 'No heading', a.showTopic ? (a.defaultTopic ? `starts on “${a.defaultTopic}”` : 'asks for a topic') : 'no topic question']
+    return [
+      a.title ?? 'No heading',
+      a.showTopic ? (a.defaultTopic ? `starts on “${a.defaultTopic}”` : 'asks for a topic') : 'no topic question',
+    ]
       .filter(Boolean)
       .join(' · ')
   }
@@ -568,8 +571,8 @@ function ContactFormSettings({
   return (
     <div className="space-y-5">
       <p className="text-sm text-black/70">
-        Name, email, topic and message. Messages arrive in Admin → Messages (and by email, if Settings → Contact form says so). The
-        topics, the thank-you text and the automatic reply are set once for every form in Settings → Contact form.
+        Name, email, topic and message. Messages arrive in Admin → Messages (and by email, if Settings → Contact form says so). The topics,
+        the thank-you text and the automatic reply are set once for every form in Settings → Contact form.
       </p>
       <Field
         label="Heading (optional)"

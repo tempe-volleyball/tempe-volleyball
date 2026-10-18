@@ -107,6 +107,11 @@ showDirections, showProgrammes }`. Each venue (`<div class="venue" id="venue-<sl
   Maps search for name and address; opens in a new tab), the directions (blank lines make paragraphs) and "Who plays
   here" (active programmes whose default venue it is). Reads `loadSite()`'s venues and programmes: no queries. No
   `page_data_refs` row.
+- **Contact form:** attrs `{ title, defaultTopic, showTopic, submitLabel }`. A server-rendered form (name, email,
+  topic from Settings → Contact form, message, a honeypot and a Turnstile box) posting to `/api/contact`, with the
+  privacy link while the privacy page is published; the contact details instead when the form is off or Turnstile
+  isn't configured. Reads `loadSite()`'s settings and the route's Turnstile site key (`renderBody(…, { turnstileSiteKey })`):
+  no queries, no `page_data_refs` row. See [contact.md](contact.md).
 - **Queries:** a page without data blocks serves its stored HTML with no extra work. A page with them adds at most one
   batch to `loadSite()` + `lookupPath()`: the four next-start queries (programme lists) and, for a league between
   seasons, its latest season (7 statements). A full page view stays under 30 D1 statements (tested).

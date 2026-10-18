@@ -2,7 +2,12 @@
 // editor would store it: { blocks, html } with html from renderBlocks() (src/lib/content/render.ts). Inline text takes
 // **bold** and [label](href).
 
-import { DEFAULT_PROGRAMME_LIST_ATTRS, type ProgrammeListAttrs } from '../../src/lib/content/blocks'
+import {
+  DEFAULT_CONTACT_FORM_ATTRS,
+  DEFAULT_PROGRAMME_LIST_ATTRS,
+  type ContactFormAttrs,
+  type ProgrammeListAttrs,
+} from '../../src/lib/content/blocks'
 import { normaliseDataBlocks } from '../../src/lib/content/data-blocks'
 import { checkBlocks, renderBlocks, type JsonMark, type JsonNode } from '../../src/lib/content/render'
 import type { ContentBody } from '../../src/server/db/schema/columns'
@@ -42,6 +47,12 @@ export const ul = (...items: string[]): JsonNode => ({
 export const programmeList = (attrs: Partial<ProgrammeListAttrs>): JsonNode => ({
   type: 'programmeList',
   attrs: { ...DEFAULT_PROGRAMME_LIST_ATTRS, ...attrs } as unknown as Record<string, unknown>,
+})
+
+/** A Contact form block (docs/admin.md §3.15): the form, with its topics and notifications from Settings → Contact form. */
+export const contactForm = (attrs: Partial<ContactFormAttrs> = {}): JsonNode => ({
+  type: 'contactForm',
+  attrs: { ...DEFAULT_CONTACT_FORM_ATTRS, ...attrs } as unknown as Record<string, unknown>,
 })
 
 /** The stored body for some blocks, checked and rendered the way a save in the admin does it. */

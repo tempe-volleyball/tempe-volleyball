@@ -68,12 +68,12 @@ export function Messages() {
     [filter, query, topic],
   )
 
-  const load = useCallback(() => {
+  const fetchList = useCallback(() => {
     const n = ++seq.current
-    setError(null)
     api<MessageList>(url()).then(
       (d) => {
         if (n !== seq.current) return
+        setError(null)
         setData(d)
         setMore([])
         setNext(d.next)
@@ -82,8 +82,12 @@ export function Messages() {
       (e: unknown) => n === seq.current && setError(errorMessage(e)),
     )
   }, [url])
+  const load = () => {
+    setError(null)
+    fetchList()
+  }
 
-  useEffect(() => load(), [load])
+  useEffect(() => fetchList(), [fetchList])
   // Search as you type, after a pause.
   useEffect(() => {
     const t = setTimeout(() => setQuery(q.trim()), 300)
@@ -149,8 +153,7 @@ export function Messages() {
         <div>
           <h1 className="text-2xl font-bold">Messages</h1>
           <p className="text-sm text-black/70">
-            From the contact form.{' '}
-            {counts ? `${counts.new} unread, ${counts.new + counts.read} open. ` : ''}
+            From the contact form. {counts ? `${counts.new} unread, ${counts.new + counts.read} open. ` : ''}
             Topics, notifications and how long handled messages are kept are in{' '}
             <Link href="/settings#settings-contactForm" className="text-brand underline underline-offset-2">
               Settings → Contact form
@@ -180,6 +183,7 @@ export function Messages() {
               {label}
               {counts && f !== 'all' && (
                 <span className="ml-1 font-normal">
+                  {' '}
                   ({f === 'open' ? counts.new + counts.read : f === 'new' ? counts.new : counts.handled})
                 </span>
               )}
@@ -249,7 +253,9 @@ export function Messages() {
                 />
                 <Link href={`/messages/${r.id}`} className="group min-w-0 flex-1">
                   <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                    <span className={`text-brand group-hover:underline ${r.status === 'new' ? 'font-bold' : 'font-semibold'}`}>{r.name}</span>
+                    <span className={`text-brand group-hover:underline ${r.status === 'new' ? 'font-bold' : 'font-semibold'}`}>
+                      {r.name}
+                    </span>
                     {r.topic && <span className="text-sm text-black/70">· {r.topic}</span>}
                     <StatusChip status={r.status} />
                   </span>
@@ -283,10 +289,10 @@ export function MessagePage({ id }: { id: string }) {
   const dirty = !!m && note.trim() !== (m.note ?? '')
   useUnsavedWarning(dirty)
 
-  const load = useCallback(() => {
-    setError(null)
+  const fetchMessage = useCallback(() => {
     api<MessageDetail>(`/api/admin/messages/${encodeURIComponent(id)}`).then(
       (d) => {
+        setError(null)
         setM(d)
         setNote(d.note ?? '')
         messagesChanged()
@@ -294,7 +300,11 @@ export function MessagePage({ id }: { id: string }) {
       (e: unknown) => setError(errorMessage(e)),
     )
   }, [id])
-  useEffect(() => load(), [load])
+  const load = () => {
+    setError(null)
+    fetchMessage()
+  }
+  useEffect(() => fetchMessage(), [fetchMessage])
 
   const patch = async (body: { status?: string; note?: string }, what: string, done: string) => {
     setBusy(what)
@@ -394,7 +404,9 @@ export function MessagePage({ id }: { id: string }) {
                 </>
               )}
             </dl>
-            <div className="rounded border-l-4 border-accent bg-black/[0.02] px-4 py-3 whitespace-pre-wrap [overflow-wrap:anywhere]">{m.message}</div>
+            <div className="rounded border-l-4 border-accent bg-black/[0.02] px-4 py-3 whitespace-pre-wrap [overflow-wrap:anywhere]">
+              {m.message}
+            </div>
             <div className="mt-4 flex flex-wrap gap-2">
               <a
                 href={replyMailto(m)}
@@ -407,12 +419,20 @@ export function MessagePage({ id }: { id: string }) {
                   Reopen
                 </Button>
               ) : (
-                <Button variant="secondary" busy={busy === 'status'} onClick={() => void patch({ status: 'handled' }, 'status', 'Marked as handled.')}>
+                <Button
+                  variant="secondary"
+                  busy={busy === 'status'}
+                  onClick={() => void patch({ status: 'handled' }, 'status', 'Marked as handled.')}
+                >
                   Mark handled
                 </Button>
               )}
               {!handled && (
-                <Button variant="link" disabled={busy !== null} onClick={() => void patch({ status: 'new' }, 'status', 'Marked as unread.')}>
+                <Button
+                  variant="link"
+                  disabled={busy !== null}
+                  onClick={() => void patch({ status: 'new' }, 'status', 'Marked as unread.')}
+                >
                   Mark unread
                 </Button>
               )}

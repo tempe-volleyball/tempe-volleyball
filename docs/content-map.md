@@ -33,7 +33,7 @@ venue and archive changes are in the audit log (actor blank, `source: scripts/co
 | `/`                                                     | Welcome to Tempe Volleyball!                                 | Kept: home page. Proposed revision uses two **Programme list** blocks instead of typed-out days and times. | Draft    | Live version lists the **Monday league** (Five Dock, 6–8pm), which no longer exists, and links to `/2023-enrolment`.                               |
 | `/about-tempe-vb`                                       | About Tempe VB                                               | Kept: About. Directions moved to Where We Play.                                                            | Draft    | Live version has an editor's note left in (“[These should be drop downs]”) and a duplicate copy of the directions.                                 |
 | `/where-we-play`                                        | WHERE WE PLAY                                                | Kept: all three venues. Also copied into Admin → Venues → Directions.                                      | Draft    | Old text said “CityRail”; now the T4 line. Five Dock has no directions on the old site. “Burwood MLC **Aquatic Centre**”: is that the entrance?    |
-| `/contact`                                              | CONTACT                                                      | Kept: email and phone, links to Enrol and Where We Play.                                                   | Draft    | The live page's embedded “contact form” is actually the **New Player** Google Form. Proposed version drops it.                                     |
+| `/contact`                                              | CONTACT                                                      | Kept: email and phone, links to Enrol and Where We Play, plus a real **Contact form** block.               | **Live** | Phase 7: made live on staging (the embed was the **New Player** Google Form, 4.7 MB). Old version in Revisions; please read it through.            |
 | `/rules`                                                | RULES                                                        | Kept: league rules.                                                                                        | Draft    | Dropped “team fees increased after the Sep 2023 renovation”. Times are for 8–10pm nights: does SAL (3–5pm) follow the same pattern?                |
 | `/faq`                                                  | FAQ                                                          | Kept: FAQ, links to the category pages and `/enrol`.                                                       | Draft    | Old answers linked `/new-player-2023` and said leagues run in Five Dock (only JDP does now).                                                       |
 | `/saturday-night-endorsed-league`                       | TEMPE VOLLEYBALL SUPER LEAGUE (TVSL)/ SUNDAY NIGHT …         | TVSL league description (`/leagues/tvsl`) + Super League intro.                                            | Waits    | Dated details left out: 2026 season dates, close date 19/7, Promotion Day 3 Oct, the Google Form. Title says Saturday and Sunday: which?           |
@@ -78,6 +78,35 @@ venue and archive changes are in the audit log (actor blank, `source: scripts/co
   summary lines read “Thursdays 8–10pm”.
 - **Venue directions** for Robyn Webster and MLC (Admin → Venues). The public site doesn't show them yet.
 
+### Phase 7 (2026-10-19)
+
+All on **staging**, guarded and idempotent like the rest (`scripts/content/content-map.sql`, regenerated):
+
+- **League descriptions** for TNL, FNL, SNL and SAL (they were empty, so the league pages only said “TNL Q4 2026.”):
+  what the league is, A and B divisions, two-set matches, ladder points, duty (five people), finals for the top four,
+  how to join, and the Volleyball NSW membership note. Written only into the empty description field (Admin →
+  Leagues → the league → Details). Day, times and venue aren't in the text: the line above it is generated.
+- **/contact is live** with the proposal's text and a **Contact form** block (Admin → Messages gets what's sent;
+  Settings → Contact form sets the topics, who's emailed, the thank-you text). The old page (with the Google Form)
+  is the second entry in its Revisions.
+- **/privacy**, a **draft** privacy policy (Admin → Pages → Privacy policy): what's collected (juniors', guardians'
+  and emergency contacts' details included), why, who sees it, where it's stored (Cloudflare, Resend, Turnstile,
+  analytics), how long (enrolments until deleted, unconfirmed entries 30 days, messages 365 days after handled,
+  sent emails 30 days, backups 30 days, D1 Time Travel 7 days) and how to ask for deletion. Once published, the
+  footer, the contact form and the enrolment forms link to it on their own.
+- **Redirects** for two old URLs the first import missed: `/category/uncategorized` → `/news` (it 404'd), and
+  `/calendar/this-weeks-fixtures` → `/leagues/fixtures` (it went to `/leagues`). The importer now writes both.
+- **Links in imported pages** without WordPress's trailing slash (`/contact/` → `/contact`, 11 pages and a post),
+  by `scripts/fix-imported-links.ts` (guarded, audited as `import.fix`); the importer does it itself now.
+
+Stale pages, checked on staging against the old site's sitemaps (pages, calendars, tables, leagues, seasons, venues,
+categories, posts: 154 URLs): every one is a page, or a 301 to the right place. The 2021 Monday and Thursday
+leagues, COVID guidelines and Sample Page are archived with 301s; the duplicate Thursday (`/fixtures`,
+`/a-league-fixtures`) and Sunday (`/sal`, `/sunday-pm-league-fixtures-and-results`) pages 301 to the league pages.
+Only these wait, by design, in the go-live steps below: `/2023-enrolment`, `/new-player-2023` and
+`/new-team-group-2023` (until `/enrol` is published), and the nine pages behind `LATER_REDIRECTS` (until their
+programme is active).
+
 ## For Michael
 
 Questions:
@@ -100,6 +129,13 @@ Questions:
 10. **Contact:** keep both email addresses? A contact form could come later (the old one was the New Player form).
 11. **Rules:** match timings for the Sunday afternoon league; is “two sets” right for every social league (2020 said best
     of 3 in 50 minutes)?
+12. **League descriptions (Phase 7):** does every social league (TNL, FNL, SNL, SAL) have both an A and a B Division,
+    and do all of them finish with semi-finals and finals for the top four?
+13. **Privacy policy (Phase 7):** please read the draft at `/privacy` (Admin → Pages). In particular: do team captains
+    or anyone outside the organisers see players' contact details? Are photos taken at games and posted (the policy
+    doesn't mention photos)? Is tempevb@gmail.com the right address for privacy requests? Then publish it.
+14. **Contact form:** messages are emailed to tempevb@gmail.com (the contact email). Add other addresses, or turn on
+    the automatic reply, in Settings → Contact form.
 
 Go-live steps on staging, after review (all in the admin):
 
@@ -112,6 +148,19 @@ Go-live steps on staging, after review (all in the admin):
    programme by itself) and archive the old page; its 301 is ready. For TVSL, archive
    `/saturday-night-endorsed-league` and remove “About the Super League” from the menu.
 4. Delete any draft programme that doesn't run any more.
+5. **Pinned menu links that duplicate the generated ones** (Phase 7 check): once their programme is active, each
+   category dropdown lists it by itself, so these hand-pinned page links in Admin → Menu would show it twice. Each
+   one **disappears on its own when its page is archived** (the menu drops links to unpublished pages), so step 3's
+   order (activate, then archive) leaves at most a moment of overlap. To be sure, hide or remove them in Admin → Menu
+   at the same time:
+   - Super League → **About the Super League** (`/saturday-night-endorsed-league`, replaced by the TVSL league page)
+   - Juniors → **Junior Development Program (JDP)** and **VolleyJoeys** (both → the JDP programme)
+   - Adult Training → **Scrim & Coached Training** and **Adult Development Program (ADP)**
+   - Enrol (top level) points at the `/2023-enrolment` page: re-point it to `/enrol` in step 2.
+     None is hidden now: the old pages are still the live ones.
+6. **PayID** (Settings → PayID) is still empty, so enrolment emails can't say how to pay. Fill it in before
+   enrolments open (the `/enrol` intro's draft uses 0414 911 544, question 9).
+7. **Publish `/privacy`** (question 13). The footer and the forms link to it from then on.
 
 ## Production
 
@@ -124,6 +173,8 @@ Nothing here has touched production, whose content isn't imported yet. In Phase 
   (run by hand, once approved; `apply.ts` never targets production). It's guarded and idempotent like on staging.
 - A re-import (`npm run import:wp`) no longer overwrites a page edited in the admin or changes any page's status, so
   archived pages stay archived.
+- `scripts/fix-imported-links.ts` isn't needed there: a fresh import already writes links without the trailing
+  slash and the two Phase 7 redirects.
 
 ## Where We Play from the venues table
 

@@ -105,6 +105,8 @@ export const describe = (row: AuditRow) => {
     return `${String(after.season ?? '')} ${String(after.game ?? '')}: ${String(before.date ?? '?')} → ${String(after.date ?? '?')}`
   if (row.action === 'team.merge') return `${String(before.name ?? '?')} merged into ${String(after.name ?? '?')}`
   if (row.action === 'team.merge_undo') return `${String(after.name ?? '?')} split from ${String(before.name ?? '?')} again`
+  if (row.action === 'import.fix' && Array.isArray(before.trailingSlashLinks))
+    return `${before.trailingSlashLinks.length} imported pages and posts: links without the old trailing slash`
   if (row.action === 'import.fix') {
     const n = lengthOf
     return `${n(before.seasonsWithoutKey)} imported seasons' draw keys, ${n(before.placeholderTeams)} placeholder teams removed`

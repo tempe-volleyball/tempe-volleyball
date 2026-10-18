@@ -747,16 +747,18 @@ export function renderContactForm(attrs: ContactFormAttrs, data: ContactBlockDat
             .join('')}</select>`,
       )
     : ''
-  const privacy = data.privacyHref
-    ? ` See our <a href="${escapeHtml(data.privacyHref)}">privacy policy</a>.`
-    : ''
+  const privacy = data.privacyHref ? ` See our <a href="${escapeHtml(data.privacyHref)}">privacy policy</a>.` : ''
   return [
     `<section class="data-block contact-form-block">`,
     title,
     `<form class="contact-form max-w-xl space-y-4" data-contact-form data-sitekey="${escapeHtml(data.siteKey)}" action="/api/contact" method="post" novalidate>`,
-    `<p class="text-sm text-black/70">Fields marked <span class="text-red-700" aria-hidden="true">*</span><span class="sr-only">with an asterisk</span> are required.</p>`,
+    // Screen readers hear "required" from each field itself, so the legend is only for sighted people.
+    `<p class="text-sm text-black/70" aria-hidden="true">Fields marked <span class="text-red-700">*</span> are required.</p>`,
     `<div class="grid gap-4 sm:grid-cols-2">`,
-    field('name', `${label('name', 'Your name')}<input id="${id('name')}" name="name" autocomplete="name" required maxlength="100" aria-describedby="${id('name')}-error" class="${INPUT}">`),
+    field(
+      'name',
+      `${label('name', 'Your name')}<input id="${id('name')}" name="name" autocomplete="name" required maxlength="100" aria-describedby="${id('name')}-error" class="${INPUT}">`,
+    ),
     field(
       'email',
       `${label('email', 'Your email')}<input id="${id('email')}" name="email" type="email" autocomplete="email" required maxlength="254" aria-describedby="${id('email')}-error" class="${INPUT}">`,

@@ -1,11 +1,5 @@
 import { and, desc, eq, inArray, isNotNull, lt, or, sql, type SQL } from 'drizzle-orm'
-import {
-  isHoneypotFilled,
-  messagesCsv,
-  validateContact,
-  type ContactInput,
-  type ContactValue,
-} from '../../lib/contact'
+import { isHoneypotFilled, messagesCsv, validateContact, type ContactInput, type ContactValue } from '../../lib/contact'
 import { canonicalMailbox } from '../../lib/enrolment/validate'
 import { runBatch, type AppDb } from '../db'
 import { auditLog, contactMessageStatuses, contactMessages, user, type ContactMessage, type ContactMessageStatus } from '../db/schema'
@@ -85,8 +79,7 @@ export async function submitContact(deps: PublicContactDeps, input: ContactInput
   const answer: PublicContactResult = { status: 'sent', message: cf.successText }
   // A filled-in hidden field is a bot: say "sent" and keep nothing (no Turnstile call, no row, no email).
   if (isHoneypotFilled(input)) return answer
-  if (!cf.enabled)
-    throw new HttpError(503, 'unavailable', 'The contact form is turned off just now. Please email or phone us instead.')
+  if (!cf.enabled) throw new HttpError(503, 'unavailable', 'The contact form is turned off just now. Please email or phone us instead.')
 
   const human = await verifyTurnstile(deps.turnstileSecret, input.turnstileToken, deps.ip, deps.fetch, {
     hostname: deps.turnstileHostname ?? null,
@@ -178,7 +171,10 @@ async function quietly(fn: () => Promise<unknown>, what: string) {
 export const messageFilters = ['open', 'new', 'read', 'handled', 'all'] as const
 export type MessageFilter = (typeof messageFilters)[number]
 
-export type MessageListItem = Pick<ContactMessage, 'id' | 'name' | 'email' | 'topic' | 'status' | 'pagePath' | 'createdAt' | 'handledAt'> & {
+export type MessageListItem = Pick<
+  ContactMessage,
+  'id' | 'name' | 'email' | 'topic' | 'status' | 'pagePath' | 'createdAt' | 'handledAt'
+> & {
   /** The first 160 characters, on one line. */
   preview: string
 }
@@ -194,11 +190,7 @@ export type MessageList = {
 export type MessageDetail = ContactMessage & { handledByName: string | null }
 
 const filterWhere = (filter: MessageFilter): SQL | undefined =>
-  filter === 'all'
-    ? undefined
-    : filter === 'open'
-      ? inArray(contactMessages.status, ['new', 'read'])
-      : eq(contactMessages.status, filter)
+  filter === 'all' ? undefined : filter === 'open' ? inArray(contactMessages.status, ['new', 'read']) : eq(contactMessages.status, filter)
 
 /** "createdAt|id" cursor, newest first. */
 const cursorWhere = (before: string | null | undefined): SQL | undefined => {
@@ -243,7 +235,7 @@ export async function listMessages(
         pagePath: contactMessages.pagePath,
         createdAt: contactMessages.createdAt,
         handledAt: contactMessages.handledAt,
-        preview: sql<string>`substr(replace(replace(${contactMessages.message}, char(10), ' '), char(13), ' '), 1, 160)`,
+        preview: sql<string>`substr(replace(replace(${contactMessages.message}, char(10), ' '), char(13), ' '), 1, 160)`.as('preview'),
       })
       .from(contactMessages)
       .where(and(filterWhere(opts.filter ?? 'open'), searchWhere(opts.q), cursorWhere(opts.before), topic))
@@ -299,7 +291,8 @@ const detailQuery = (db: AppDb, id: string) =>
       note: contactMessages.note,
       createdAt: contactMessages.createdAt,
       updatedAt: contactMessages.updatedAt,
-      handledByName: user.name,
+      // Aliased: in a D1 batch rows are keyed by column name, and user.name would collide with the sender's name.
+      handledByName: sql<string | null>`${user.name}`.as('handled_by_name'),
     })
     .from(contactMessages)
     .leftJoin(user, eq(user.id, contactMessages.handledBy))
@@ -386,7 +379,18 @@ export async function deleteMessages(db: AppDb, rawIds: unknown, actor: Editor, 
   const ids = parseIds(rawIds)
   const at = now.toISOString()
   const [, deleted] = (await runBatch(db, [
-    db.insert(auditLog).values(auditEntry(actor, 'message.delete', { type: 'contact_message', id: ids.length === 1 ? ids[0]! : 'bulk' }, null, { count: ids.length, ids }, at)),
+    db
+      .insert(auditLog)
+      .values(
+        auditEntry(
+          actor,
+          'message.delete',
+          { type: 'contact_message', id: ids.length === 1 ? ids[0]! : 'bulk' },
+          null,
+          { count: ids.length, ids },
+          at,
+        ),
+      ),
     db.delete(contactMessages).where(inArray(contactMessages.id, ids)).returning({ id: contactMessages.id }),
   ])) as unknown as [unknown, { id: string }[]]
   return { deleted: deleted.length }

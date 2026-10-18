@@ -267,7 +267,9 @@ function Panels({ data, me }: { data: Dashboard; me: Me }) {
                   {data.messages.open.map((m) => (
                     <li key={m.id} className={rowClass}>
                       <Link href={`/messages/${m.id}`} className="min-w-0 flex-1">
-                        <span className={`text-brand block underline-offset-2 hover:underline ${m.status === 'new' ? 'font-bold' : 'font-semibold'}`}>
+                        <span
+                          className={`text-brand block underline-offset-2 hover:underline ${m.status === 'new' ? 'font-bold' : 'font-semibold'}`}
+                        >
                           {m.name}
                           {m.topic ? ` · ${m.topic}` : ''}
                         </span>
