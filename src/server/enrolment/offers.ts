@@ -10,6 +10,7 @@ import {
   labelOfRow,
   offerEmail,
   offerNext,
+  offersOpenSql,
   sendOfferEmails,
   sendQuietly,
   targetLabelColumns,
@@ -217,12 +218,11 @@ export const CRON_OFFER_LIMIT = 3
 
 /**
  * An offer whose email hasn't gone yet (over the day's email cap) isn't lapsed: its hold starts when the email is
- * sent (mailer.ts OfferHold). `alias` is the registrations or groups alias in the query.
+ * sent (mailer.ts OfferHold). Unless its cut-off (`hold.latest`, before the target starts) has passed: then it can
+ * never be taken up and lapses like any other. `alias` is the registrations or groups alias in the query.
  */
-const emailSent = (alias: string) =>
-  sql.raw(
-    `not exists (select 1 from email_outbox eo where eo.status = 'queued' and eo.template = 'enrolment.offer' and json_extract(eo.payload, '$.hold.id') = ${alias}.id)`,
-  )
+const emailSent = (alias: 'r0' | 'g0' | 'r' | 'g', at: string) =>
+  sql`not exists (select 1 from email_outbox eo where eo.status = 'queued' and eo.template = 'enrolment.offer' and json_extract(eo.payload, '$.hold.id') = ${sql.raw(alias)}.id and coalesce(json_extract(eo.payload, '$.hold.latest'), '9999') > ${at})`
 
 /** Products with a lapsed offer, or with a waitlist and room for someone on it (one query). */
 async function productsNeedingWork(db: AppDb, at: string, limit: number) {
@@ -230,15 +230,18 @@ async function productsNeedingWork(db: AppDb, at: string, limit: number) {
   const capT = sql`coalesce(${products.capacityTeams}, ${programmes.capTeams})`
   const holdingP = sql`(select count(*) from registrations r2 where r2.product_id = ${products.id} and r2.status in ('pending_payment', 'paid', 'confirmed', 'offered'))`
   const holdingT = sql`(select count(*) from groups g2 where g2.product_id = ${products.id} and g2.status in ('confirmed', 'offered'))`
+  // Offers stop before the target starts (core.ts offerWindow): such a product has no offer work left, and mustn't
+  // keep taking the run's one product slot from the others.
+  const offersOpen = offersOpenSql(new Date(at))
   const rows = await db
     .select({ id: products.id })
     .from(products)
     .innerJoin(programmes, eq(programmes.id, products.programmeId))
     .where(
-      sql`exists (select 1 from registrations r0 where r0.product_id = ${products.id} and r0.status = 'offered' and r0.offer_expires_at <= ${at} and (r0.group_id is null or r0.free_agent = 1) and ${emailSent('r0')})
-        or exists (select 1 from groups g0 where g0.product_id = ${products.id} and g0.status = 'offered' and g0.offer_expires_at <= ${at} and ${emailSent('g0')})
-        or (exists (select 1 from registrations r where r.product_id = ${products.id} and r.status = 'waitlist' and (r.group_id is null or r.free_agent = 1)) and (${capP} is null or ${holdingP} < ${capP}))
-        or (exists (select 1 from groups g where g.product_id = ${products.id} and g.status = 'waitlist') and (${capT} is null or ${holdingT} < ${capT}) and (${capP} is null or ${holdingP} < ${capP}))`,
+      sql`exists (select 1 from registrations r0 where r0.product_id = ${products.id} and r0.status = 'offered' and r0.offer_expires_at <= ${at} and (r0.group_id is null or r0.free_agent = 1) and ${emailSent('r0', at)})
+        or exists (select 1 from groups g0 where g0.product_id = ${products.id} and g0.status = 'offered' and g0.offer_expires_at <= ${at} and ${emailSent('g0', at)})
+        or (exists (select 1 from registrations r where r.product_id = ${products.id} and r.status = 'waitlist' and (r.group_id is null or r.free_agent = 1)) and (${capP} is null or ${holdingP} < ${capP}) and ${offersOpen})
+        or (exists (select 1 from groups g where g.product_id = ${products.id} and g.status = 'waitlist') and (${capT} is null or ${holdingT} < ${capT}) and (${capP} is null or ${holdingP} < ${capP}) and ${offersOpen})`,
     )
     .limit(limit)
     .all()
@@ -261,8 +264,8 @@ export async function runEnrolmentCron(
   const needing = await productsNeedingWork(db, at, CRON_PRODUCT_LIMIT)
   if (needing.length === 0) return { expired: 0, offered: 0, emailsQueued: 0 }
 
-  const lapsedRegs = sql`select r.id from registrations r where r.status = 'offered' and r.offer_expires_at <= ${at} and (r.group_id is null or r.free_agent = 1) and ${emailSent('r')} order by r.offer_expires_at limit ${CRON_LAPSED_LIMIT}`
-  const lapsedGroups = sql`select g.id from groups g where g.status = 'offered' and g.offer_expires_at <= ${at} and ${emailSent('g')} order by g.offer_expires_at limit ${CRON_LAPSED_LIMIT}`
+  const lapsedRegs = sql`select r.id from registrations r where r.status = 'offered' and r.offer_expires_at <= ${at} and (r.group_id is null or r.free_agent = 1) and ${emailSent('r', at)} order by r.offer_expires_at limit ${CRON_LAPSED_LIMIT}`
+  const lapsedGroups = sql`select g.id from groups g where g.status = 'offered' and g.offer_expires_at <= ${at} and ${emailSent('g', at)} order by g.offer_expires_at limit ${CRON_LAPSED_LIMIT}`
   const reason = 'Offer lapsed'
   const [regs, grps, captains] = (await runBatch(db, [
     db

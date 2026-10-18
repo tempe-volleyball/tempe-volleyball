@@ -154,6 +154,16 @@ export const groups = sqliteTable(
 /** Answers on the registration form (skill level, preferred division …). Shape is per product kind. */
 export type RegistrationAnswers = Record<string, unknown>
 
+/** The players columns a public entry would set, held on the registration until its email address is confirmed. */
+export type PendingDetails = {
+  phone: string | null
+  birthYear: number | null
+  guardianName: string | null
+  guardianEmail: string | null
+  guardianPhone: string | null
+  emergencyContact: string | null
+}
+
 export const registrations = sqliteTable(
   'registrations',
   {
@@ -199,6 +209,12 @@ export const registrations = sqliteTable(
     source: text('source', { enum: registrationSources }).notNull().default('public'),
     cancelledAt: text('cancelled_at'),
     cancelReason: text('cancel_reason'),
+    /**
+     * A public entry still waiting for its email confirmation (pending_email) keeps the player details it was sent
+     * with here, not on the players row: unverified details must not land on (or fill in) someone's player record.
+     * Confirming the address merges them into the player (blanks only) and clears this (docs/admin.md §3.7).
+     */
+    pendingDetails: text('pending_details', { mode: 'json' }).$type<PendingDetails>(),
   },
   (t) => [
     uniqueIndex('registrations_reference_unique').on(t.reference),

@@ -4,7 +4,7 @@ import { createTestDb } from './db/testing'
 import { emailDailyCount, emailOutbox, players, products, programmes, registrations, user, type UserRole } from './db/schema'
 import { RoleError } from './auth/roles'
 import { ENROLMENT_PER_DAY, ENROLMENT_PER_HOUR, createMailer } from './email/mailer'
-import { HttpError, PUBLIC_BODY_LIMIT, describeError, errorResponse, readJson, requireRole } from './http'
+import { ADMIN_BODY_LIMIT, HttpError, PUBLIC_BODY_LIMIT, describeError, errorResponse, readJson, requireRole } from './http'
 import { TURNSTILE_TEST_KEYS, turnstileKeys, verifyTurnstile } from './turnstile'
 import { hashKey } from './ratelimit'
 
@@ -75,6 +75,20 @@ describe('readJson', () => {
     expect(await codeOf(readJson(post('[1]'), { maxBytes: 1024 }))).toBe('400 invalid_input')
     expect(await codeOf(readJson(post('nope'), { maxBytes: 1024 }))).toBe('400 invalid_input')
   })
+
+  it('caps by default: 64 KB outside /api/admin (the invite and auth routes too), 1 MB on /api/admin', async () => {
+    const big = JSON.stringify({ a: 'x'.repeat(PUBLIC_BODY_LIMIT) })
+    const at = (path: string, body: string) => new Request(`https://x${path}`, { method: 'POST', body })
+    expect(await codeOf(readJson(at('/api/invites/accept', big)))).toBe('413 too_large')
+    expect(await codeOf(readJson(at('/api/enrol', big)))).toBe('413 too_large')
+    expect(await readJson(at('/api/admin/pages/1', big))).toMatchObject({ a: expect.any(String) })
+    const huge = JSON.stringify({ a: 'x'.repeat(ADMIN_BODY_LIMIT) })
+    expect(await codeOf(readJson(at('/api/admin/pages/1', huge)))).toBe('413 too_large')
+    // A route can set its own cap (the invite routes use 4 KB).
+    expect(await codeOf(readJson(at('/api/invites/lookup', JSON.stringify({ token: 'x'.repeat(5000) })), { maxBytes: 4096 }))).toBe(
+      '413 too_large',
+    )
+  })
 })
 
 describe('Turnstile', () => {
@@ -93,6 +107,15 @@ describe('Turnstile', () => {
     expect((await verifyTurnstile('s', 'tok', null, answer('evil.example'), { hostname: 'www.tempevb.com' })).ok).toBe(false)
     // The test keys answer example.com, so no hostname is passed with them.
     expect(await verifyTurnstile('s', 'tok', null, answer('example.com'))).toEqual({ ok: true })
+  })
+
+  it("checks the widget's action, so a token from another widget with our key can't be spent on the form", async () => {
+    const withAction = (action?: string) =>
+      (async () => Response.json({ success: true, hostname: 'www.tempevb.com', action })) as unknown as typeof fetch
+    const opts = { hostname: 'www.tempevb.com', action: 'enrol' }
+    expect(await verifyTurnstile('s', 'tok', null, withAction('enrol'), opts)).toEqual({ ok: true })
+    expect(await verifyTurnstile('s', 'tok', null, withAction('newsletter'), opts)).toEqual({ ok: false, reason: 'action newsletter' })
+    expect((await verifyTurnstile('s', 'tok', null, withAction(), opts)).ok).toBe(false)
   })
 })
 

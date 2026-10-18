@@ -1,4 +1,5 @@
 import type { CalendarEvent } from '../../lib/ical'
+import { formatAU } from '../../lib/fixtures/dates'
 import { sydneyToUtc } from '../../lib/time'
 import { fixtureRows, type FixtureRow, type SeasonCompetition, type SeasonData } from './adapter'
 
@@ -51,7 +52,8 @@ export function seasonCalendarEvents(
       r.resultNote,
       r.note,
       r.referee ? `Referee: ${r.referee}` : '',
-      r.movedFrom ? `Moved from ${r.movedFrom}` : '',
+      // The same dd/mm/yyyy as the public fixtures table's "(moved from …)".
+      r.movedFrom ? `Moved from ${formatAU(r.movedFrom)}` : '',
     ].filter(Boolean)
     out.push({
       uid: `${r.key}@${UID_DOMAIN}`,

@@ -8,6 +8,8 @@ import {
   effective,
   joinTargetRows,
   labelOfRow,
+  mergePendingDetailsStatements,
+  PENDING_REPLACED_REASON,
   programmeColumns,
   settleStatements,
   targetLabelColumns,
@@ -24,6 +26,8 @@ import { readConfirmToken } from './tokens'
 // cancelled as full. The admin can do the same by hand (admin.ts "verify"), and the hourly cron expires entries
 // whose link wasn't used in time (expirePendingStatements).
 
+export { PENDING_REPLACED_REASON }
+
 export type ConfirmState = 'pending' | 'confirmed' | 'waitlist' | 'full' | 'expired'
 
 export type ConfirmView = {
@@ -38,6 +42,11 @@ export type ConfirmView = {
   reference: string | null
   /** 1-based place on the waitlist. */
   position: number | null
+  /**
+   * While pending: the details that confirming will save (sent with the form), so the address owner sees what
+   * they're confirming. Only what was given; null otherwise.
+   */
+  details: { phone: string | null; birthYear: number | null; guardianName: string | null; emergencyContact: string | null } | null
 }
 
 export type ConfirmDeps = {
@@ -106,6 +115,15 @@ async function viewOf(db: AppDb, entry: PendingEntry, state: ConfirmState): Prom
     expiresAt: state === 'pending' ? entry.r.holdExpiresAt : null,
     reference: state === 'confirmed' || state === 'waitlist' ? entry.r.reference : null,
     position,
+    details:
+      state === 'pending' && entry.r.pendingDetails
+        ? {
+            phone: entry.r.pendingDetails.phone,
+            birthYear: entry.r.pendingDetails.birthYear,
+            guardianName: entry.r.pendingDetails.guardianName,
+            emergencyContact: entry.r.pendingDetails.emergencyContact,
+          }
+        : null,
   }
 }
 
@@ -163,6 +181,8 @@ export function settlePendingStatements(
   return [
     ...head,
     ...settleStatements(db, { productId, registrationId, groupId }, eff, { refuse: 'cancel', at }),
+    // The address is confirmed now: the details sent with the entry go onto the player (blanks only).
+    ...mergePendingDetailsStatements(db, registrationId),
     ...(opts.extra ?? []),
     db.select({ status: registrations.status }).from(registrations).where(eq(registrations.id, registrationId)),
   ]
@@ -241,6 +261,49 @@ export const CRON_PENDING_LIMIT = 200
 export const PENDING_EXPIRED_REASON = 'Email address not confirmed in time'
 
 /**
+ * Cron, after the retention period (Settings → Enrolment → "Days to keep sent emails"): deletes public entries that
+ * were never confirmed (lapsed or replaced) and their unconfirmed team entries, at most CRON_PRUNE_LIMIT a run.
+ * Returns the player ids they used, for prunePlayersStatement. They never held a spot, so nothing else refers to
+ * them; their details were never on the player (pending_details), so only the name and address go with them.
+ */
+export const CRON_PRUNE_LIMIT = 90
+
+const prunable = (cutoff: string) =>
+  sql`select rp.id from registrations rp where rp.status in ('expired', 'cancelled') and rp.source = 'public' and rp.cancel_reason in (${PENDING_EXPIRED_REASON}, ${PENDING_REPLACED_REASON}) and rp.cancelled_at < ${cutoff} and rp.paid_at is null order by rp.cancelled_at limit ${CRON_PRUNE_LIMIT}`
+
+export function pruneUnconfirmedStatements(db: AppDb, cutoff: string): [BatchItem<'sqlite'>, BatchItem<'sqlite'>] {
+  return [
+    // Their team entries first (cancelled with them, never confirmed): nothing else points at those.
+    db
+      .delete(groups)
+      .where(
+        and(
+          eq(groups.status, 'cancelled'),
+          sql`${groups.id} in (select rg.group_id from registrations rg where rg.id in (${prunable(cutoff)}) and rg.free_agent = 0 and rg.group_id is not null)`,
+          sql`not exists (select 1 from registrations ro where ro.group_id = ${groups.id} and ro.id not in (${prunable(cutoff)}))`,
+        ),
+      ),
+    db
+      .delete(registrations)
+      .where(sql`${registrations.id} in (${prunable(cutoff)})`)
+      .returning({ playerId: registrations.playerId }),
+  ]
+}
+
+/** Deletes the players among `ids` that nothing uses any more (no registration, no team entry as captain). */
+export function prunePlayersStatement(db: AppDb, ids: string[]) {
+  return db
+    .delete(players)
+    .where(
+      and(
+        inArray(players.id, ids),
+        sql`not exists (select 1 from registrations rr where rr.player_id = ${players.id})`,
+        sql`not exists (select 1 from groups gc where gc.captain_player_id = ${players.id})`,
+      ),
+    )
+}
+
+/**
  * The cron's statements for one batch: unconfirmed entries past their deadline become expired (they never held a
  * spot, so nothing is offered on), and their team entries cancelled. No emails: the address was never confirmed.
  */
@@ -250,7 +313,8 @@ export function expirePendingStatements(db: AppDb, at: string): [BatchItem<'sqli
       .update(registrations)
       .set({ status: 'expired', cancelledAt: at, cancelReason: PENDING_EXPIRED_REASON })
       .where(
-        sql`${registrations.id} in (select rx.id from registrations rx where rx.status = 'pending_email' and rx.hold_expires_at <= ${at} order by rx.hold_expires_at limit ${CRON_PENDING_LIMIT})`,
+        // Not while its confirm link is still queued (over the day's email cap): the deadline starts when it goes.
+        sql`${registrations.id} in (select rx.id from registrations rx where rx.status = 'pending_email' and rx.hold_expires_at <= ${at} and not exists (select 1 from email_outbox eo where eo.status = 'queued' and eo.template = 'enrolment.confirm_email' and json_extract(eo.payload, '$.pending.id') = rx.id) order by rx.hold_expires_at limit ${CRON_PENDING_LIMIT})`,
       )
       .returning({ id: registrations.id }),
     db

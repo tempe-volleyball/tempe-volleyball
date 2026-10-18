@@ -96,6 +96,19 @@ describe('emailMode', () => {
     expect(emailMode({ SITE_ENV: 'staging', RESEND_API_KEY: '' })).toBe('console')
     expect(emailMode({ SITE_ENV: 'production' })).toBe('disabled')
   })
+
+  it("won't send real email while the public forms use Turnstile's always-pass test keys (no open relay)", () => {
+    // Staging and development fall back to the test keys, so a Resend key alone keeps logging.
+    expect(emailMode({ SITE_ENV: 'staging', RESEND_API_KEY: 'k' })).toBe('console')
+    expect(emailMode({ SITE_ENV: 'development', RESEND_API_KEY: 'k' })).toBe('console')
+    const test = { TURNSTILE_SITE_KEY: '1x00000000000000000000AA', TURNSTILE_SECRET_KEY: '1x0000000000000000000000000000000AA' }
+    expect(emailMode({ SITE_ENV: 'staging', RESEND_API_KEY: 'k', ...test })).toBe('console')
+    // Real keys: sent.
+    const real = { TURNSTILE_SITE_KEY: '0x4AAAAAAAreal', TURNSTILE_SECRET_KEY: '0x4AAAAAAAsecret' }
+    expect(emailMode({ SITE_ENV: 'staging', RESEND_API_KEY: 'k', ...real })).toBe('resend')
+    // Production refuses test keys outright (the forms are off), so admin email still goes.
+    expect(emailMode({ SITE_ENV: 'production', RESEND_API_KEY: 'k', ...test })).toBe('resend')
+  })
 })
 
 describe('sendEmail with Resend', () => {

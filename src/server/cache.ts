@@ -1,3 +1,4 @@
+import { describeError, scrubMessage } from './log'
 // Edge caching for public pages (Astro route caching with the Cloudflare provider, see astro.config.mjs).
 //
 // Every public response is tagged; when the admin publishes something it purges the tags that page could show.
@@ -60,9 +61,9 @@ export async function purgeTags(cache: RouteCache, list: string[]): Promise<Purg
     await cache.invalidate({ tags: unique })
     return { ok: true, tags: unique }
   } catch (e) {
-    const error = e instanceof Error ? e.message : String(e)
-    console.error('cache purge failed', { tags: unique, error })
-    return { ok: false, tags: unique, error }
+    const why = describeError(e)
+    console.error(`cache purge failed (${unique.join(', ')}): ${why}`)
+    return { ok: false, tags: unique, error: e instanceof Error ? scrubMessage(e.message) : why }
   }
 }
 

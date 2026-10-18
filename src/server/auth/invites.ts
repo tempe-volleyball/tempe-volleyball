@@ -1,3 +1,4 @@
+import { describeError } from '../log'
 import { EmailNotConfiguredError, type Mailer } from '../email'
 
 /**
@@ -24,7 +25,7 @@ export async function sendInviteEmail(
     return res.status === 'limited' ? 'failed' : res.status
   } catch (e) {
     if (e instanceof EmailNotConfiguredError) return 'not_configured'
-    console.error('[invite] email failed', e)
+    console.error(`[invite] email failed: ${describeError(e)}`)
     return 'failed'
   }
 }

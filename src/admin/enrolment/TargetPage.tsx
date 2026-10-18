@@ -15,6 +15,27 @@ import { Fill, OpenBadge } from './EnrolmentList'
 
 type Detail = TargetDetail & { paymentMethods: Record<string, string> }
 
+/**
+ * When waitlist offers stop (Settings → Enrolment): once the cut-off before the start has passed, a freed spot isn't
+ * offered, so say so where the waitlist is managed. Before that, only when someone is waiting.
+ */
+function OffersNotice({ detail }: { detail: Detail }) {
+  const { offers, summary } = detail
+  const waiting = summary.counts.waitlist + summary.counts.teamsWaitlist
+  if (!offers.latest || (!offers.closed && waiting === 0)) return null
+  const rule = `offers stop ${offers.cutoffHours} ${offers.cutoffHours === 1 ? 'hour' : 'hours'} before the start (Settings → Enrolment)`
+  return offers.closed ? (
+    <Notice kind="warning">
+      Waitlist offers have stopped: {rule}. A spot that frees up now isn't offered to anyone
+      {waiting > 0 ? `; confirm someone from the waitlist (${waiting} waiting) by hand if there's room` : ''}.
+    </Notice>
+  ) : (
+    <Notice kind="info">
+      Offers made now are held until {formatWhen(offers.latest)} at the latest: {rule}, and none go out after that.
+    </Notice>
+  )
+}
+
 const STATUS_STYLE: Record<string, string> = {
   confirmed: 'bg-green-100 text-green-900',
   paid: 'bg-green-100 text-green-900',
@@ -172,6 +193,8 @@ export function TargetPage({ kind, id }: { kind: string; id: string }) {
           <Stat label="Awaiting email" value={summary.counts.pending + summary.counts.teamsPending} />
         )}
       </div>
+
+      <OffersNotice detail={detail} />
 
       <Settings key={JSON.stringify(detail.product)} detail={detail} onSaved={(msg) => (setFlash(msg), void load())} />
 
@@ -572,6 +595,11 @@ function RegRow({
       {expanded && (
         <tr className="bg-black/[0.02]">
           <td colSpan={teamsKind ? 8 : 7} className="px-3 py-3">
+            {r.detailsUnconfirmed && (
+              <p className="mb-2 text-sm text-amber-800">
+                Contact details below came with the form and aren't saved to the player until the email address is confirmed.
+              </p>
+            )}
             <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
               {p.guardianName && (
                 <Item label="Parent or guardian" value={`${p.guardianName} · ${p.guardianEmail ?? ''} · ${p.guardianPhone ?? ''}`} />

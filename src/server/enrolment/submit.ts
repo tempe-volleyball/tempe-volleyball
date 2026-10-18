@@ -7,14 +7,25 @@ import { newReference } from '../../lib/enrolment/reference'
 import { isTargetKind, type TargetRef } from '../../lib/enrolment/targets'
 import { canonicalMailbox, normaliseEmail, validateEnrolment, type MappedAnswers, type PersonInput } from '../../lib/enrolment/validate'
 import { runBatch, type AppDb } from '../db'
-import { closedRegistrationStatuses, groups, players, registrations, type RegistrationSource } from '../db/schema'
+import {
+  closedRegistrationStatuses,
+  groups,
+  players,
+  products,
+  registrations,
+  type PendingDetails,
+  type RegistrationSource,
+} from '../db/schema'
 import { isUniqueFailure } from '../content/common'
 import { getSettings } from '../content/settings'
 import type { Mailer, SendOptions } from '../email'
 import { HttpError } from '../http'
 import { hashKey, hit, type Limit } from '../ratelimit'
-import { verifyTurnstile } from '../turnstile'
+import { TURNSTILE_ACTIONS, verifyTurnstile } from '../turnstile'
 import {
+  GROUP_HOLDING_SQL,
+  HOLDING_SQL,
+  PENDING_REPLACED_REASON,
   effective,
   ensureProduct,
   invalid,
@@ -208,39 +219,58 @@ export async function createEntry(
   const groupId = teamName ? crypto.randomUUID() : null
   const registrationId = crypto.randomUUID()
   const g = mapped.guardian
-  const playerStatement = existing
-    ? // Fill blanks only: a public form must not overwrite details someone else entered (docs/admin.md §3.7).
-      db
-        .update(players)
-        .set({
-          phone: sql`coalesce(${players.phone}, ${person.phone || null})`,
-          birthYear: sql`coalesce(${players.birthYear}, ${mapped.birthYear ?? null})`,
-          guardianName: sql`coalesce(${players.guardianName}, ${g?.name ?? null})`,
-          guardianEmail: sql`coalesce(${players.guardianEmail}, ${g?.email ?? null})`,
-          guardianPhone: sql`coalesce(${players.guardianPhone}, ${g?.phone ?? null})`,
-          emergencyContact: sql`coalesce(${players.emergencyContact}, ${mapped.emergencyContact ? `${mapped.emergencyContact.name}, ${mapped.emergencyContact.phone}` : null})`,
-          updatedBy: opts.actorId ?? null,
-        })
-        .where(eq(players.id, playerId))
-    : db.insert(players).values({
-        id: playerId,
-        firstName: person.firstName,
-        lastName: person.lastName,
-        email: person.email,
-        phone: person.phone || null,
-        birthYear: mapped.birthYear ?? null,
-        guardianName: g?.name ?? null,
-        guardianEmail: g?.email ?? null,
-        guardianPhone: g?.phone ?? null,
-        emergencyContact: mapped.emergencyContact ? `${mapped.emergencyContact.name}, ${mapped.emergencyContact.phone}` : null,
-        notes: null,
-        createdAt: at,
-        updatedAt: at,
-        updatedBy: opts.actorId ?? null,
-      })
-
   const force = opts.forceStatus ?? null
   const pending = !force && opts.pendingUntil ? opts.pendingUntil : null
+  const details: PendingDetails = {
+    phone: person.phone || null,
+    birthYear: mapped.birthYear ?? null,
+    guardianName: g?.name ?? null,
+    guardianEmail: g?.email ?? null,
+    guardianPhone: g?.phone ?? null,
+    emergencyContact: mapped.emergencyContact ? `${mapped.emergencyContact.name}, ${mapped.emergencyContact.phone}` : null,
+  }
+  // An unconfirmed (pending_email) entry writes nothing onto a player: anyone can type someone else's address, so
+  // its details wait on the registration (pending_details) until the address is confirmed (confirm.ts merges them).
+  // A new player row is still needed to hang the entry on, but only with the name and address the entry is for.
+  const playerStatement = pending
+    ? existing
+      ? null
+      : db.insert(players).values({
+          id: playerId,
+          firstName: person.firstName,
+          lastName: person.lastName,
+          email: person.email,
+          notes: null,
+          createdAt: at,
+          updatedAt: at,
+          updatedBy: opts.actorId ?? null,
+        })
+    : existing
+      ? // Fill blanks only: a public form must not overwrite details someone else entered (docs/admin.md §3.7).
+        db
+          .update(players)
+          .set({
+            phone: sql`coalesce(${players.phone}, ${person.phone || null})`,
+            birthYear: sql`coalesce(${players.birthYear}, ${mapped.birthYear ?? null})`,
+            guardianName: sql`coalesce(${players.guardianName}, ${g?.name ?? null})`,
+            guardianEmail: sql`coalesce(${players.guardianEmail}, ${g?.email ?? null})`,
+            guardianPhone: sql`coalesce(${players.guardianPhone}, ${g?.phone ?? null})`,
+            emergencyContact: sql`coalesce(${players.emergencyContact}, ${mapped.emergencyContact ? `${mapped.emergencyContact.name}, ${mapped.emergencyContact.phone}` : null})`,
+            updatedBy: opts.actorId ?? null,
+          })
+          .where(eq(players.id, playerId))
+      : db.insert(players).values({
+          id: playerId,
+          firstName: person.firstName,
+          lastName: person.lastName,
+          email: person.email,
+          ...details,
+          notes: null,
+          createdAt: at,
+          updatedAt: at,
+          updatedBy: opts.actorId ?? null,
+        })
+
   const startStatus = pending ? ('pending_email' as const) : ('confirmed' as const)
   for (let attempt = 0; ; attempt++) {
     const reference = newReference()
@@ -256,7 +286,7 @@ export async function createEntry(
           : settleStatements(db, { productId: product.id, registrationId, groupId }, eff)
     try {
       const results = await runBatch(db, [
-        playerStatement,
+        ...(playerStatement ? [playerStatement] : []),
         ...(groupId
           ? [
               db.insert(groups).values({
@@ -281,6 +311,7 @@ export async function createEntry(
           status: startStatus,
           reference,
           holdExpiresAt: pending,
+          pendingDetails: pending ? details : null,
           answers,
           vnswConfirmed: mapped.vnswConfirmed ?? false,
           freeAgent: entryType === 'free_agent',
@@ -381,7 +412,11 @@ export async function emailNewEntry(
   )
 }
 
-/** The "confirm your email address" email for a pending entry. Never throws. */
+/**
+ * The "confirm your email address" email for a pending entry. Never throws. The deadline starts when it's actually
+ * sent (`pending` in the payload, mailer.ts): hold_expires_at becomes the send time plus `hours`, so a link queued
+ * behind the day's email cap still gets its full time, and the cron doesn't expire the entry while it waits.
+ */
 export async function emailConfirmLink(
   deps: { mailer: Pick<Mailer, 'sendEmail'>; secret: string; siteUrl: string },
   to: string,
@@ -393,6 +428,8 @@ export async function emailConfirmLink(
     registrationId: string
     createdAt: string
     expiresAt: string
+    /** Settings → Enrolment → "Hours to confirm an email address". */
+    hours: number
   },
   opts: Pick<SendOptions, 'priority'> = {},
 ) {
@@ -409,6 +446,7 @@ export async function emailConfirmLink(
           teamName: entry.teamName,
           url: confirmUrl(deps.siteUrl, token),
           expiresAt: entry.expiresAt,
+          pending: { id: entry.registrationId, hours: entry.hours },
         },
         opts,
       ),
@@ -446,10 +484,11 @@ export type PublicEnrolInput = {
 }
 
 /**
- * What the public form gets back. `pending_email`: check your inbox (no reference yet). `emailed`: a repeat of an
- * entry that already exists, where no confirmation is asked for; its reference went to the address on file.
- * A repeat where confirmation is asked for answers exactly like a new entry (pending_email), so the form can't be
- * used to find out who is enrolled.
+ * What the public form gets back, which never depends on whether the person was already entered (docs/admin.md
+ * §3.7 "The form never says already enrolled"): `pending_email` where the target asks for email confirmation (no
+ * reference yet: click the link), else `emailed` (the reference and where they stand are in the email), for a new
+ * entry and a repeat alike. Only what's the same for everyone is on the page: the programme, target, fee and the
+ * form's confirmation text.
  */
 export type PublicEnrolResult = Omit<
   Pick<EnrolResult, 'status' | 'reference' | 'position' | 'teamName' | 'amountCents' | 'message' | 'programme' | 'target'>,
@@ -485,6 +524,8 @@ export async function submitPublicEnrolment(deps: PublicEnrolDeps, input: Public
 
   const human = await verifyTurnstile(deps.turnstileSecret, input.turnstileToken, deps.ip, deps.fetch, {
     hostname: deps.turnstileHostname ?? null,
+    // Checked with real keys (when the hostname is): the test keys' answers carry no action.
+    action: deps.turnstileHostname ? TURNSTILE_ACTIONS.enrol : null,
   })
   if (!human.ok) throw new HttpError(403, 'turnstile_failed', 'Please complete the "are you human" check and try again.')
 
@@ -531,44 +572,97 @@ export async function submitPublicEnrolment(deps: PublicEnrolDeps, input: Public
   }
   const emailDeps = { mailer: deps.mailer, secret: deps.secret, siteUrl: deps.siteUrl }
 
+  // With confirmation off the entry is settled now, but the page still only says "we've emailed you": a new
+  // entry's answer (confirmed or waitlisted, with its reference) would differ from a repeat's.
+  const emailedAnswer: PublicEnrolResult = { ...pendingAnswer, status: 'emailed', message: form.confirmationText, confirmHours: undefined }
+  const answer = eff.emailConfirm ? pendingAnswer : emailedAnswer
+  const enter = () => createEntry(db, target, eff, form, entryType, check, { source: 'public', now, pendingUntil })
+
   let result: EnrolResult
   try {
-    result = await createEntry(db, target, eff, form, entryType, check, { source: 'public', now, pendingUntil })
+    result = await enter()
   } catch (e) {
     if (!(e instanceof DuplicateEntryError)) throw e
-    // Don't say so on the page (that would tell anyone who is enrolled): email the address on file instead.
-    await emailExisting(db, emailDeps, target, check.person, e.existing, now)
-    return eff.emailConfirm ? pendingAnswer : { ...pendingAnswer, status: 'emailed', confirmHours: undefined }
+    const existing = e.existing
+    if (existing?.status === 'pending_email') {
+      // The same person sent the form again before confirming: the newer form stands (the old link stops working),
+      // so whoever owns the address confirms what was typed last, not what someone else may have typed first.
+      await replacePending(db, existing, now)
+      try {
+        result = await enter()
+      } catch (again) {
+        if (!(again instanceof DuplicateEntryError)) throw again
+        return answer // lost a race with another submission; that one's email is on its way
+      }
+    } else {
+      // Don't say so on the page (that would tell anyone who is enrolled): email the address on file instead.
+      await emailExisting(db, emailDeps, target, check.person, existing)
+      // A new entry would have been refused as full here (waitlist off, no room), so a repeat is too.
+      if (!eff.emailConfirm && (await fullWithoutWaitlist(db, target, eff, entryType)))
+        throw new HttpError(409, 'full', `${target.label} is full.`)
+      return answer
+    }
   }
   if (result.status === 'pending_email') {
     await emailConfirmLink(emailDeps, check.person.email, {
       firstName: check.person.firstName,
       programme: result.programme,
       target: result.target,
-      teamName: result.teamName,
+      // Free text isn't sent to an address nobody has confirmed yet; the confirm page shows the team.
+      teamName: null,
       registrationId: result.registrationId,
       createdAt: now.toISOString(),
       expiresAt: pendingUntil!,
+      hours: confirmHours,
     })
     return pendingAnswer
   }
   await emailNewEntry(db, deps.mailer, check.person.email, check.person.firstName, { ...result, status: result.status })
-  return {
-    status: result.status,
-    reference: result.reference,
-    position: result.position,
-    teamName: result.teamName,
-    amountCents: result.amountCents,
-    message: result.message,
-    programme: result.programme,
-    target: result.target,
-  }
+  return emailedAnswer
+}
+
+/** Closes an unconfirmed entry (and its unconfirmed team entry) that a newer submission replaces. One batch. */
+async function replacePending(db: AppDb, existing: ExistingEntry, now: Date) {
+  const at = now.toISOString()
+  await runBatch(db, [
+    db
+      .update(registrations)
+      .set({ status: 'cancelled', cancelledAt: at, cancelReason: PENDING_REPLACED_REASON, pendingDetails: null, holdExpiresAt: null })
+      .where(and(eq(registrations.id, existing.registrationId), eq(registrations.status, 'pending_email'))),
+    ...(existing.groupId && !existing.freeAgent
+      ? [
+          db
+            .update(groups)
+            .set({ status: 'cancelled', cancelledAt: at })
+            .where(and(eq(groups.id, existing.groupId), eq(groups.status, 'pending_email'))),
+        ]
+      : []),
+  ])
+}
+
+/** Would a new entry of this type be refused as full right now (waitlist off and no room)? One query, only then. */
+async function fullWithoutWaitlist(db: AppDb, target: Target, eff: Effective, entryType: FormEntryType) {
+  if (eff.waitlistEnabled || !target.product) return false
+  const team = entryType === 'team'
+  if (eff.capPlayers === null && (!team || eff.capTeams === null)) return false
+  const productId = target.product.id
+  const row = await db
+    .select({
+      players: sql<number>`(select count(*) from registrations rf where rf.product_id = ${productId} and rf.status in ${HOLDING_SQL})`,
+      teams: sql<number>`(select count(*) from groups gf where gf.product_id = ${productId} and gf.status in ${GROUP_HOLDING_SQL})`,
+    })
+    .from(products)
+    .where(eq(products.id, productId))
+    .get()
+  const players = Number(row?.players ?? 0)
+  const teams = Number(row?.teams ?? 0)
+  return (eff.capPlayers !== null && players >= eff.capPlayers) || (team && eff.capTeams !== null && teams >= eff.capTeams)
 }
 
 /**
- * A repeat submission of an entry that exists: a pending one gets its confirm link again (same link, same
- * deadline); any other gets an "already enrolled" email with its reference. Sent to the submitted address, which
- * is the address on file (duplicates match on it). Never throws.
+ * A repeat submission of an entry that holds or waits for a spot: an "already enrolled" email with its reference
+ * and where it stands. Sent to the submitted address, which is the address on file (duplicates match on it).
+ * (A repeat of an unconfirmed entry replaces it instead.) Never throws.
  */
 async function emailExisting(
   db: AppDb,
@@ -576,26 +670,13 @@ async function emailExisting(
   target: Target,
   person: PersonInput,
   existing: ExistingEntry | null,
-  now: Date,
 ) {
-  if (!existing) return false
+  if (!existing || existing.status === 'pending_email') return false
   const teamName =
     existing.groupId && !existing.freeAgent
       ? ((await db.select({ name: groups.name }).from(groups).where(eq(groups.id, existing.groupId)).get())?.name ?? null)
       : null
   const what = { programme: target.programme.name, target: target.label }
-  if (existing.status === 'pending_email') {
-    const until = existing.holdExpiresAt
-    if (!until || until <= now.toISOString()) return false
-    return emailConfirmLink(deps, person.email, {
-      firstName: person.firstName,
-      ...what,
-      teamName,
-      registrationId: existing.registrationId,
-      createdAt: existing.createdAt,
-      expiresAt: until,
-    })
-  }
   const state = existing.status === 'waitlist' ? 'waitlist' : existing.status === 'offered' ? 'offered' : 'confirmed'
   const position =
     state === 'waitlist' && target.product

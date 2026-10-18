@@ -7,7 +7,11 @@
 // Production also refuses the test keys if someone sets them by mistake (they'd let any bot through).
 //
 // With real keys, the siteverify answer's hostname must be the host the form posted to (the page's own), so a token
-// solved on another site that embeds our key isn't accepted.
+// solved on another site that embeds our key isn't accepted, and its `action` must be the form's (TURNSTILE_ACTIONS),
+// so a token solved on some other widget with our key can't be spent on this form.
+
+/** The action each widget is rendered with (the browser passes it to turnstile.render; siteverify echoes it). */
+export const TURNSTILE_ACTIONS = { enrol: 'enrol' } as const
 
 export const TURNSTILE_VERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify'
 
@@ -40,14 +44,15 @@ export type TurnstileResult = { ok: true } | { ok: false; reason: string }
 
 /**
  * Checks a widget token with Cloudflare. Network failures fail closed. With `hostname`, the token must have been
- * solved on that host (pass null with the test keys, whose answers say example.com).
+ * solved on that host, and with `action` on a widget rendered with that action (pass null for both with the test
+ * keys, whose answers say example.com and carry no action).
  */
 export async function verifyTurnstile(
   secretKey: string,
   token: unknown,
   ip: string | null,
   doFetch: typeof fetch = fetch,
-  opts: { hostname?: string | null } = {},
+  opts: { hostname?: string | null; action?: string | null } = {},
 ): Promise<TurnstileResult> {
   if (typeof token !== 'string' || !token || token.length > 2048) return { ok: false, reason: 'missing-input-response' }
   const body = new FormData()
@@ -56,10 +61,11 @@ export async function verifyTurnstile(
   if (ip) body.append('remoteip', ip)
   try {
     const res = await doFetch(TURNSTILE_VERIFY_URL, { method: 'POST', body })
-    const data = (await res.json().catch(() => ({}))) as { success?: boolean; hostname?: string; 'error-codes'?: string[] }
+    const data = (await res.json().catch(() => ({}))) as { success?: boolean; hostname?: string; action?: string; 'error-codes'?: string[] }
     if (data.success === true) {
       if (opts.hostname && data.hostname?.toLowerCase() !== opts.hostname.toLowerCase())
         return { ok: false, reason: `hostname ${data.hostname ?? 'missing'}` }
+      if (opts.action && data.action !== opts.action) return { ok: false, reason: `action ${data.action ?? 'missing'}` }
       return { ok: true }
     }
     return { ok: false, reason: data['error-codes']?.join(',') || `status ${res.status}` }

@@ -1,3 +1,4 @@
+import { describeError } from './log'
 import type { AstroGlobal } from 'astro'
 import { env } from 'cloudflare:workers'
 import { getDb } from './db'
@@ -36,7 +37,7 @@ export function followRedirect(
   ctx.locals.cfContext?.waitUntil(
     countRedirectHit(db, r.id).then(
       () => undefined,
-      (e: unknown) => console.error('redirect hit count failed', e),
+      (e: unknown) => console.error(`redirect hit count failed: ${describeError(e)}`),
     ),
   )
   cachePublic(ctx.cache, tags.page(path))

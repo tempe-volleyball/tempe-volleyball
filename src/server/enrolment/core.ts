@@ -1,9 +1,12 @@
+import { describeError } from '../log'
 import { and, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm'
 import type { SQLiteSelect } from 'drizzle-orm/sqlite-core'
 import { effectiveCap, enrolmentOpen, inherit } from '../../lib/programmes'
 import { defaultFields } from '../../lib/enrolment/defaults'
 import { activeFields, type FormField } from '../../lib/enrolment/forms'
 import { PRODUCT_KIND, sessionLabel, targetLabel, type TargetKind, type TargetRef } from '../../lib/enrolment/targets'
+import { DEFAULT_SETTINGS } from '../../lib/content/settings'
+import { sydneyDateTime, sydneyToUtc } from '../../lib/time'
 import { runBatch, type AppDb } from '../db'
 import {
   developmentTerms,
@@ -451,6 +454,43 @@ export function waitlistRanks<T extends { id: string; status: string; waitlistPo
   return ranks
 }
 
+// ── Unconfirmed details ───────────────────────────────────────────────────────
+
+/** Why an unconfirmed entry was closed when the same person sent the form again (the newer one stands). */
+export const PENDING_REPLACED_REASON = 'Replaced by a newer form before the email address was confirmed'
+
+/**
+ * The statements that move a once-pending entry's held details (registrations.pending_details) onto its player,
+ * filling blanks only (what's there, from an admin or an earlier confirmed entry, is kept), then clear them. They
+ * only apply once the entry is no longer pending_email, so they can sit in the same batch as the settle and do
+ * nothing when it didn't happen. Query builders only (a D1 batch can't bind a raw statement).
+ */
+export function mergePendingDetailsStatements(db: AppDb, registrationId: string) {
+  const held = (key: string) =>
+    sql`(select json_extract(rq.pending_details, ${`$.${key}`}) from registrations rq where rq.id = ${registrationId})`
+  const done = and(
+    eq(registrations.id, registrationId),
+    sql`${registrations.status} <> 'pending_email'`,
+    sql`${registrations.pendingDetails} is not null`,
+  )
+  return [
+    db
+      .update(players)
+      .set({
+        phone: sql`coalesce(${players.phone}, ${held('phone')})`,
+        birthYear: sql`coalesce(${players.birthYear}, ${held('birthYear')})`,
+        guardianName: sql`coalesce(${players.guardianName}, ${held('guardianName')})`,
+        guardianEmail: sql`coalesce(${players.guardianEmail}, ${held('guardianEmail')})`,
+        guardianPhone: sql`coalesce(${players.guardianPhone}, ${held('guardianPhone')})`,
+        emergencyContact: sql`coalesce(${players.emergencyContact}, ${held('emergencyContact')})`,
+      })
+      .where(
+        sql`${players.id} = (select rq.player_id from registrations rq where rq.id = ${registrationId} and rq.status <> 'pending_email' and rq.pending_details is not null)`,
+      ),
+    db.update(registrations).set({ pendingDetails: null }).where(done),
+  ] as const
+}
+
 // ── Offers ────────────────────────────────────────────────────────────────────
 
 export type OfferMade = {
@@ -466,22 +506,123 @@ export type OfferMade = {
   expiresAt: string
   /** How long the offer is held once its email goes (the programme's or instance's offer hours). */
   hours: number
+  /** The hold never runs past this (UTC ISO): the cut-off before the target starts (offerWindow). Null = no cap. */
+  latest?: string | null
   /** The programme and target names, for the email (offersMadeAt fills them in). */
   what?: { programme: string; target: string }
 }
+
+// ── When offers stop ──────────────────────────────────────────────────────────
+
+/**
+ * When a product's target starts, as Sydney wall-clock "YYYY-MM-DDTHH:MM": a session's date and start time, an
+ * event's first day and start time, a season's first game night (its first match day that isn't a skipped week, at
+ * the earliest game time that night, else the league's start time). Midnight when no time is known, so the cut-off
+ * errs early. Null for development terms (a place in a term that has started is still worth having) and anything
+ * else. A scalar subquery on a `products` row, safe inside a batch.
+ */
+export const targetStartSql = sql<string | null>`(case
+  when ${products.sessionId} is not null then (select ps.date || 'T' || coalesce(ps.start_time, '00:00') from programme_sessions ps where ps.id = ${products.sessionId})
+  when ${products.eventId} is not null then (select ev.start_date || 'T' || coalesce(ev.start_time, '00:00') from events ev where ev.id = ${products.eventId})
+  when ${products.seasonId} is not null then (
+    select fd.d || 'T' || coalesce(
+      (select min(m.start_time) from matches m join match_days md2 on md2.id = m.match_day_id where m.season_id = fd.id and md2.date = fd.d and m.start_time is not null),
+      fd.league_start, '00:00')
+    from (
+      select s.id as id, lg.start_time as league_start,
+        coalesce((select min(md.date) from match_days md where md.season_id = s.id and md.kind <> 'skip'), s.start_date) as d
+      from seasons s join leagues lg on lg.id = s.league_id where s.id = ${products.seasonId}
+    ) fd)
+  else null end)`
+
+/** Settings → Enrolment → "Hours before the start that waitlist offers stop", read inside the same query. */
+const offerCutoffSql = sql<
+  number | null
+>`(select json_extract(ss.value, '$.offerCutoffHours') from site_settings ss where ss.key = 'enrolment')`
+
+export const DEFAULT_OFFER_CUTOFF_HOURS = DEFAULT_SETTINGS.enrolment.offerCutoffHours
+
+const cutoffHoursOf = (v: unknown) => {
+  const n = Number(v)
+  return v !== null && v !== undefined && Number.isFinite(n) && n >= 0 ? n : DEFAULT_OFFER_CUTOFF_HOURS
+}
+
+export type OfferWindow = {
+  /** The latest an offer may be held to (UTC ISO): the start minus the cut-off. Null = no cap (no start known). */
+  latest: string | null
+  /** Offers can't be made any more: the cut-off has passed. */
+  closed: boolean
+  /** The target's start, Sydney wall clock, when known. */
+  startsAt: string | null
+  cutoffHours: number
+}
+
+/** When offers for a target stop (pure): `startLocal` is targetStartSql's value, `cutoffHours` the setting. */
+export function offerWindow(startLocal: string | null, cutoffHours: unknown, now: Date): OfferWindow {
+  const hours = cutoffHoursOf(cutoffHours)
+  const start = startLocal ? sydneyToUtc(startLocal) : null
+  if (!start) return { latest: null, closed: false, startsAt: null, cutoffHours: hours }
+  const latest = new Date(Date.parse(start) - hours * 3_600_000).toISOString()
+  return { latest, closed: latest <= now.toISOString(), startsAt: startLocal, cutoffHours: hours }
+}
+
+/** When an offer made now lapses: the offer hours from now, capped at the window's `latest`. Null when closed. */
+export function offerExpiry(span: OfferWindow, offerHours: number, now: Date): string | null {
+  if (span.closed) return null
+  const full = new Date(now.getTime() + Math.max(1, offerHours) * 3_600_000).toISOString()
+  return span.latest && span.latest < full ? span.latest : full
+}
+
+/**
+ * SQL for "this product's offers are still open" on a `products` row, for the cron's work-finder: the start less the
+ * cut-off is still ahead of `now` (Sydney wall clock). SQLite does the arithmetic on wall-clock time, so it can be
+ * an hour out across a daylight-saving change; offerNext() then decides exactly.
+ */
+export function offersOpenSql(now: Date): SQL {
+  const nowLocal = `${sydneyDateTime(now)}:00`
+  return sql`(${targetStartSql} is null or datetime(${targetStartSql}, '-' || coalesce(${offerCutoffSql}, ${DEFAULT_OFFER_CUTOFF_HOURS}) || ' hours') > ${nowLocal})`
+}
+
+/** A product's offer window (one query): what the admin's "Offer" and "Resend offer" use. */
+export async function offerWindowFor(db: AppDb, productId: string, now: Date): Promise<OfferWindow> {
+  const loaded = await loadProduct(db, productId)
+  return offerWindow(loaded?.startLocal ?? null, loaded?.cutoffHours ?? null, now)
+}
+
+/** 409 when the admin offers a spot after offers have stopped (they can confirm the person instead). */
+export const offersClosed = (span: OfferWindow) =>
+  new HttpError(
+    409,
+    'offers_closed',
+    `Waitlist offers have stopped: it's less than ${span.cutoffHours} ${span.cutoffHours === 1 ? 'hour' : 'hours'} before the start. Confirm them instead if there's room.`,
+  )
 
 /** The product with its programme's settings and its target's label (one query), for offers and admin actions. */
 export async function loadProduct(db: AppDb, productId: string) {
   const row = await joinTargetRows(
     db
-      .select({ product: products, programme: programmeColumns, ...targetLabelColumns })
+      .select({
+        product: products,
+        programme: programmeColumns,
+        ...targetLabelColumns,
+        startLocal: sql<string | null>`${targetStartSql}`.as('target_start'),
+        cutoffHours: sql<number | null>`${offerCutoffSql}`.as('offer_cutoff'),
+      })
       .from(products)
       .innerJoin(programmes, eq(programmes.id, products.programmeId))
       .$dynamic(),
   )
     .where(eq(products.id, productId))
     .get()
-  return row ? { product: row.product, programme: row.programme, label: labelOfRow(row) } : null
+  return row
+    ? {
+        product: row.product,
+        programme: row.programme,
+        label: labelOfRow(row),
+        startLocal: row.startLocal,
+        cutoffHours: row.cutoffHours,
+      }
+    : null
 }
 
 /**
@@ -496,7 +637,11 @@ export async function offerNext(db: AppDb, productId: string, now: Date, max = O
   if (!loaded) return []
   const eff = effective(loaded.programme, loaded.product)
   const at = now.toISOString()
-  const expires = new Date(now.getTime() + Math.max(1, eff.offerHours) * 3_600_000).toISOString()
+  // Never held past the cut-off before the target starts, and none at all once that has passed: the spot then stays
+  // free for the admin (the enrolment screen says offers have stopped).
+  const span = offerWindow(loaded.startLocal, loaded.cutoffHours, now)
+  const expires = offerExpiry(span, eff.offerHours, now)
+  if (!expires) return []
   const playerRoom = sql`coalesce(${eff.capPlayers} - ${holdingPlayers(productId)}, ${NO_CAP})`
   const teamRoom = sql`min(coalesce(${eff.capTeams} - ${holdingTeams(productId)}, ${NO_CAP}), coalesce(${eff.capPlayers} - ${holdingPlayers(productId)}, ${NO_CAP}))`
   const offered = { status: 'offered' as const, offeredAt: at, offerExpiresAt: expires, waitlistPosition: null }
@@ -530,11 +675,18 @@ export async function offerNext(db: AppDb, productId: string, now: Date, max = O
   ])) as { id: string }[][]
   // Exactly the rows this call offered (another call in the same millisecond can't be counted twice).
   const ids = [...individuals!, ...captains!].map((x) => x.id)
-  return ids.length === 0 ? [] : offersMadeAt(db, productId, at, hours, ids)
+  return ids.length === 0 ? [] : offersMadeAt(db, productId, at, hours, ids, span.latest)
 }
 
 /** The offers made on one product at one instant (optionally only these registrations), with what the emails need (one query). */
-export async function offersMadeAt(db: AppDb, productId: string, at: string, hours: number, ids?: string[]): Promise<OfferMade[]> {
+export async function offersMadeAt(
+  db: AppDb,
+  productId: string,
+  at: string,
+  hours: number,
+  ids?: string[],
+  latest: string | null = null,
+): Promise<OfferMade[]> {
   const rows = await joinTargetRows(
     db
       .select({
@@ -578,6 +730,7 @@ export async function offersMadeAt(db: AppDb, productId: string, at: string, hou
       offeredAt: at,
       expiresAt: r.expiresAt ?? at,
       hours,
+      latest,
       what: { programme: r.programme, target: labelOfRow(r) },
     }
   })
@@ -600,8 +753,8 @@ export async function offerEmail(
     url: offerUrl(deps.siteUrl, token),
     expiresAt: offer.expiresAt,
     teamName: offer.teamName,
-    // The mailer starts the hold from the moment this email goes (mailer.ts OfferHold).
-    hold: { type: offer.type, id: offer.id, offeredAt: offer.offeredAt, hours: offer.hours },
+    // The mailer starts the hold from the moment this email goes, never past `latest` (mailer.ts OfferHold).
+    hold: { type: offer.type, id: offer.id, offeredAt: offer.offeredAt, hours: offer.hours, latest: offer.latest ?? null },
   }
 }
 
@@ -613,7 +766,7 @@ export async function sendOfferEmails(deps: NotifyDeps, offers: OfferMade[], wha
       await deps.mailer.sendEmail(offer.email, 'enrolment.offer', await offerEmail(deps, offer, what))
       sent++
     } catch (e) {
-      console.warn(`[enrolment] offer email for ${offer.reference} not sent: ${e instanceof Error ? e.message : String(e)}`)
+      console.warn(`[enrolment] offer email for ${offer.reference} not sent: ${describeError(e)}`)
     }
   }
   return sent
@@ -625,7 +778,7 @@ export async function sendQuietly(fn: () => Promise<unknown>, what: string) {
     await fn()
     return true
   } catch (e) {
-    console.warn(`[enrolment] ${what} email not sent: ${e instanceof Error ? e.message : String(e)}`)
+    console.warn(`[enrolment] ${what} email not sent: ${describeError(e)}`)
     return false
   }
 }

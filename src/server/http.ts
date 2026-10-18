@@ -1,6 +1,7 @@
 import { RoleError, atLeast, loadActorRole, type Actor } from './auth/roles'
 import type { AppDb } from './db'
 import type { UserRole } from './db/schema'
+import { describeError } from './log'
 
 // Small helpers for the JSON API routes. Errors come back as { error: code, message } with a matching status.
 
@@ -19,27 +20,7 @@ export class HttpError extends Error {
   }
 }
 
-/** Drops a failed query's bound values ("… params: a,b,c") from a message: they can be names, emails and phones. */
-const withoutParams = (message: string) => message.replace(/\s*params:[\s\S]*$/i, '').slice(0, 500)
-
-/**
- * What's logged for an unexpected error: its name, code and message, and its cause's, with any query parameters
- * cut off. Never the error object itself: drizzle's DrizzleQueryError carries the SQL's bound values (personal data
- * on the enrolment routes), and Workers Logs keep what's logged.
- */
-export function describeError(e: unknown): string {
-  if (!(e instanceof Error)) return typeof e === 'string' ? withoutParams(e) : typeof e
-  const code = (e as { code?: unknown }).code
-  const cause = (e as { cause?: unknown }).cause
-  const parts = [`${e.name}${typeof code === 'string' || typeof code === 'number' ? ` (${code})` : ''}: ${withoutParams(e.message)}`]
-  if (cause instanceof Error) {
-    const causeCode = (cause as { code?: unknown }).code
-    parts.push(
-      `cause ${cause.name}${typeof causeCode === 'string' || typeof causeCode === 'number' ? ` (${causeCode})` : ''}: ${withoutParams(cause.message)}`,
-    )
-  }
-  return parts.join('; ')
-}
+export { describeError } from './log'
 
 export function errorResponse(e: unknown) {
   if (e instanceof HttpError) return json({ ...e.details, error: e.code, message: e.message }, e.status)
@@ -57,13 +38,19 @@ export const handle = async (fn: () => Promise<Response>) => {
   }
 }
 
-/** The largest JSON body a public (signed-out) route reads. */
+/** The largest JSON body a public (signed-out) route reads: the default for everything outside /api/admin. */
 export const PUBLIC_BODY_LIMIT = 64 * 1024
+/** The default for /api/admin/* (behind the session guard): long pages and whole draws fit with room to spare. */
+export const ADMIN_BODY_LIMIT = 1024 * 1024
+/** The signed-out invite routes (/api/invites/*): a token and a name. */
+export const INVITE_BODY_LIMIT = 4 * 1024
+/** Better Auth's endpoints (/api/auth/*): an email address, a code, a callback URL. */
+export const AUTH_BODY_LIMIT = 16 * 1024
 
 const tooLarge = () => new HttpError(413, 'too_large', 'That request is too large.')
 
 /** The body as text, refusing (413) anything over `maxBytes`, whether or not Content-Length says so. */
-async function readCapped(request: Request, maxBytes: number): Promise<string> {
+export async function readCapped(request: Request, maxBytes: number): Promise<string> {
   const declared = Number(request.headers.get('content-length') ?? '')
   if (Number.isFinite(declared) && declared > maxBytes) throw tooLarge()
   if (!request.body) return ''
@@ -89,14 +76,23 @@ async function readCapped(request: Request, maxBytes: number): Promise<string> {
   return new TextDecoder().decode(all)
 }
 
+/** The cap readJson applies when the route doesn't pass one: ADMIN_BODY_LIMIT under /api/admin/, else PUBLIC_BODY_LIMIT. */
+export function defaultBodyLimit(request: Request): number {
+  const path = new URL(request.url).pathname
+  return path === '/api/admin' || path.startsWith('/api/admin/') ? ADMIN_BODY_LIMIT : PUBLIC_BODY_LIMIT
+}
+
 /**
- * The request's JSON object. `maxBytes` caps the body (413 over it) before anything is parsed: public routes pass
- * PUBLIC_BODY_LIMIT, so a huge body can't use up the CPU budget before the rate limit and Turnstile run.
+ * The request's JSON object. The body is always capped (413 over it) before anything is parsed, so a huge body
+ * can't use up the CPU budget before the rate limit, Turnstile or a token check runs: by default at
+ * PUBLIC_BODY_LIMIT, or ADMIN_BODY_LIMIT on /api/admin/* (signed-in admins only). `maxBytes` sets another cap;
+ * there is no uncapped read.
  */
 export async function readJson<T extends Record<string, unknown>>(request: Request, opts: { maxBytes?: number } = {}): Promise<Partial<T>> {
+  const maxBytes = opts.maxBytes ?? defaultBodyLimit(request)
   let body: unknown
   try {
-    body = opts.maxBytes ? JSON.parse(await readCapped(request, opts.maxBytes)) : await request.json()
+    body = JSON.parse(await readCapped(request, maxBytes))
   } catch (e) {
     if (e instanceof HttpError) throw e
     body = undefined

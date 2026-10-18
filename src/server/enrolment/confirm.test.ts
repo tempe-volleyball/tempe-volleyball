@@ -268,7 +268,7 @@ describe('email confirmation before a spot is held', () => {
     const later = new Date(NOW.getTime() + 25 * HOUR)
     s.setClock(later)
     const result = await runJobs(s.db, s.mailer, later, { enrolment: { secret: SECRET, siteUrl: SITE } })
-    expect(result.housekeeping).toEqual({ pendingExpired: 1, emailsPruned: 0 })
+    expect(result.housekeeping).toEqual({ pendingExpired: 1, unconfirmedPruned: 0, emailsPruned: 0 })
     const statuses = Object.fromEntries((await regs(s)).map((r) => [r.id, r.status]))
     expect(statuses[r1.id]).toBe('confirmed')
     expect(statuses[r2.id]).toBe('pending_email')
@@ -294,12 +294,186 @@ describe('email confirmation before a spot is held', () => {
 
   it('can be switched off per programme or per instance', async () => {
     const s = await setup({ emailConfirm: false })
-    expect((await enrolSession(s)).status).toBe('confirmed')
+    // Off: settled straight away, and the page just says "we've emailed you".
+    expect((await enrolSession(s)).status).toBe('emailed')
+    expect((await regs(s)).map((r) => r.status)).toEqual(['confirmed'])
     const on = await setup({ capPlayers: null })
     // Uncapped: automatic means off.
-    expect((await enrolSession(on)).status).toBe('confirmed')
+    expect((await enrolSession(on)).status).toBe('emailed')
     await on.db.update(schema.products).set({ emailConfirm: true })
     expect((await enrolSession(on)).status).toBe('pending_email')
+  })
+})
+
+describe('unconfirmed details (security review L3)', () => {
+  const kin = { skill_level: 'beginner', emergency_contact: { name: 'Mallory', phone: '0499 999 999' }, code_of_conduct: true }
+
+  it("writes nothing onto a player until the address is confirmed, and a repeat replaces what's waiting", async () => {
+    const s = await setup()
+    const victim = person()
+    // Someone else types the victim's address with their own details.
+    await enrol(s, {
+      target: { kind: 'session', id: s.session.id },
+      entryType: 'player',
+      person: { ...victim, phone: '0499 999 999' },
+      answers: kin,
+    })
+    const [player] = await s.db.select().from(schema.players).all()
+    expect(player).toMatchObject({ email: victim.email, phone: null, emergencyContact: null, birthYear: null })
+    const [held] = await regs(s)
+    expect(held!.pendingDetails).toMatchObject({ phone: '0499 999 999', emergencyContact: 'Mallory, 0499 999 999' })
+    const attackerLink = confirmLink(s, victim.email)
+    // The admin sees what was sent, marked as unconfirmed.
+    const detail = await getTargetDetail(s.db, { kind: 'session', id: s.session.id }, NOW)
+    expect(detail.registrations[0]).toMatchObject({ detailsUnconfirmed: true, player: { phone: '0499 999 999' } })
+
+    // The real person fills in the form: theirs replaces the waiting entry, and the first link stops working.
+    await enrolSession(s, victim)
+    const all = await regs(s)
+    expect(all.map((r) => [r.status, r.cancelReason])).toEqual([
+      ['cancelled', 'Replaced by a newer form before the email address was confirmed'],
+      ['pending_email', null],
+    ])
+    expect((await viewConfirmation(s.deps, attackerLink)).state).toBe('expired')
+    const link = confirmLink(s, victim.email)
+    expect(link).not.toBe(attackerLink)
+    // The confirm page shows the details confirming will save.
+    expect((await viewConfirmation(s.deps, link)).details).toMatchObject({
+      phone: '0400 000 000',
+      emergencyContact: 'Sam Lee, 0411 111 111',
+    })
+    expect((await confirmEmail(s.deps, link)).state).toBe('confirmed')
+    const [after] = await s.db.select().from(schema.players).all()
+    expect(after).toMatchObject({ phone: '0400 000 000', emergencyContact: 'Sam Lee, 0411 111 111' })
+    expect((await regs(s)).find((r) => r.status === 'confirmed')!.pendingDetails).toBeNull()
+    expect(await s.db.select().from(schema.players).all()).toHaveLength(1)
+  })
+
+  it('confirming fills blanks only, and an admin confirming by hand merges the same way', async () => {
+    const s = await setup()
+    const p = person()
+    await enrolSession(s, p)
+    const [reg] = await regs(s)
+    // Already known to the admin: the phone stays as it is.
+    await s.db.update(schema.players).set({ phone: '0422 222 222' })
+    await registrationAction(s.deps, s.actor, reg!.id, { action: 'confirm', notify: false })
+    const [player] = await s.db.select().from(schema.players).all()
+    expect(player).toMatchObject({ phone: '0422 222 222', emergencyContact: 'Sam Lee, 0411 111 111' })
+  })
+
+  it('deletes lapsed unconfirmed entries, and players nothing else uses, after the retention period', async () => {
+    const s = await setup()
+    const [p1, p2] = [person(), person()]
+    await enrolSession(s, p1)
+    await enrolSession(s, p2)
+    // p2 also has a confirmed entry elsewhere, so their player row stays.
+    const p2Player = (await s.db.select().from(schema.players).where(eq(schema.players.email, p2.email)).all())[0]!
+    const other = (await s.db.select().from(schema.products).all())[0]!
+    await s.db.insert(schema.registrations).values({
+      productId: other.id,
+      playerId: p2Player.id,
+      status: 'cancelled',
+      reference: 'TVB-KEEP',
+      source: 'admin',
+    })
+    const day = 24 * HOUR
+    s.setClock(new Date(NOW.getTime() + 2 * day))
+    const first = await runJobs(s.db, s.mailer, new Date(NOW.getTime() + 2 * day))
+    expect(first.housekeeping).toMatchObject({ pendingExpired: 2, unconfirmedPruned: 0 })
+    // 30 days (the default) after they lapsed.
+    const later = new Date(NOW.getTime() + 33 * day)
+    s.setClock(later)
+    const second = await runJobs(s.db, s.mailer, later)
+    expect(second.housekeeping).toMatchObject({ unconfirmedPruned: 2 })
+    expect((await regs(s)).map((r) => r.reference)).toEqual(['TVB-KEEP'])
+    expect((await s.db.select().from(schema.players).all()).map((x) => x.email)).toEqual([p2.email])
+  })
+})
+
+describe('confirm links and the daily email cap (security review L1)', () => {
+  it('starts the deadline when the link is actually sent, and the cron waits for a queued one', async () => {
+    const s = await setup()
+    const sent: string[] = []
+    const queued = createMailer({
+      db: s.db,
+      env: { SITE_ENV: 'production', RESEND_API_KEY: 'k' },
+      now: () => NOW,
+      dailyCap: 45,
+      authDailyCap: 40,
+      priorityReserve: 4,
+      confirmLinkReserve: 2,
+      fetch: (async (_u: unknown, init: RequestInit) => {
+        sent.push(String(init.body))
+        return Response.json({ id: 'resend-1' })
+      }) as unknown as typeof fetch,
+    })
+    // General pool 5: anonymous mail stops at 1, confirm links at 3, priority at 5.
+    const deps = { db: s.db, mailer: queued, turnstileSecret: 'ts', ip: '198.51.100.9', secret: SECRET, siteUrl: SITE, fetch: turnstileOk }
+    const submit = (pp = person(), now = NOW) =>
+      submitPublicEnrolment(
+        { ...deps, now },
+        { turnstileToken: 'tok', target: { kind: 'session', id: s.session.id }, entryType: 'player', person: pp, answers },
+      )
+    await queued.sendEmail('a@x.com', 'enrolment.already', {
+      name: 'A',
+      programme: 'P',
+      target: 'T',
+      reference: 'TVB-0000',
+      state: 'confirmed',
+    })
+    await submit()
+    await submit()
+    await submit()
+    const outbox = await s.db.select().from(schema.emailOutbox).all()
+    // 1 anonymous + 2 confirm links went; the third link waits (the rest is kept for priority mail).
+    expect(outbox.map((o) => o.status)).toEqual(['sent', 'sent', 'sent', 'queued'])
+    const waiting = (await regs(s)).at(-1)!
+    // A day later its old deadline has passed too, but only the two whose links went expire: the cron waits for it.
+    const later = new Date(NOW.getTime() + 25 * HOUR)
+    const idle = { ...queued, drainOutbox: async () => ({ sent: 0, failed: 0, skipped: 0, remaining: 1 }) }
+    expect((await runJobs(s.db, idle, later)).housekeeping).toMatchObject({ pendingExpired: 2 })
+    expect((await regs(s)).find((r) => r.id === waiting.id)!.status).toBe('pending_email')
+    // When it goes, the deadline runs from then.
+    const drainer = createMailer({
+      db: s.db,
+      env: { SITE_ENV: 'development' },
+      now: () => later,
+      log: () => {},
+    })
+    await drainer.drainOutbox()
+    const after = (await regs(s)).find((r) => r.id === waiting.id)!
+    expect(after.holdExpiresAt).toBe(new Date(later.getTime() + 24 * HOUR).toISOString())
+    expect(sent).toHaveLength(3)
+  })
+
+  it("doesn't send a queued link whose entry was confirmed by hand or replaced", async () => {
+    const s = await setup()
+    const p = person()
+    const mailer = createMailer({
+      db: s.db,
+      env: { SITE_ENV: 'development' },
+      now: () => NOW,
+      log: (m) => s.logs.push(m),
+    })
+    await enrolSession(s, p)
+    const [reg] = await regs(s)
+    // Put a second copy of its link in the queue, then confirm it by hand.
+    await s.db.insert(schema.emailOutbox).values({
+      to: p.email,
+      template: 'enrolment.confirm_email',
+      payload: {
+        name: 'P',
+        programme: 'P',
+        target: 'T',
+        url: 'https://x/enrol/confirm#c1',
+        expiresAt: NOW.toISOString(),
+        pending: { id: reg!.id, hours: 24 },
+      },
+      sendAfter: NOW.toISOString(),
+      createdAt: NOW.toISOString(),
+    })
+    await registrationAction(s.deps, s.actor, reg!.id, { action: 'verify', notify: false })
+    expect(await mailer.drainOutbox()).toMatchObject({ sent: 0, skipped: 1 })
   })
 })
 
@@ -386,7 +560,7 @@ describe('the hourly cron', () => {
     expect(s.stats.queries).toBeLessThanOrEqual(35)
     withinLimits(s.stats)
     expect(result.enrolment).toMatchObject({ expired: 1, offered: 1 })
-    expect(result.housekeeping).toEqual({ pendingExpired: 3, emailsPruned: 20 })
+    expect(result.housekeeping).toEqual({ pendingExpired: 3, unconfirmedPruned: 0, emailsPruned: 20 })
     expect(result.invitesExpired).toBe(1)
     expect(result.rateLimitsPruned).toBeGreaterThan(0)
     expect(result.email).toMatchObject({ sent: 5 })

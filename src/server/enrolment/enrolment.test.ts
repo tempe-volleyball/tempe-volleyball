@@ -6,9 +6,18 @@ import { createMailer } from '../email'
 import { HttpError } from '../http'
 import { runJobs } from '../cron'
 import { hashKey, pruneRateLimits } from '../ratelimit'
-import { OFFER_BATCH_MAX } from './core'
-import { ENROL_LIMITS, submitPublicEnrolment, type PublicEnrolInput } from './submit'
-import { addEntry, getTargetDetail, groupAction, listTargets, registrationAction, targetOrder, updateProduct } from './admin'
+import { OFFER_BATCH_MAX, offerWindow, targetStartSql, waitlistRanks } from './core'
+import { ENROL_LIMITS, submitPublicEnrolment, type PublicEnrolInput, type PublicEnrolResult } from './submit'
+import {
+  addEntry,
+  getTargetDetail,
+  groupAction,
+  listTargets,
+  registrationAction,
+  targetOrder,
+  updateProduct,
+  updateTargetSettings,
+} from './admin'
 import { CRON_OFFER_LIMIT, respondToOffer, runEnrolmentCron, viewOffer } from './offers'
 import { createForm, deleteForm, setFormProgrammes, updateForm } from './forms'
 import { loadEnrolmentForm } from './public'
@@ -115,19 +124,58 @@ const person = (n = ++seq, extra: Record<string, unknown> = {}) => ({
 
 const trainingAnswers = { skill_level: 'beginner', emergency_contact: { name: 'Sam Lee', phone: '0411 111 111' }, code_of_conduct: true }
 
-const enrol = (s: Setup, input: PublicEnrolInput, o: { ip?: string; fetch?: typeof fetch; secret?: string | null; now?: Date } = {}) =>
-  submitPublicEnrolment(
-    {
-      db: s.db,
-      mailer: s.mailer,
-      turnstileSecret: o.secret === undefined ? 'ts-secret' : o.secret,
-      ip: o.ip ?? `198.51.100.${++seq % 250}`,
-      secret: SECRET,
-      siteUrl: SITE,
-      fetch: o.fetch ?? turnstileOk,
-      now: o.now ?? NOW,
-    },
-    { turnstileToken: 'tok', ...input },
+/**
+ * Where a public entry landed. The page only ever says "we've emailed you" (`answer`, the same for a new entry and
+ * a repeat), so the status, reference and waitlist place are read back from the entry the person has.
+ */
+async function landed(s: Setup, input: PublicEnrolInput, answer: PublicEnrolResult) {
+  const p = input.person as { email?: string; firstName?: string } | undefined
+  if (answer.status !== 'emailed' || !p?.email) return { ...answer, answer }
+  const rows = await s.db
+    .select({ r: schema.registrations, email: schema.players.email, firstName: schema.players.firstName })
+    .from(schema.registrations)
+    .innerJoin(schema.players, eq(schema.players.id, schema.registrations.playerId))
+    .all()
+  const mine = rows
+    .filter((x) => x.email === p.email!.toLowerCase() && x.firstName.toLowerCase() === p.firstName?.toLowerCase())
+    .filter((x) => !['cancelled', 'expired'].includes(x.r.status))
+  const reg = mine.at(-1)?.r
+  if (!reg) return { ...answer, answer }
+  const team = !!reg.groupId && !reg.freeAgent
+  const ranks = team
+    ? waitlistRanks(await s.db.select().from(schema.groups).where(eq(schema.groups.productId, reg.productId)).all())
+    : waitlistRanks(rows.map((x) => x.r).filter((r) => r.productId === reg.productId && (!r.groupId || r.freeAgent)))
+  const status = reg.status === 'waitlist' ? 'waitlist' : 'confirmed'
+  return {
+    ...answer,
+    status,
+    reference: reg.reference,
+    position: status === 'waitlist' ? (ranks.get(team ? reg.groupId! : reg.id) ?? null) : null,
+    answer,
+  }
+}
+
+const enrol = async (
+  s: Setup,
+  input: PublicEnrolInput,
+  o: { ip?: string; fetch?: typeof fetch; secret?: string | null; now?: Date } = {},
+) =>
+  landed(
+    s,
+    input,
+    await submitPublicEnrolment(
+      {
+        db: s.db,
+        mailer: s.mailer,
+        turnstileSecret: o.secret === undefined ? 'ts-secret' : o.secret,
+        ip: o.ip ?? `198.51.100.${++seq % 250}`,
+        secret: SECRET,
+        siteUrl: SITE,
+        fetch: o.fetch ?? turnstileOk,
+        now: o.now ?? NOW,
+      },
+      { turnstileToken: 'tok', ...input },
+    ),
   )
 
 const enrolSession = (s: Setup, p = person(), o: Parameters<typeof enrol>[2] = {}) =>
@@ -160,6 +208,8 @@ describe('public enrolment', () => {
     s.stats.reset()
     const r = await enrolSession(s)
     withinLimits(s.stats)
+    // The page says "check your email", the same as for a repeat (docs/admin.md §3.7); the email has the reference.
+    expect(r.answer).toMatchObject({ status: 'emailed', reference: null, position: null, amountCents: 2000 })
     expect(r.status).toBe('confirmed')
     expect(r.reference).toMatch(/^TVB-[2-9A-HJKMNP-TV-Z]{4}$/)
     expect(r.amountCents).toBe(2000)
@@ -190,6 +240,13 @@ describe('public enrolment', () => {
     const refused = settled.filter((r): r is PromiseRejectedResult => r.status === 'rejected')
     expect(refused.map((r) => (r.reason as HttpError).code)).toEqual(['full', 'full', 'full'])
     expect(await s.db.select().from(schema.players).all()).toHaveLength(2)
+    // A repeat of an existing entry is refused as full too, as a new entry would be: no tell (security review L4).
+    const [held] = await regsOf(s.db)
+    const holder = await s.db.select().from(schema.players).where(eq(schema.players.id, held!.playerId)).get()
+    const repeat = await failure(
+      enrolSession(s, { firstName: holder!.firstName, lastName: holder!.lastName, email: holder!.email, phone: '0400 000 000' }),
+    )
+    expect(repeat.code).toBe('full')
   })
 
   it('caps team entries by teams and keeps team names unique (case-insensitive)', async () => {
@@ -228,7 +285,8 @@ describe('public enrolment', () => {
     const first = await enrolSession(s, p)
     // The page isn't told (that would reveal who is enrolled); the address on file gets its reference instead.
     const again = await enrolSession(s, { ...p, email: p.email.toUpperCase(), firstName: p.firstName.toLowerCase() })
-    expect(again).toMatchObject({ status: 'emailed', reference: null })
+    // Exactly the answer a new entry gets.
+    expect(again.answer).toEqual(first.answer)
     expect(s.logs.at(-1)).toContain('template=enrolment.already')
     expect(s.logs.at(-1)).toContain(first.reference!)
     const sibling = await enrolSession(s, { ...p, firstName: 'Alex' })
@@ -324,7 +382,7 @@ describe('public enrolment', () => {
     expect(limited.details!.retryAfter).toBeGreaterThan(0)
     // A new hour starts a new window.
     const later = new Date(NOW.getTime() + HOUR + 1000)
-    expect((await enrolSession(s, gmail, { now: later })).status).toBe('emailed')
+    expect((await enrolSession(s, gmail, { now: later })).answer.status).toBe('emailed')
 
     // Without a solved Turnstile check only the IP is counted, so junk can't lock someone's email out.
     const victim = person()
@@ -497,6 +555,76 @@ describe('waitlist and offers', () => {
     expect(await readOfferToken(SECRET, token)).toMatchObject({ type: 'group', id: b!.id })
     await respondToOffer(t.deps, token, 'accept')
     expect((await t.db.select().from(schema.groups).where(eq(schema.groups.id, b!.id)).get())!.status).toBe('confirmed')
+  })
+})
+
+describe('offers stop before the start (QA: an offer could outlast its session)', () => {
+  // The session is Wed 21 Oct 2026 at 6:30pm Sydney (07:30Z); offers stop 2 hours before by default.
+  const dayBefore = new Date('2026-10-20T22:00:00.000Z') // Wed 9am Sydney
+  const tooLate = new Date('2026-10-21T06:00:00.000Z') // Wed 5pm Sydney
+
+  it('holds an offer until the cut-off at the latest, not for the full offer hours', async () => {
+    const s = await setup({ capPlayers: 1 })
+    const [first] = await fill(s, 3)
+    const holder = (await regsOf(s.db)).find((r) => r.reference === first!.reference)!
+    await registrationAction({ ...s.deps, now: dayBefore }, s.actor, holder.id, { action: 'cancel' })
+    const offered = (await regsOf(s.db)).find((r) => r.status === 'offered')!
+    expect(offered.offerExpiresAt).toBe('2026-10-21T05:30:00.000Z') // 4:30pm Sydney, not 48 hours on
+    // The email says so, and the send doesn't stretch it.
+    expect(s.logs.find((l) => l.includes('template=enrolment.offer'))).toMatch(/4:30/)
+    const detail = await getTargetDetail(s.db, { kind: 'session', id: s.session.id }, dayBefore)
+    expect(detail.offers).toMatchObject({ closed: false, latest: '2026-10-21T05:30:00.000Z', cutoffHours: 2 })
+  })
+
+  it('makes no offers after the cut-off, tells the admin, refuses a manual offer and leaves the cron idle', async () => {
+    const s = await setup({ capPlayers: 1 })
+    const [first] = await fill(s, 3)
+    const holder = (await regsOf(s.db)).find((r) => r.reference === first!.reference)!
+    await registrationAction({ ...s.deps, now: tooLate }, s.actor, holder.id, { action: 'cancel' })
+    expect((await regsOf(s.db)).filter((r) => r.status === 'offered')).toHaveLength(0)
+    const detail = await getTargetDetail(s.db, { kind: 'session', id: s.session.id }, tooLate)
+    expect(detail.offers).toMatchObject({ closed: true, startsAt: '2026-10-21T18:30' })
+    const next = detail.registrations.find((r) => r.status === 'waitlist')!
+    expect((await failure(registrationAction({ ...s.deps, now: tooLate }, s.actor, next.id, { action: 'offer' }))).code).toBe(
+      'offers_closed',
+    )
+    // The cron doesn't keep picking this product (it would starve the others).
+    s.stats.reset()
+    expect(await runEnrolmentCron(s.db, { mailer: s.mailer, secret: SECRET, siteUrl: SITE }, tooLate)).toEqual({
+      expired: 0,
+      offered: 0,
+      emailsQueued: 0,
+    })
+    expect(s.stats.queries).toBe(1)
+    // Confirming by hand still works.
+    await registrationAction({ ...s.deps, now: tooLate }, s.actor, next.id, { action: 'confirm', notify: false })
+  })
+
+  it('takes the cut-off from Settings → Enrolment', async () => {
+    const s = await setup({ capPlayers: 1 })
+    await s.db.insert(schema.siteSettings).values({
+      key: 'enrolment',
+      value: { confirmHours: 24, emailRetentionDays: 30, offerCutoffHours: 0 },
+      updatedAt: NOW.toISOString(),
+    })
+    const [first] = await fill(s, 2)
+    const holder = (await regsOf(s.db)).find((r) => r.reference === first!.reference)!
+    await registrationAction({ ...s.deps, now: tooLate }, s.actor, holder.id, { action: 'cancel' })
+    const offered = (await regsOf(s.db)).find((r) => r.status === 'offered')!
+    expect(offered.offerExpiresAt).toBe('2026-10-21T07:30:00.000Z') // the start itself
+  })
+
+  it('works out when a season starts from its first game night', async () => {
+    const s = await setup({ capTeams: 1 })
+    await s.db.insert(schema.matchDays).values([
+      { seasonId: s.season.id, date: '2027-01-07', number: 0, kind: 'skip' },
+      { seasonId: s.season.id, date: '2027-01-14', number: 1 },
+    ])
+    const product = await updateTargetSettings(s.deps, s.actor, { kind: 'season', id: s.season.id }, { capacityTeams: 1 })
+    const row = await s.db.select({ start: targetStartSql }).from(schema.products).where(eq(schema.products.id, product.product.id)).get()
+    // No game times yet: the league's start time, else midnight (so the cut-off errs early).
+    expect(row!.start).toBe('2027-01-14T00:00')
+    expect(offerWindow(row!.start, 2, NOW)).toMatchObject({ closed: false, latest: '2027-01-13T11:00:00.000Z' })
   })
 })
 

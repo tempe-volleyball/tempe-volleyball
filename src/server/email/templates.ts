@@ -23,7 +23,7 @@ export type TemplateData = {
     expiresAt: string
     teamName?: string | null
     /** Which offer this is, so the mailer can start the hold when the email actually goes (mailer.ts OfferHold). */
-    hold?: { type: 'registration' | 'group'; id: string; offeredAt: string; hours: number }
+    hold?: { type: 'registration' | 'group'; id: string; offeredAt: string; hours: number; latest?: string | null }
   }
   /** Cancelled by the organiser, declined, or an offer that lapsed. */
   'enrolment.cancelled': EnrolmentEmail & { reason?: string | null; teamName?: string | null }
@@ -31,7 +31,13 @@ export type TemplateData = {
    * A public entry waiting for its address to be confirmed: the link (sensitive) holds no spot until it's clicked,
    * before expiresAt (UTC ISO). No reference yet: it's only given once the address is confirmed.
    */
-  'enrolment.confirm_email': Omit<EnrolmentEmail, 'reference'> & { url: string; expiresAt: string; teamName?: string | null }
+  'enrolment.confirm_email': Omit<EnrolmentEmail, 'reference'> & {
+    url: string
+    expiresAt: string
+    teamName?: string | null
+    /** Which entry, so the mailer can start its deadline when the email actually goes (mailer.ts PendingHold). */
+    pending?: { id: string; hours: number }
+  }
   /** Someone submitted the form again for an entry that already exists: its reference and where it stands. */
   'enrolment.already': EnrolmentEmail & { state: 'confirmed' | 'waitlist' | 'offered'; position?: number | null; teamName?: string | null }
 }

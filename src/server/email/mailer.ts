@@ -1,4 +1,5 @@
-import { and, asc, eq, gt, inArray, lt, lte, ne, or, sql } from 'drizzle-orm'
+import { describeError } from '../log'
+import { and, asc, eq, gt, inArray, isNull, lt, lte, ne, or, sql } from 'drizzle-orm'
 import type { BatchItem } from 'drizzle-orm/batch'
 import { canonicalMailbox } from '../../lib/enrolment/validate'
 import { sydneyDate } from '../../lib/time'
@@ -6,6 +7,7 @@ import { hashInviteToken, inviteStatus } from '../auth/roles'
 import { runBatch, type AppDb } from '../db'
 import { adminInvites, emailDailyCount, emailOutbox, groups, registrations, type EmailOutboxRow } from '../db/schema'
 import { hashKey, hit } from '../ratelimit'
+import { turnstileKeys } from '../turnstile'
 import {
   AUTH_TEMPLATES,
   SENSITIVE_TEMPLATES,
@@ -36,8 +38,15 @@ import {
 // the general pool up to PRIORITY_RESERVE short of its cap: the rest is kept for waitlist offers, admin emails and
 // emails after a confirmed address, so junk entries can't hold up a real offer (docs/admin.md §3.7).
 //
+// Confirm-link emails (enrolment.confirm_email) aren't priority, since anyone can trigger one, but they may use
+// CONFIRM_LINK_RESERVE of that reserve, so junk "already enrolled" and other anonymous mail can't hold up the link a
+// real entrant needs, and junk confirm links still can't touch the last part kept for offers and admin email.
+//
 // A waitlist offer's hold starts when its email actually goes: the payload's `hold` names the offer, and a send
-// extends offer_expires_at to sentAt + hours (the cron also never lapses an offer whose email is still queued).
+// extends offer_expires_at to sentAt + hours, capped at the offer's `latest` (the cut-off before the session or
+// event starts); the cron also never lapses an offer whose email is still queued. A confirm link's deadline works
+// the same way (`pending`): the entry's hold_expires_at becomes sentAt + the hours to confirm, so a link queued
+// behind the daily cap still gets its full time.
 
 /** Resend's free plan allows 100 a day; keep a margin. */
 export const DAILY_CAP = 95
@@ -48,6 +57,8 @@ export const AUTH_PER_HOUR = 5
 export const AUTH_PER_DAY = 10
 /** Of the general pool (DAILY_CAP − AUTH_DAILY_CAP), this many a day are kept for priority emails. */
 export const PRIORITY_RESERVE = 20
+/** Of PRIORITY_RESERVE, this many a day may also go to confirm-link emails (the rest stays for priority mail). */
+export const CONFIRM_LINK_RESERVE = 10
 /** Non-priority enrolment emails to one mailbox per hour (more are queued for later) and per day (more are dropped). */
 export const ENROLMENT_PER_HOUR = 5
 export const ENROLMENT_PER_DAY = 10
@@ -62,7 +73,13 @@ const INVITE_EMAIL_TTL_MS = 7 * 24 * 60 * 60 * 1000
 export const FROM = 'Tempe Volleyball <noreply@mail.tempevb.com>'
 export const RESEND_URL = 'https://api.resend.com/emails'
 
-export type MailerEnv = { SITE_ENV: string; RESEND_API_KEY?: string | undefined }
+export type MailerEnv = {
+  SITE_ENV: string
+  RESEND_API_KEY?: string | undefined
+  /** Checked so real email is never sent while public forms use Turnstile's always-pass test keys (emailMode). */
+  TURNSTILE_SITE_KEY?: string | undefined
+  TURNSTILE_SECRET_KEY?: string | undefined
+}
 
 export type MailerDeps = {
   db: AppDb
@@ -77,6 +94,8 @@ export type MailerDeps = {
   authDailyCap?: number
   /** How much of the general pool is kept for priority emails (default PRIORITY_RESERVE). */
   priorityReserve?: number
+  /** How much of that reserve confirm-link emails may use (default CONFIRM_LINK_RESERVE, at most priorityReserve). */
+  confirmLinkReserve?: number
   /** Salts the per-mailbox rate-limit keys (BETTER_AUTH_SECRET). Without it the enrolment per-mailbox limit is off. */
   hashSalt?: string | undefined
 }
@@ -100,15 +119,38 @@ export const PRIORITY_TEMPLATES: ReadonlySet<string> = new Set(['admin.invite', 
 
 const isEnrolmentTemplate = (t: string) => t.startsWith('enrolment.')
 
-/** What an offer email's payload carries so a send can start the hold (`hold`). */
-export type OfferHold = { type: 'registration' | 'group'; id: string; offeredAt: string; hours: number }
+/**
+ * What an offer email's payload carries so a send can start the hold (`hold`). `latest` (UTC ISO) caps it: the
+ * offer can't run past the cut-off before its session, event or season starts (core.ts offerWindow).
+ */
+export type OfferHold = { type: 'registration' | 'group'; id: string; offeredAt: string; hours: number; latest?: string | null }
 
 const holdOf = (payload: Record<string, unknown>): OfferHold | null => {
   const h = payload.hold as Partial<OfferHold> | undefined
   return h && (h.type === 'registration' || h.type === 'group') && typeof h.id === 'string' && typeof h.offeredAt === 'string'
-    ? { type: h.type, id: h.id, offeredAt: h.offeredAt, hours: typeof h.hours === 'number' && h.hours > 0 ? h.hours : 48 }
+    ? {
+        type: h.type,
+        id: h.id,
+        offeredAt: h.offeredAt,
+        hours: typeof h.hours === 'number' && h.hours > 0 ? h.hours : 48,
+        latest: typeof h.latest === 'string' ? h.latest : null,
+      }
     : null
 }
+
+/** What a confirm-link email's payload carries so a send starts the deadline (`pending`): the registration and the hours. */
+export type PendingHold = { id: string; hours: number }
+
+const pendingOf = (payload: Record<string, unknown>): PendingHold | null => {
+  const p = payload.pending as Partial<PendingHold> | undefined
+  return p && typeof p.id === 'string' ? { id: p.id, hours: typeof p.hours === 'number' && p.hours > 0 ? p.hours : 24 } : null
+}
+
+/** How much of the general pool an email may use: all of it, all but the priority-only part, or all but the reserve. */
+type Tier = 'priority' | 'confirm' | 'anonymous'
+
+const tierOf = (template: string, priority: boolean): Tier =>
+  priority ? 'priority' : template === 'enrolment.confirm_email' ? 'confirm' : 'anonymous'
 
 /** `limited`: over a per-recipient limit, dropped without being stored. */
 export type SendStatus = 'sent' | 'logged' | 'queued' | 'failed' | 'limited'
@@ -123,8 +165,15 @@ export class EmailNotConfiguredError extends Error {
 
 type Mode = 'resend' | 'console' | 'disabled'
 
+/**
+ * How email goes out. With RESEND_API_KEY it's sent, except while the public forms run on Turnstile's always-pass
+ * test keys (development and staging without real keys): any script could then make /api/enrol mail any address,
+ * an open relay, so those environments keep logging emails instead until real Turnstile keys are set too.
+ * (Production never uses the test keys: turnstile.ts refuses them there.)
+ */
 export const emailMode = (env: MailerEnv): Mode => {
-  if (env.RESEND_API_KEY) return 'resend'
+  const testTurnstile = env.SITE_ENV !== 'production' && turnstileKeys(env)?.test === true
+  if (env.RESEND_API_KEY && !testTurnstile) return 'resend'
   return env.SITE_ENV === 'development' || env.SITE_ENV === 'staging' ? 'console' : 'disabled'
 }
 
@@ -176,15 +225,22 @@ export function createMailer(deps: MailerDeps) {
   const authCap = Math.min(deps.authDailyCap ?? AUTH_DAILY_CAP, cap)
   const poolCap: Record<Pool, number> = { auth: authCap, general: cap - authCap }
   const reserve = Math.min(Math.max(0, deps.priorityReserve ?? PRIORITY_RESERVE), poolCap.general)
+  const confirmShare = Math.min(Math.max(0, deps.confirmLinkReserve ?? CONFIRM_LINK_RESERVE), reserve)
+  /** The general pool's daily limit for each tier. */
+  const generalLimit: Record<Tier, number> = {
+    priority: poolCap.general,
+    confirm: poolCap.general - reserve + confirmShare,
+    anonymous: poolCap.general - reserve,
+  }
   const mode = emailMode(env)
 
   /**
    * Takes one slot of today's allowance for the pool. Returns no rows when it's used up. Atomic (one upsert).
-   * Non-priority general mail stops PRIORITY_RESERVE short of the pool's cap.
+   * Non-priority general mail stops PRIORITY_RESERVE short of the pool's cap; confirm links CONFIRM_LINK_RESERVE less short.
    */
-  const reserveQuery = (at: Date, pool: Pool, priority = false) => {
+  const reserveQuery = (at: Date, pool: Pool, tier: Tier = 'anonymous') => {
     const iso = at.toISOString()
-    const limit = pool === 'general' && !priority ? poolCap.general - reserve : poolCap[pool]
+    const limit = pool === 'general' ? generalLimit[tier] : poolCap[pool]
     return db
       .insert(emailDailyCount)
       .values({ day: poolKey(at, pool), sent: limit > 0 ? 1 : 0, createdAt: iso, updatedAt: iso })
@@ -233,9 +289,15 @@ export function createMailer(deps: MailerDeps) {
       })
       .where(eq(emailOutbox.id, row.id))
 
-  /** Starts (extends) a waitlist offer's hold from the moment its email went: offer_expires_at = at + hours. */
-  const holdStatements = (hold: OfferHold, at: Date): BatchItem<'sqlite'>[] => {
+  /** When an offer's hold ends if its email goes at `at`: the offer hours from then, but never past its `latest`. */
+  const holdUntil = (hold: OfferHold, at: Date) => {
     const until = new Date(at.getTime() + hold.hours * 3_600_000).toISOString()
+    return hold.latest && hold.latest < until ? hold.latest : until
+  }
+
+  /** Starts (extends) a waitlist offer's hold from the moment its email went: offer_expires_at = at + hours (capped). */
+  const holdStatements = (hold: OfferHold, at: Date): BatchItem<'sqlite'>[] => {
+    const until = holdUntil(hold, at)
     const live = (t: typeof registrations | typeof groups) =>
       and(eq(t.status, 'offered'), eq(t.offeredAt, hold.offeredAt), lt(t.offerExpiresAt, until))
     return hold.type === 'group'
@@ -257,13 +319,31 @@ export function createMailer(deps: MailerDeps) {
         ]
   }
 
+  /** A pending entry's confirm deadline from the moment its link went: hold_expires_at = at + hours (only ever later). */
+  const pendingStatements = (pending: PendingHold, at: Date): BatchItem<'sqlite'>[] => {
+    const until = new Date(at.getTime() + pending.hours * 3_600_000).toISOString()
+    return [
+      db
+        .update(registrations)
+        .set({ holdExpiresAt: until })
+        .where(
+          and(
+            eq(registrations.id, pending.id),
+            eq(registrations.status, 'pending_email'),
+            or(isNull(registrations.holdExpiresAt), lt(registrations.holdExpiresAt, until)),
+          ),
+        ),
+    ]
+  }
+
   /** The payload to render and the hold statements for an email being sent at `at`. */
   const forSend = (template: string, payload: Record<string, unknown>, at: Date) => {
     const hold = template === 'enrolment.offer' ? holdOf(payload) : null
-    if (!hold) return { payload, extra: [] as BatchItem<'sqlite'>[] }
-    const until = new Date(at.getTime() + hold.hours * 3_600_000).toISOString()
+    const pending = template === 'enrolment.confirm_email' ? pendingOf(payload) : null
+    if (!hold && !pending) return { payload, extra: [] as BatchItem<'sqlite'>[] }
+    const until = hold ? holdUntil(hold, at) : new Date(at.getTime() + pending!.hours * 3_600_000).toISOString()
     const shown = typeof payload.expiresAt === 'string' && payload.expiresAt > until ? payload.expiresAt : until
-    return { payload: { ...payload, expiresAt: shown }, extra: holdStatements(hold, at) }
+    return { payload: { ...payload, expiresAt: shown }, extra: hold ? holdStatements(hold, at) : pendingStatements(pending!, at) }
   }
 
   /**
@@ -366,7 +446,7 @@ export function createMailer(deps: MailerDeps) {
       return { id: row.id, status: 'logged' }
     }
 
-    const [, reserved] = await runBatch(db, [insert, reserveQuery(at, pool, priority)])
+    const [, reserved] = await runBatch(db, [insert, reserveQuery(at, pool, tierOf(template, priority))])
     if (!gotSlot(reserved)) {
       if (immediateOnly) {
         console.warn(`[email] ${template} not sent: today's ${pool} email limit is reached`)
@@ -382,7 +462,7 @@ export function createMailer(deps: MailerDeps) {
       await (extra.length > 0 ? runBatch(db, [sentUpdate(row, result.id, sentAt), ...extra]) : sentUpdate(row, result.id, sentAt))
       return { id: row.id, status: 'sent' }
     }
-    console.warn(`[email] send failed for ${row.id} (${template}): ${result.error}`)
+    console.warn(`[email] send failed for ${row.id} (${template}): ${describeError(result.error)}`)
     const giveUp = immediateOnly || !result.retry
     await runBatch(db, [failedUpdate(row, result.error, giveUp), releaseQuery(at, pool)])
     return { id: row.id, status: giveUp ? 'failed' : 'queued' }
@@ -473,6 +553,26 @@ export function createMailer(deps: MailerDeps) {
     }
   }
 
+  /** Which of the confirm-link emails among `rows` still name an entry waiting for its address (one query, only when there are any). */
+  async function livePendingFor(rows: EmailOutboxRow[]) {
+    const ids = new Map<string, string>()
+    for (const row of rows) {
+      const pending = row.template === 'enrolment.confirm_email' ? pendingOf(row.payload) : null
+      if (pending) ids.set(row.id, pending.id)
+    }
+    if (ids.size === 0) return () => true
+    const live = await db
+      .select({ id: registrations.id })
+      .from(registrations)
+      .where(and(inArray(registrations.id, [...new Set(ids.values())]), eq(registrations.status, 'pending_email')))
+      .all()
+    const ok = new Set(live.map((r) => r.id))
+    return (rowId: string) => {
+      const id = ids.get(rowId)
+      return !id || ok.has(id)
+    }
+  }
+
   /** Cron: sends queued emails, oldest first, while today's cap allows. Returns counts for the log. */
   async function drainOutbox(limit = DRAIN_BATCH) {
     const at = now()
@@ -489,6 +589,7 @@ export function createMailer(deps: MailerDeps) {
       .limit(limit)
     const inviteOf = await invitesFor(rows)
     const offerLive = await liveOffersFor(rows)
+    const pendingLive = await livePendingFor(rows)
     const updates: BatchItem<'sqlite'>[] = []
     for (const row of rows) {
       if (!isTemplateName(row.template)) {
@@ -509,15 +610,23 @@ export function createMailer(deps: MailerDeps) {
         counts.skipped++
         continue
       }
-      // A confirm link past its deadline is useless (the entry has expired).
-      if (
-        row.template === 'enrolment.confirm_email' &&
-        typeof row.payload.expiresAt === 'string' &&
-        row.payload.expiresAt <= at.toISOString()
-      ) {
-        updates.push(failedUpdate(row, 'Confirm link expired before it was sent', true, { attempted: false }))
+      // An offer whose cut-off (before the session starts) passed while its email was queued can't be taken up.
+      const hold = row.template === 'enrolment.offer' ? holdOf(row.payload) : null
+      if (hold?.latest && hold.latest <= at.toISOString()) {
+        updates.push(failedUpdate(row, 'Offer closed before it could be sent', true, { attempted: false }))
         counts.skipped++
         continue
+      }
+      // A confirm link whose entry is no longer waiting (confirmed by an admin, replaced by a newer form, expired)
+      // would only confuse. Its deadline starts when it goes, so a queued one isn't late. (Rows queued before
+      // deadlines started at send carry no `pending`: those still go by their stored deadline.)
+      if (row.template === 'enrolment.confirm_email') {
+        const legacyLate = !pendingOf(row.payload) && typeof row.payload.expiresAt === 'string' && row.payload.expiresAt <= at.toISOString()
+        if (legacyLate || !pendingLive(row.id)) {
+          updates.push(failedUpdate(row, 'Confirm link no longer needed or expired', true, { attempted: false }))
+          counts.skipped++
+          continue
+        }
       }
       if (row.template === 'admin.invite') {
         const invite = inviteOf(row.id)
@@ -537,7 +646,7 @@ export function createMailer(deps: MailerDeps) {
         continue
       }
       const pool = poolOf(row.template)
-      if (!gotSlot(await reserveQuery(at, pool, row.priority))) {
+      if (!gotSlot(await reserveQuery(at, pool, tierOf(row.template, row.priority)))) {
         counts.remaining = rows.length - counts.sent - counts.failed - counts.skipped
         break
       }
