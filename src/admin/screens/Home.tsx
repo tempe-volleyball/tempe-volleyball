@@ -246,6 +246,42 @@ function Panels({ data, me }: { data: Dashboard; me: Me }) {
           </Section>
         )}
 
+        {data.messages && (
+          <Section
+            title="Messages"
+            count={data.messages.unread > 0 ? data.messages.unread : undefined}
+            action={
+              <Link href="/messages" className={linkClass}>
+                All messages
+              </Link>
+            }
+          >
+            {data.messages.openCount === 0 ? (
+              <p className="text-sm text-black/70">No open messages from the contact form.</p>
+            ) : (
+              <>
+                <p className="mb-2 text-sm text-black/70">
+                  {data.messages.unread} unread, {data.messages.openCount} not handled yet.
+                </p>
+                <ul className="divide-y divide-black/10">
+                  {data.messages.open.map((m) => (
+                    <li key={m.id} className={rowClass}>
+                      <Link href={`/messages/${m.id}`} className="min-w-0 flex-1">
+                        <span className={`text-brand block underline-offset-2 hover:underline ${m.status === 'new' ? 'font-bold' : 'font-semibold'}`}>
+                          {m.name}
+                          {m.topic ? ` · ${m.topic}` : ''}
+                        </span>
+                        <span className="block text-sm text-black/70">{formatWhen(m.createdAt)}</span>
+                      </Link>
+                      {m.status === 'new' && <Chip tone="amber">Unread</Chip>}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </Section>
+        )}
+
         <Section title="Drafts to review" count={reviewCount}>
           {reviewCount === 0 ? (
             <p className="text-sm text-black/70">No draft programmes, pages or posts.</p>

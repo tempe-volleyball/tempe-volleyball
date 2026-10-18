@@ -229,10 +229,39 @@ export const DEFAULT_VENUES_ATTRS: VenuesAttrs = {
   showProgrammes: true,
 }
 
-export type DataBlock = ProgrammeListBlock | LadderBlock | FixturesBlock | VenuesBlock
+// ── Contact form ──────────────────────────────────────────────────────────────
+
+/**
+ * The contact form (docs/admin.md §3.15): name, email, topic and message, sent to POST /api/contact and kept in
+ * Admin → Messages. The topics, the thank-you text and where messages are emailed are site-wide (Settings → Contact
+ * form); a block only chooses its heading, which topic starts selected and its button text, so the same form can sit
+ * on /contact, a junior page (topic Juniors) and anywhere else.
+ */
+export type ContactFormAttrs = {
+  /** Optional heading above the form. */
+  title: string | null
+  /** The topic selected to start with (one of Settings' topics; ignored when it isn't one). Null = none chosen. */
+  defaultTopic: string | null
+  /** Ask what the message is about (when Settings has topics). */
+  showTopic: boolean
+  /** The button's text; null = "Send message". */
+  submitLabel: string | null
+}
+
+export type ContactFormBlock = { type: 'contactForm'; attrs: ContactFormAttrs }
+
+export const DEFAULT_CONTACT_FORM_ATTRS: ContactFormAttrs = { title: null, defaultTopic: null, showTopic: true, submitLabel: null }
+
+export type DataBlock = ProgrammeListBlock | LadderBlock | FixturesBlock | VenuesBlock | ContactFormBlock
 
 /** TipTap node names of the data blocks, for the editor, the renderer's allowlist and page_data_refs. */
-export const DATA_BLOCK_TYPES = ['programmeList', 'ladder', 'fixtures', 'venues'] as const satisfies readonly DataBlock['type'][]
+export const DATA_BLOCK_TYPES = [
+  'programmeList',
+  'ladder',
+  'fixtures',
+  'venues',
+  'contactForm',
+] as const satisfies readonly DataBlock['type'][]
 
 /**
  * The page_data_refs.kind each block type writes; null = none. A Venues block needs no ref: venue edits purge
@@ -243,4 +272,6 @@ export const DATA_BLOCK_REF_KIND = {
   ladder: 'ladder',
   fixtures: 'fixtures',
   venues: null,
+  // Its settings are site settings, whose saves purge every page (tags.site).
+  contactForm: null,
 } as const satisfies Record<DataBlock['type'], PageDataRefKind | null>

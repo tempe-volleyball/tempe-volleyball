@@ -1,7 +1,9 @@
 ---
 import { prepareHtml } from '../lib/content'
+import ContactFormScript from './ContactFormScript.astro'
 
 // A page or post: the H1 (with the amber rule) and the stored HTML, tidied for headings, vague links and embeds.
+// A body with a Contact form block also gets the form's script (and only then).
 type Props = { title: string; html: string; titles?: Map<string, string> }
 const { title, html, titles } = Astro.props
 ---
@@ -12,3 +14,4 @@ const { title, html, titles } = Astro.props
   <div class="prose" set:html={prepareHtml(html, { titles })} />
   <slot />
 </article>
+{html.includes('data-contact-form') && <ContactFormScript />}

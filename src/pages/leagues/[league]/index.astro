@@ -106,7 +106,7 @@ if (league && page)
         )}
       </>
     )}
-    {league.status === 'active' && <EnrolSection enrolment={page.enrolment} name={league.name} closedText={closedText} />}
+    {league.status === 'active' && <EnrolSection enrolment={page.enrolment} name={league.name} closedText={closedText} privacyHref={site.privacyHref} />}
   </BaseLayout>
 ) : (
   <BaseLayout title={documentTitle('Page not found')} description={DEFAULT_DESCRIPTION} site={site}>

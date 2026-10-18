@@ -16,7 +16,7 @@ import {
   type Post,
   type Venue,
 } from './db/schema'
-import { readSettings, type SiteSettings } from '../lib/content/settings'
+import { DEFAULT_SETTINGS, readSettings, type SiteSettings } from '../lib/content/settings'
 import { ladderRows, toCompetition, type LadderRow, type SeasonCompetition, type SeasonData } from './competition/adapter'
 import {
   assembleSeasons,
@@ -83,6 +83,11 @@ export type Site = {
   current: LeagueSeason[]
   /** Contact details, social links, the announcement banner … (site_settings, edited in the admin). */
   settings: SiteSettings
+  /**
+   * The privacy policy's path while a page is published there (Settings → Privacy policy, default /privacy), else
+   * null: the footer and the forms link to it only when it's live, so they never point at a 404.
+   */
+  privacyHref: string | null
 }
 
 const menuQuery = (db: AppDb) =>
@@ -144,12 +149,26 @@ const siteStatements = (db: AppDb) => {
     db.select({ key: siteSettings.key, value: siteSettings.value }).from(siteSettings),
     programmeQuery(db),
     categoryQuery(db),
+    privacyQuery(db),
     ...seasonQueries(db, { status: 'published' }),
   ]
 }
 
+/** The privacy page's path if it's published (the path is read from the setting in the same statement). */
+const privacyQuery = (db: AppDb) =>
+  db
+    .select({ path: pages.path })
+    .from(pages)
+    .where(
+      and(
+        eq(pages.status, 'published'),
+        sql`${pages.path} = coalesce((select json_extract(s.value, '$.pagePath') from site_settings s where s.key = 'privacy'), ${DEFAULT_SETTINGS.privacy.pagePath})`,
+      ),
+    )
+    .limit(1)
+
 function assembleSite(res: unknown[]): Site {
-  const [menuRows, leagueRows, courtRows, seasonList, venueRows, settingRows, programmeRows, categoryRows, ...seasonRows] =
+  const [menuRows, leagueRows, courtRows, seasonList, venueRows, settingRows, programmeRows, categoryRows, privacyRows, ...seasonRows] =
     res as unknown as [
       (MenuRow & { pagePath: string | null })[],
       League[],
@@ -159,6 +178,7 @@ function assembleSite(res: unknown[]): Site {
       { key: string; value: unknown }[],
       SiteProgramme[],
       SiteCategory[],
+      { path: string }[],
       ...SeasonRows,
     ]
   const byId = assembleSeasons(seasonRows as unknown as SeasonRows, leagueRows, courtRows)
@@ -183,6 +203,7 @@ function assembleSite(res: unknown[]): Site {
     venues: venueRows,
     current,
     settings: readSettings(settingRows),
+    privacyHref: privacyRows[0]?.path ?? null,
   }
 }
 

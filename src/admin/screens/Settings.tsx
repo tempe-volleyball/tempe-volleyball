@@ -6,7 +6,7 @@ import { useUnsavedWarning } from '../unsaved'
 import { LoadError, Skeleton, toast, Button, Card, Field, Notice, Select, TextArea, errorMessage, purgeNote } from '../ui'
 
 // Site settings: contact details, announcement banner, social links, PayID, the Revolutionise link, enrolment and
-// email housekeeping, and analytics. Each card saves its own key; PayID, Revolutionise, enrolment and analytics are
+// email housekeeping, the contact form, the privacy page, and analytics. Each card saves its own key; PayID, Revolutionise, enrolment and analytics are
 // admin+ (the server checks too).
 
 type Data = { settings: SiteSettings; minRole: Record<SettingKey, UserRole> }
@@ -77,6 +77,8 @@ const SECTIONS: [SettingKey, string][] = [
   ['payid', 'PayID'],
   ['revolutioniseUrl', 'Membership'],
   ['enrolment', 'Enrolment and email'],
+  ['contactForm', 'Contact form'],
+  ['privacy', 'Privacy policy'],
   ['security', 'Sign-in security'],
   ['analytics', 'Analytics'],
 ]
@@ -266,6 +268,33 @@ export function Settings({ me }: { me: Me }) {
 
         <Section
           {...common}
+          k="contactForm"
+          title="Contact form"
+          intro="For every Contact form block (Admin → Pages: + Block… → Contact form). Messages are always kept in Admin → Messages, so nothing is lost if an email doesn’t go."
+        >
+          {(v, set) => <ContactFormFields v={v} set={set} contactEmail={data.settings.contact.email} />}
+        </Section>
+
+        <Section
+          {...common}
+          k="privacy"
+          title="Privacy policy"
+          intro="The page the footer, the contact form and the enrolment forms link to. They only show the link while a page is published at this path."
+        >
+          {(v, set) => (
+            <Field
+              label="Page path"
+              value={v.pagePath}
+              placeholder="/privacy"
+              maxLength={200}
+              hint="A page in Admin → Pages. Default /privacy."
+              onChange={(e) => set({ ...v, pagePath: e.target.value.trim() })}
+            />
+          )}
+        </Section>
+
+        <Section
+          {...common}
           k="security"
           title="Sign-in security"
           intro="After an email code or link, people with an authenticator app can tick “Trust this device” so that browser skips the app's code for a while. The time counts from when the code was entered; later sign-ins don't extend it."
@@ -401,5 +430,96 @@ export function Settings({ me }: { me: Me }) {
         )}
       </Section>
     </div>
+  )
+}
+
+/** One item per line <-> a list (blank lines dropped on save; kept while typing so Enter works). */
+const lines = (list: readonly string[]) => list.join('\n')
+const fromLines = (text: string) => text.split('\n').map((l) => l.trim())
+
+function ContactFormFields({
+  v,
+  set,
+  contactEmail,
+}: {
+  v: SiteSettings['contactForm']
+  set: (v: SiteSettings['contactForm']) => void
+  contactEmail: string
+}) {
+  // The text areas keep what's typed (blank lines too, while typing); the setting gets the tidied list.
+  const [topics, setTopics] = useState(lines(v.topics))
+  const [emails, setEmails] = useState(lines(v.notifyEmails))
+  return (
+    <>
+      <label className="flex items-center gap-2 text-sm font-semibold">
+        <input type="checkbox" checked={v.enabled} onChange={(e) => set({ ...v, enabled: e.target.checked })} /> Take messages
+      </label>
+      <p className="-mt-2 text-xs text-black/60">Off: the forms show the contact details instead.</p>
+      <TextArea
+        label="Topics (one per line)"
+        rows={5}
+        value={topics}
+        hint="What “What is it about?” offers, in this order. Leave empty to not ask. A block can start on one of them."
+        onChange={(e) => {
+          setTopics(e.target.value)
+          set({ ...v, topics: fromLines(e.target.value).filter(Boolean) })
+        }}
+      />
+      <label className="flex items-center gap-2 text-sm font-semibold">
+        <input type="checkbox" checked={v.notify} onChange={(e) => set({ ...v, notify: e.target.checked })} /> Email me about new messages
+      </label>
+      <TextArea
+        label="Send them to (one address per line)"
+        rows={2}
+        value={emails}
+        placeholder={contactEmail}
+        hint={`Empty = the contact email (${contactEmail || 'not set'}). Up to 5. Replying to the email replies to the sender.`}
+        onChange={(e) => {
+          setEmails(e.target.value)
+          set({ ...v, notifyEmails: fromLines(e.target.value).filter(Boolean) })
+        }}
+      />
+      <Field
+        label="Notification emails a day, at most"
+        type="number"
+        min={1}
+        max={50}
+        value={v.notifyPerDay}
+        hint="Default 20. Keeps a burst of spam from using up the day’s emails; later messages still arrive in Admin → Messages."
+        onChange={(e) => set({ ...v, notifyPerDay: Number(e.target.value) })}
+      />
+      <TextArea
+        label="Thank-you text on the page"
+        rows={2}
+        maxLength={1000}
+        value={v.successText}
+        onChange={(e) => set({ ...v, successText: e.target.value })}
+      />
+      <label className="flex items-center gap-2 text-sm font-semibold">
+        <input type="checkbox" checked={v.autoReply} onChange={(e) => set({ ...v, autoReply: e.target.checked })} /> Send an automatic reply
+      </label>
+      <p className="-mt-2 text-xs text-black/60">
+        Off by default: anyone can type any address into the form, so an automatic reply is email to someone who may not have asked for it.
+      </p>
+      {v.autoReply && (
+        <TextArea
+          label="Automatic reply"
+          rows={3}
+          maxLength={1000}
+          value={v.autoReplyText}
+          hint="Their name and a copy of their message are added."
+          onChange={(e) => set({ ...v, autoReplyText: e.target.value })}
+        />
+      )}
+      <Field
+        label="Days to keep handled messages"
+        type="number"
+        min={30}
+        max={3650}
+        value={v.retentionDays}
+        hint="Default 365. Counted from when a message is marked handled; open messages are kept."
+        onChange={(e) => set({ ...v, retentionDays: Number(e.target.value) })}
+      />
+    </>
   )
 }

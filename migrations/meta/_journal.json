@@ -57,6 +57,13 @@
       "when": 1792337907634,
       "tag": "0007_pending_details",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1792340299500,
+      "tag": "0008_contact_messages",
+      "breakpoints": true
     }
   ]
 }

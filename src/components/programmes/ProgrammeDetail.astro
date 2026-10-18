@@ -113,7 +113,7 @@ const details = (i: ProgrammeInstance) =>
         </section>
       ))}
 
-    {p.status === 'active' && <EnrolSection enrolment={page.enrolment} name={p.name} closedText={closedText} />}
+    {p.status === 'active' && <EnrolSection enrolment={page.enrolment} name={p.name} closedText={closedText} privacyHref={site.privacyHref} />}
   </BaseLayout>
 ) : (
   <BaseLayout title={documentTitle('Page not found')} description={DEFAULT_DESCRIPTION} site={site}>

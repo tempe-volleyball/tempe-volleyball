@@ -1,7 +1,7 @@
 import type { APIRoute } from 'astro'
 import { previewBlock } from '../../../../server/content/blocks'
 import { handle, json, readJson, requireRole } from '../../../../server/http'
-import { getServices } from '../../../../server/services'
+import { getServices, getTurnstileKeys } from '../../../../server/services'
 import { loadSite } from '../../../../server/site'
 
 /**
@@ -13,5 +13,5 @@ export const POST: APIRoute = ({ locals, request }) =>
     const { db } = getServices()
     await requireRole(locals.user, 'editor', request, db)
     const { block } = await readJson<{ block: unknown }>(request)
-    return json(await previewBlock(db, await loadSite(db), block))
+    return json(await previewBlock(db, await loadSite(db), block, new Date(), { turnstileSiteKey: getTurnstileKeys()?.siteKey ?? null }))
   })

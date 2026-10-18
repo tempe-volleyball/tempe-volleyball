@@ -7,6 +7,7 @@ import {
   blockDisplays,
   enrolmentFilters,
   fixtureRanges,
+  type ContactFormAttrs,
   type FixturesAttrs,
   type LadderAttrs,
   type ProgrammeLineSource,
@@ -14,6 +15,7 @@ import {
   type VenuesAttrs,
 } from '../../lib/content/blocks'
 import {
+  parseContactFormAttrs,
   parseFixturesAttrs,
   parseLadderAttrs,
   parseProgrammeListAttrs,
@@ -29,13 +31,21 @@ import type { DataBlockType } from './data-blocks'
 // a warning when overridden lines have changed underneath, and a settings dialog. The dialog lives in a portal so
 // ProseMirror never sees its keystrokes.
 
-const LABELS: Record<DataBlockType, string> = { programmeList: 'Programme list', ladder: 'Ladder', fixtures: 'Fixtures', venues: 'Venues' }
+const LABELS: Record<DataBlockType, string> = {
+  programmeList: 'Programme list',
+  ladder: 'Ladder',
+  fixtures: 'Fixtures',
+  venues: 'Venues',
+  contactForm: 'Contact form',
+}
 
 type Choices = {
   categories: { id: string; name: string; status: string }[]
   programmes: { id: string; kind: string; code: string; name: string; status: string; categoryId: string | null }[]
   leagues: { id: string; code: string; name: string; status: string; season: string | null; teams: { id: string; name: string }[] }[]
   venues: { id: string; name: string }[]
+  /** Settings → Contact form's topics, for the Contact form block's starting topic. */
+  contactTopics: string[]
 }
 type Preview = { html: string; lines: ProgrammeLine[]; note: string | null }
 
@@ -119,6 +129,12 @@ function summary(type: DataBlockType, attrs: Record<string, unknown>, choices: C
       a.filter.enrolment === 'open' ? 'enrolment open' : a.filter.enrolment === 'closed' ? 'enrolment closed' : '',
     ]
     return parts.filter(Boolean).join(' · ')
+  }
+  if (type === 'contactForm') {
+    const a = parseContactFormAttrs(attrs)
+    return [a.title ?? 'No heading', a.showTopic ? (a.defaultTopic ? `starts on “${a.defaultTopic}”` : 'asks for a topic') : 'no topic question']
+      .filter(Boolean)
+      .join(' · ')
   }
   if (type === 'venues') {
     const a = parseVenuesAttrs(attrs)
@@ -217,7 +233,9 @@ function SettingsDialog({
         ? parseLadderAttrs(attrs)
         : type === 'venues'
           ? parseVenuesAttrs(attrs)
-          : parseFixturesAttrs(attrs),
+          : type === 'contactForm'
+            ? parseContactFormAttrs(attrs)
+            : parseFixturesAttrs(attrs),
   )
   const { preview, error } = usePreview(type, draft)
   return (
@@ -242,6 +260,13 @@ function SettingsDialog({
         {choices && type === 'venues' && (
           <VenuesSettings
             attrs={draft as VenuesAttrs}
+            choices={choices}
+            onChange={(a) => setDraft(a as unknown as Record<string, unknown>)}
+          />
+        )}
+        {choices && type === 'contactForm' && (
+          <ContactFormSettings
+            attrs={draft as ContactFormAttrs}
             choices={choices}
             onChange={(a) => setDraft(a as unknown as Record<string, unknown>)}
           />
@@ -528,6 +553,62 @@ function LeagueSelect({ value, choices, onChange }: { value: string; choices: Ch
 const rowsValue = (v: string): number | null => {
   const n = Number(v)
   return v && Number.isInteger(n) && n > 0 ? n : null
+}
+
+function ContactFormSettings({
+  attrs,
+  choices,
+  onChange,
+}: {
+  attrs: ContactFormAttrs
+  choices: Choices
+  onChange: (a: ContactFormAttrs) => void
+}) {
+  const set = (p: Partial<ContactFormAttrs>) => onChange({ ...attrs, ...p })
+  return (
+    <div className="space-y-5">
+      <p className="text-sm text-black/70">
+        Name, email, topic and message. Messages arrive in Admin → Messages (and by email, if Settings → Contact form says so). The
+        topics, the thank-you text and the automatic reply are set once for every form in Settings → Contact form.
+      </p>
+      <Field
+        label="Heading (optional)"
+        value={attrs.title ?? ''}
+        maxLength={120}
+        placeholder="Send us a message"
+        onChange={(e) => set({ title: e.target.value || null })}
+      />
+      <Checkbox
+        label="Ask what the message is about"
+        checked={attrs.showTopic}
+        onChange={(v) => set({ showTopic: v })}
+        hint={choices.contactTopics.length ? undefined : 'Settings → Contact form has no topics, so the question isn’t shown.'}
+      />
+      {attrs.showTopic && choices.contactTopics.length > 0 && (
+        <Select
+          label="Topic chosen to start with"
+          value={attrs.defaultTopic ?? ''}
+          onChange={(e) => set({ defaultTopic: e.target.value || null })}
+          hint="E.g. Juniors on a junior page. People can still change it."
+        >
+          <option value="">None (they choose)</option>
+          {choices.contactTopics.map((t) => (
+            <option key={t}>{t}</option>
+          ))}
+          {attrs.defaultTopic && !choices.contactTopics.includes(attrs.defaultTopic) && (
+            <option value={attrs.defaultTopic}>{attrs.defaultTopic} (no longer a topic: none is chosen)</option>
+          )}
+        </Select>
+      )}
+      <Field
+        label="Button text (optional)"
+        value={attrs.submitLabel ?? ''}
+        maxLength={40}
+        placeholder="Send message"
+        onChange={(e) => set({ submitLabel: e.target.value || null })}
+      />
+    </div>
+  )
 }
 
 function VenuesSettings({ attrs, choices, onChange }: { attrs: VenuesAttrs; choices: Choices; onChange: (a: VenuesAttrs) => void }) {

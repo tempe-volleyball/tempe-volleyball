@@ -48,6 +48,8 @@ export const ACTIONS: Record<string, string> = {
   'match_day.restore': 'Restored night',
   'season.push_back': 'Pushed season back',
   'fixtures.import': 'Imported fixtures (CSV)',
+  'message.delete': 'Deleted messages',
+  'message.export': 'Exported messages (CSV)',
 }
 
 /** A merge can be undone from Admin → Teams for 30 days (the screen says whether this one still can). */
@@ -107,6 +109,8 @@ export const describe = (row: AuditRow) => {
     const n = lengthOf
     return `${n(before.seasonsWithoutKey)} imported seasons' draw keys, ${n(before.placeholderTeams)} placeholder teams removed`
   }
+  if (row.action === 'message.delete') return `${String(after.count ?? '?')} contact ${after.count === 1 ? 'message' : 'messages'}`
+  if (row.action === 'message.export') return `${String(after.rows ?? '?')} rows (${String(after.filter ?? '')})`
   if (row.action === 'team.create') return String(after.name ?? '')
   if (row.action === 'team.rename') return `${String(before.name ?? '?')} → ${String(after.name ?? '?')}`
   return row.targetType ? `${row.targetType} ${row.targetId ?? ''}` : ''

@@ -12,6 +12,7 @@ import { categoryPath } from '../lib/programmes'
 import { normalisePath } from '../lib/wp-import/routes'
 import { cachePublic, tags } from '../server/cache'
 import { renderBody } from '../server/content/blocks'
+import { getTurnstileKeys } from '../server/services'
 import { categoryPageTags, loadCategoryPage, type CategoryPage } from '../server/programmes/public'
 import { followRedirect, publicDb, publicSite } from '../server/public'
 import { lookupPath } from '../server/site'
@@ -30,7 +31,7 @@ if (found.page?.template === 'home') return Astro.redirect('/', 301)
 
 const page = found.page
 // Data blocks (programme lists, ladders, fixtures) render from live data here; other pages use the stored HTML.
-const body = page ? await renderBody(db, site, page.body) : null
+const body = page ? await renderBody(db, site, page.body, new Date(), { turnstileSiteKey: getTurnstileKeys()?.siteKey ?? null }) : null
 if (page) cachePublic(Astro.cache, tags.page(path), ...(body?.tags ?? []))
 else if (category) cachePublic(Astro.cache, ...categoryPageTags(category.category.slug))
 else Astro.response.status = 404

@@ -3,6 +3,7 @@ import { ENTRY_TYPE_LABELS } from '../../lib/enrolment/defaults'
 import type { FormEntryType, FormField } from '../../lib/enrolment/forms'
 import { visibleFields } from '../../lib/enrolment/validate'
 import type { EnrolmentFormProps, PublicTarget } from '../../server/enrolment/public'
+import { loadTurnstile } from '../turnstile'
 
 // The public enrolment form: one React island that renders a form definition (docs/api/enrolment.md "Public form
 // component"). Pages get its props from loadEnrolmentForm() in src/server/enrolment/public.ts and render
@@ -22,6 +23,8 @@ export type EnrolmentFormComponentProps = EnrolmentFormProps & {
   preview?: boolean
   /** Preselect this target (e.g. from ?session= on the page). */
   initialTargetId?: string
+  /** The published privacy policy (Site.privacyHref); the form links to it when set. */
+  privacyHref?: string | null
 }
 
 type Answers = Record<string, unknown>
@@ -49,42 +52,6 @@ const aud = (cents: number) => new Intl.NumberFormat('en-AU', { style: 'currency
 
 const inputClass = (invalid: boolean) =>
   `w-full rounded border px-3 py-2 outline-none focus:ring-2 focus:ring-brand/30 ${invalid ? 'border-red-600' : 'border-black/25 focus:border-brand'}`
-
-declare global {
-  interface Window {
-    turnstile?: {
-      render: (
-        el: HTMLElement,
-        opts: {
-          sitekey: string
-          action?: string
-          callback: (t: string) => void
-          'expired-callback'?: () => void
-          'error-callback'?: () => void
-        },
-      ) => string
-      reset: (id?: string) => void
-      remove: (id: string) => void
-    }
-  }
-}
-
-const TURNSTILE_SRC = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit'
-
-function loadTurnstile(): Promise<void> {
-  if (window.turnstile) return Promise.resolve()
-  return new Promise((resolve, reject) => {
-    const existing = document.querySelector<HTMLScriptElement>(`script[src="${TURNSTILE_SRC}"]`)
-    const s = existing ?? document.createElement('script')
-    s.addEventListener('load', () => resolve())
-    s.addEventListener('error', () => reject(new Error('Turnstile failed to load')))
-    if (!existing) {
-      s.src = TURNSTILE_SRC
-      s.async = true
-      document.head.appendChild(s)
-    }
-  })
-}
 
 function Turnstile({ siteKey, onToken, resetKey }: { siteKey: string; onToken: (t: string | null) => void; resetKey: number }) {
   const ref = useRef<HTMLDivElement>(null)
@@ -653,6 +620,20 @@ export default function EnrolmentForm(props: EnrolmentFormComponentProps) {
         ))}
 
         {!preview && turnstileSiteKey && <Turnstile siteKey={turnstileSiteKey} onToken={setToken} resetKey={resetKey} />}
+
+        <p className="text-sm text-black/70">
+          We use these details to run your enrolment and contact you about it.
+          {props.privacyHref && (
+            <>
+              {' '}
+              See our{' '}
+              <a href={props.privacyHref} className="text-brand underline">
+                privacy policy
+              </a>
+              .
+            </>
+          )}
+        </p>
 
         {notice && (
           <p role="alert" className="rounded border border-red-300 bg-red-50 px-4 py-3 text-red-800">

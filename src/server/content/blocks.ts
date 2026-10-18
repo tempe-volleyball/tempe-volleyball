@@ -4,9 +4,11 @@ import {
   programmeLines,
   renderFixtures,
   renderLadder,
+  renderContactForm,
   renderProgrammeList,
   renderVenues,
   parseDataBlock,
+  type ContactBlockData,
   type LeagueBlockData,
   type ParsedDataBlock,
   type ProgrammeLine,
@@ -32,6 +34,8 @@ import { invalid } from './common'
 //  - Programme lists read Site.programmes / categories / venues (also from loadSite) plus the next start dates
 //    (4 grouped queries, nextInstanceQueries).
 //  - Venues blocks read Site.venues and Site.programmes (no queries at all).
+//  - Contact form blocks read Site.settings (contact form and contact details) and the Turnstile site key the route
+//    passes in (no queries either).
 // The page is cache-tagged with what it shows (tags.programmes and tags.venues for programme lists and venues,
 // tags.league for ladders and fixtures), and page_data_refs (rewritten on save) lets data changes purge it by path.
 
@@ -41,9 +45,24 @@ export type BlockContext = {
   programmes: ProgrammeListData | null
   leagues: Map<string, LeagueBlockData>
   venues: VenuesBlockData
+  contact: ContactBlockData
   /** YYYY-MM-DD, Sydney. */
   today: string
+  /** Contact forms rendered so far (their ids must be unique on the page). */
+  forms: number
 }
+
+/** What a route adds for the blocks that need the environment: Turnstile's site key, for Contact form blocks. */
+export type BlockExtras = { turnstileSiteKey?: string | null }
+
+/** A Contact form block's data, from the Site and the route's extras. */
+export const contactBlockData = (site: Pick<Site, 'settings' | 'privacyHref'>, extras: BlockExtras): ContactBlockData => ({
+  enabled: site.settings.contactForm.enabled,
+  topics: site.settings.contactForm.topics,
+  siteKey: extras.turnstileSiteKey ?? null,
+  privacyHref: site.privacyHref,
+  contact: site.settings.contact,
+})
 
 /** A league's current season in the shape the Ladder and Fixtures blocks read. */
 export function leagueBlockData(view: LeagueSeason): LeagueBlockData {
@@ -83,7 +102,13 @@ const leagueIdsOf = (parsed: ParsedDataBlock[]) => [
  * Loads what a body's data blocks need beyond loadSite(): one batch at most (next start dates for programme lists,
  * plus the current season of any referenced league that loadSite didn't load), or none at all.
  */
-export async function loadBlockContext(db: AppDb, site: Site, blocks: readonly JsonNode[], now = new Date()): Promise<BlockContext> {
+export async function loadBlockContext(
+  db: AppDb,
+  site: Site,
+  blocks: readonly JsonNode[],
+  now = new Date(),
+  extras: BlockExtras = {},
+): Promise<BlockContext> {
   const parsed = dataBlocksIn(blocks)
   const today = sydneyDate(now)
   const wantsProgrammes = parsed.some((b) => b.type === 'programmeList')
@@ -119,6 +144,8 @@ export async function loadBlockContext(db: AppDb, site: Site, blocks: readonly J
   return {
     today,
     leagues,
+    forms: 0,
+    contact: contactBlockData(site, extras),
     venues: { venues: site.venues, programmes: site.programmes },
     programmes: wantsProgrammes
       ? {
@@ -145,6 +172,8 @@ export function renderDataBlock(node: JsonNode, ctx: BlockContext): string {
       return renderFixtures(b.attrs, ctx.leagues.get(b.attrs.leagueId), ctx.today)
     case 'venues':
       return renderVenues(b.attrs, ctx.venues)
+    case 'contactForm':
+      return renderContactForm(b.attrs, ctx.contact, ++ctx.forms)
   }
 }
 
@@ -163,7 +192,7 @@ export function blockTags(blocks: readonly JsonNode[], site: Pick<Site, 'leagues
     if (b.type === 'programmeList' || b.type === 'venues') {
       out.add(tags.programmes)
       out.add(tags.venues)
-    } else {
+    } else if (b.type === 'ladder' || b.type === 'fixtures') {
       const slug = slugs.get(b.attrs.leagueId)
       if (slug) out.add(tags.league(slug))
     }
@@ -177,10 +206,16 @@ export type RenderedBody = { html: string; tags: string[] }
  * A page or post body for the public site: the stored HTML when it has no data blocks (no work at all), else the body
  * rendered again from its blocks with live data, plus the cache tags for that data.
  */
-export async function renderBody(db: AppDb, site: Site, body: ContentBody, now = new Date()): Promise<RenderedBody> {
+export async function renderBody(
+  db: AppDb,
+  site: Site,
+  body: ContentBody,
+  now = new Date(),
+  extras: BlockExtras = {},
+): Promise<RenderedBody> {
   const blocks = Array.isArray(body.blocks) ? (body.blocks as JsonNode[]) : []
   if (!hasDataBlocks(blocks)) return { html: body.html, tags: [] }
-  const ctx = await loadBlockContext(db, site, blocks, now)
+  const ctx = await loadBlockContext(db, site, blocks, now, extras)
   return { html: renderBlocks(blocks, { dataBlock: (n) => renderDataBlock(n, ctx) }), tags: blockTags(blocks, site) }
 }
 
@@ -210,6 +245,8 @@ export type BlockChoices = {
   leagues: { id: string; code: string; name: string; status: string; season: string | null; teams: { id: string; name: string }[] }[]
   /** Every venue, in venue order (for the Venues block). */
   venues: { id: string; name: string }[]
+  /** Settings → Contact form's topics (for the Contact form block's starting topic). */
+  contactTopics: string[]
 }
 
 /** What the block editor's pickers offer: one batch on top of loadSite(). */
@@ -244,6 +281,7 @@ export async function blockChoices(db: AppDb, site: Site): Promise<BlockChoices>
       }
     }),
     venues: site.venues.map((v) => ({ id: v.id, name: v.name })),
+    contactTopics: site.settings.contactForm.topics,
   }
 }
 
@@ -256,14 +294,28 @@ export type BlockPreview = {
 }
 
 /** Renders one block exactly as the public page would, for the editor. */
-export async function previewBlock(db: AppDb, site: Site, block: unknown, now = new Date()): Promise<BlockPreview> {
+export async function previewBlock(
+  db: AppDb,
+  site: Site,
+  block: unknown,
+  now = new Date(),
+  extras: BlockExtras = {},
+): Promise<BlockPreview> {
   const node = block && typeof block === 'object' && !Array.isArray(block) ? (block as JsonNode) : null
   const parsed = node ? parseDataBlock(node) : null
   if (!node || !parsed) throw invalid('That isn’t a data block.')
-  const ctx = await loadBlockContext(db, site, [node], now)
+  const ctx = await loadBlockContext(db, site, [node], now, extras)
   const html = renderDataBlock(node, ctx)
   let note: string | null = null
-  if (!html) {
+  if (parsed.type === 'contactForm') {
+    const cf = site.settings.contactForm
+    note = !cf.enabled
+      ? 'The contact form is turned off in Settings → Contact form, so the page shows the contact details instead.'
+      : !extras.turnstileSiteKey
+        ? 'The spam check (Turnstile) isn’t set up here, so the page shows the contact details instead of the form.'
+        : `Messages go to Admin → Messages${cf.notify ? ' and are emailed to the addresses in Settings → Contact form' : ''}. Topics and the thank-you text are in Settings → Contact form.`
+  }
+  if (!html && parsed.type !== 'contactForm') {
     if (parsed.type === 'programmeList') note = 'No programmes match, so nothing shows (fill in “Text when empty” to show a message).'
     else if (parsed.type === 'venues') note = 'No venues to show: add them in Admin → Venues, or pick others in Settings.'
     else if (!parsed.attrs.leagueId) note = 'Choose a league.'
