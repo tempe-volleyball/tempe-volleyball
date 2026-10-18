@@ -98,6 +98,13 @@ cookieless. Turning GA4 off is one setting (clear the measurement ID).
   there is a warning and never loses the traffic numbers.
 - **Page view counts in Admin → Pages** use GA4 when it has data, else Cloudflare, over the last 30 days. Only each
   day's top 50 pages are stored, so a quiet page can show "–".
+- **Every batched statement is a query builder** (fixed after the Phase 6 QA pass, where Stats returned 500 and the
+  first claim of a configured source crashed on D1). The claim is `insert(analytics_state).onConflictDoUpdate({
+setWhere }).returning()`, the store is `insert(analytics_daily).select(sql\`… json_each(?)\`).onConflictDoUpdate()`,
+and the breakdowns are `select … group by`with aliased`sum(case …)`columns. They stay in their batches, keeping
+the claim atomic with its log row and the query budget unchanged. To catch this class of bug before deploys,`createTestDb()`now behaves like drizzle's D1 batch: a raw`db.run/all/get/values(sql\`…${param}\`)`in a batch
+throws, and batch rows go through D1's keyed-object step, so joined columns with the same name collide in tests
+too. Guard statements use`batchGuard()` (src/server/db/index.ts).
 
 ### 2.3 Setup (nothing here exists yet)
 

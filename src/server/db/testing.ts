@@ -1,6 +1,8 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite'
+import { is } from 'drizzle-orm'
+import { SQLiteRaw } from 'drizzle-orm/sqlite-core/query-builders/raw'
 import { drizzle } from 'drizzle-orm/sqlite-proxy'
 import * as schema from './schema'
 
@@ -55,7 +57,24 @@ type Method = 'run' | 'all' | 'values' | 'get'
  */
 export type QueryStats = { queries: number; batches: number; maxParams: number; reset(): void }
 
-/** A migrated in-memory database and a Drizzle client (sqlite-proxy driver) with the full schema. */
+/**
+ * The message drizzle's D1 driver fails with when a raw db.run/db.all(sql`…${param}`) is in a batch: its batch()
+ * binds through `preparedQuery.stmt`, which raw statements don't have. Tests throw it too, so they catch it.
+ */
+export const RAW_BATCH_ERROR =
+  "Cannot read properties of undefined (reading 'bind'): a raw db.run/all/get/values(sql`…`) statement with bound " +
+  "parameters is in a db.batch()/runBatch(), which drizzle's D1 driver can't bind. Use a query builder instead."
+
+/**
+ * A migrated in-memory database and a Drizzle client (sqlite-proxy driver) with the full schema.
+ *
+ * db.batch() behaves like drizzle's D1 driver, so code that only works in tests fails here too:
+ * - a raw statement (db.run/all/get/values) with bound parameters in a batch throws RAW_BATCH_ERROR;
+ * - D1 returns batch rows as objects keyed by column name, which drizzle turns back into arrays with Object.keys,
+ *   so selected columns with the same name (`id` from two joined tables, say) collapse into one and every later
+ *   column shifts. Batch rows go through the same object step here. Outside a batch D1 returns arrays, so plain
+ *   queries are unaffected. Raw statements in a batch get the objects themselves, as on D1.
+ */
 export const createTestDb = () => {
   const sqlite = createMigratedSqlite()
   const stats: QueryStats = {
@@ -84,14 +103,37 @@ export const createTestDb = () => {
     }
     return { rows: stmt.all(...args) as unknown as unknown[][] }
   }
+  /** One statement of a batch, with D1's batch result shapes (see above). */
+  const execInBatch = (sql: string, params: unknown[], method: Method, raw: boolean) => {
+    if (method === 'run') return exec(sql, params, method)
+    stats.queries++
+    stats.maxParams = Math.max(stats.maxParams, params.length)
+    const stmt = sqlite.prepare(sql)
+    stmt.setReturnArrays(true)
+    const names = stmt.columns().map((c) => c.name)
+    // Keyed by column name, the last one winning (as in D1's results), then back to arrays the way drizzle's D1
+    // driver does it (d1ToRawMapping, with Object.keys).
+    const objects = (stmt.all(...(params as SQLInputValue[])) as unknown as unknown[][]).map(
+      (r) => Object.fromEntries(names.map((n, i) => [n, r[i]])) as Record<string, unknown>,
+    )
+    const arrays = objects.map((o) => Object.keys(o).map((k) => o[k]))
+    if (raw) return { rows: method === 'values' ? arrays : objects }
+    if (method === 'get') return { rows: arrays[0] as unknown[] }
+    return { rows: arrays }
+  }
+  // Which statements of the batch being run are raw. db.batch below sets it, and drizzle calls the batch callback
+  // synchronously from there (before its first await), so batches can't see each other's flags.
+  let rawFlags: boolean[] = []
   const db = drizzle(
     async (sql, params, method) => exec(sql, params, method),
     // db.batch(): like D1, all statements run in one transaction and a failure rolls back the whole batch.
     async (queries) => {
       stats.batches++
+      const raw = rawFlags
+      rawFlags = []
       sqlite.exec('BEGIN')
       try {
-        const results = queries.map((q) => exec(q.sql, q.params, q.method))
+        const results = queries.map((q, i) => execInBatch(q.sql, q.params, q.method, raw[i] ?? false))
         sqlite.exec('COMMIT')
         return results
       } catch (e) {
@@ -101,6 +143,15 @@ export const createTestDb = () => {
     },
     { schema },
   )
+  const batch = db.batch.bind(db)
+  db.batch = (async (items: Parameters<typeof batch>[0]) => {
+    const raw = items.map((item) => is(item, SQLiteRaw))
+    items.forEach((item, i) => {
+      if (raw[i] && (item as unknown as SQLiteRaw<unknown>).getQuery().params.length > 0) throw new TypeError(RAW_BATCH_ERROR)
+    })
+    rawFlags = raw
+    return batch(items)
+  }) as unknown as typeof db.batch
   return { sqlite, db, stats }
 }
 

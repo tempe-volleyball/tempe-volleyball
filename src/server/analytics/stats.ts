@@ -56,31 +56,41 @@ export const BREAKDOWNS: Breakdown[] = [
   { key: 'cfDevices', source: 'cloudflare', dimension: 'deviceType', metrics: ['visits'], rank: 'visits' },
 ]
 
+/**
+ * The top values of one breakdown, each metric summed over the range (m0, m1, … in b.metrics order). A query
+ * builder, not db.all(sql``), because drizzle's D1 batch can't bind a raw statement's parameters. The sums are
+ * aliased, so D1's batch rows (keyed by column name) keep every column.
+ */
 const breakdownQuery = (db: AppDb, b: Breakdown, range: Range) => {
-  // Metric names are our constants (never user input), so they can be inlined as column aliases.
-  const sums = b.metrics.map(
-    (m, i) => sql`sum(case when ${analyticsDaily.metric} = ${m} then ${analyticsDaily.value} else 0 end) as ${sql.raw(`m${i}`)}`,
+  const sums = Object.fromEntries(
+    b.metrics.map((m, i) => [
+      `m${i}`,
+      sql<number>`sum(case when ${analyticsDaily.metric} = ${m} then ${analyticsDaily.value} else 0 end)`.as(`m${i}`),
+    ]),
   )
   const rankAt = b.metrics.indexOf(b.rank)
-  return db.all(sql`select ${analyticsDaily.dimensionValue} as v, ${sql.join(sums, sql`, `)}
-    from ${analyticsDaily}
-    where ${analyticsDaily.source} = ${b.source} and ${analyticsDaily.dimension} = ${b.dimension}
-      and ${analyticsDaily.date} >= ${range.from} and ${analyticsDaily.date} <= ${range.to}
-    group by ${analyticsDaily.dimensionValue}
-    order by ${sql.raw(`m${rankAt}`)} desc, v
-    limit ${TOP_LIMIT}`)
+  return db
+    .select({ value: analyticsDaily.dimensionValue, ...sums })
+    .from(analyticsDaily)
+    .where(
+      and(
+        eq(analyticsDaily.source, b.source),
+        eq(analyticsDaily.dimension, b.dimension),
+        gte(analyticsDaily.date, range.from),
+        lte(analyticsDaily.date, range.to),
+      ),
+    )
+    .groupBy(analyticsDaily.dimensionValue)
+    .orderBy(desc(sql.raw(`m${rankAt}`)), analyticsDaily.dimensionValue)
+    .limit(TOP_LIMIT)
 }
 
 export type TopRow = { value: string } & Record<string, number | string>
 
-/** Rows come back as arrays (test driver) or objects (D1). */
-const toTopRows = (rows: unknown[], b: Breakdown): TopRow[] =>
+const toTopRows = (rows: Record<string, unknown>[], b: Breakdown): TopRow[] =>
   rows.map((r) => {
-    const cells = Array.isArray(r)
-      ? r
-      : [(r as Record<string, unknown>).v, ...b.metrics.map((_, i) => (r as Record<string, unknown>)[`m${i}`])]
-    const out: TopRow = { value: String(cells[0] ?? '') }
-    b.metrics.forEach((m, i) => (out[m] = Number(cells[i + 1] ?? 0)))
+    const out: TopRow = { value: String(r.value ?? '') }
+    b.metrics.forEach((m, i) => (out[m] = Number(r[`m${i}`] ?? 0)))
     return out
   })
 
@@ -180,7 +190,7 @@ export async function loadStats(
   const states = res[0] as AnalyticsState[]
   const fetches = res[1] as StatsView['fetches']
   const totals = res[2] as { source: Source; metric: string; date: string; value: number }[]
-  const breakdownRows = res.slice(3, 3 + BREAKDOWNS.length) as unknown[][]
+  const breakdownRows = res.slice(3, 3 + BREAKDOWNS.length) as Record<string, unknown>[][]
 
   const series: StatsView['series'] = {}
   for (const t of totals) ((series[t.source] ??= {})[t.metric] ??= []).push({ date: t.date, value: t.value })

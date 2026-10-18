@@ -1,3 +1,4 @@
+import { sql, type SQL } from 'drizzle-orm'
 import type { BatchItem } from 'drizzle-orm/batch'
 import { drizzle } from 'drizzle-orm/d1'
 import type { BaseSQLiteDatabase } from 'drizzle-orm/sqlite-core'
@@ -25,4 +26,15 @@ type Item = BatchItem<'sqlite'>
 export const runBatch = (db: AppDb, items: Item[]) => {
   if (items.length === 0) throw new Error('runBatch: empty batch')
   return (db as SqliteRemoteDatabase<typeof schema>).batch(items as [Item, ...Item[]])
+}
+
+/**
+ * A guard for a batch: a statement that fails, rolling the whole batch back, when `failWhen` holds. SQLite has no
+ * RAISE outside triggers, so it calls json() on the invalid string 'guard:<name>', which fails with "malformed
+ * JSON". It's a query builder (a select from a one-row subquery), not db.run(sql``), because drizzle's D1 batch
+ * can't bind a raw statement's parameters.
+ */
+export const batchGuard = (db: AppDb, failWhen: SQL, name: string) => {
+  if (!/^[a-z_]+$/.test(name)) throw new Error(`batchGuard: bad name ${name}`)
+  return db.select({ guard: sql`case when ${failWhen} then json(${sql.raw(`'guard:${name}'`)}) end` }).from(sql`(select 1)`)
 }

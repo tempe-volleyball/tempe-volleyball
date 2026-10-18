@@ -28,6 +28,8 @@ describe('runJobs', () => {
       template: 'admin.invite',
       payload: { url: 'https://x/admin/invite#tok-q', role: 'editor', invitedBy: 'o', expiresAt: '2026-10-25T00:00:00.000Z' },
       createdAt: ago(1000),
+      // Explicit: send_after defaults to the wall clock, which is after NOW once the real date passes it.
+      sendAfter: ago(1000),
     })
     await db
       .insert(emailOutbox)
