@@ -58,6 +58,18 @@ export type EnrolmentSettings = {
   emailRetentionDays: number
 }
 
+/** Sign-in security (owners only). */
+export type SecuritySettings = {
+  /**
+   * How many days "Trust this device" skips the authenticator code after an email code or link sign-in, counted
+   * from when the code was entered (not extended by later sign-ins). 0 turns trusted devices off.
+   */
+  trustDeviceDays: number
+}
+
+/** The longest a device can be trusted (the trust cookie's own lifetime). */
+export const MAX_TRUST_DEVICE_DAYS = 90
+
 export type SiteSettings = {
   contact: ContactSettings
   payid: PayIdSettings
@@ -66,6 +78,7 @@ export type SiteSettings = {
   announcement: AnnouncementSettings
   analytics: AnalyticsSettings
   enrolment: EnrolmentSettings
+  security: SecuritySettings
 }
 
 export type SettingKey = keyof SiteSettings
@@ -77,6 +90,7 @@ export const settingKeys = [
   'announcement',
   'analytics',
   'enrolment',
+  'security',
 ] as const satisfies readonly SettingKey[]
 
 /** Who may change each key. PayID is where players send money, so it's admin+ like other payment settings. */
@@ -88,7 +102,11 @@ export const settingMinRole: Record<SettingKey, UserRole> = {
   announcement: 'editor',
   analytics: 'admin',
   enrolment: 'admin',
+  security: 'owner',
 }
+
+/** Keys the public site never reads, so saving them doesn't purge the edge cache. */
+export const privateSettingKeys: readonly SettingKey[] = ['security']
 
 export const DEFAULT_SETTINGS: SiteSettings = {
   contact: { name: 'Michael', phone: '0414 911 544', email: 'tempevb@gmail.com' },
@@ -111,6 +129,7 @@ export const DEFAULT_SETTINGS: SiteSettings = {
     retentionDays: 1095,
   },
   enrolment: { confirmHours: 24, emailRetentionDays: 30 },
+  security: { trustDeviceDays: 30 },
 }
 
 export const isSettingKey = (k: unknown): k is SettingKey => typeof k === 'string' && (settingKeys as readonly string[]).includes(k)
@@ -249,6 +268,18 @@ const checkers: { [K in SettingKey]: (v: unknown) => SiteSettings[K] } = {
     return {
       confirmHours: intIn(o.confirmHours, 'Hours to confirm an email address', 1, 168, d.confirmHours),
       emailRetentionDays: intIn(o.emailRetentionDays, 'Days to keep sent emails', 1, 365, d.emailRetentionDays),
+    }
+  },
+  security: (v) => {
+    const o = obj(v, 'Security')
+    return {
+      trustDeviceDays: intIn(
+        o.trustDeviceDays,
+        'Days to trust a device',
+        0,
+        MAX_TRUST_DEVICE_DAYS,
+        DEFAULT_SETTINGS.security.trustDeviceDays,
+      ),
     }
   },
 }

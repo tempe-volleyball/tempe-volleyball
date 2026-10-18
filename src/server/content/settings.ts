@@ -7,6 +7,7 @@ import { atLeast } from '../../lib/roles'
 import {
   checkSetting,
   isSettingKey,
+  privateSettingKeys,
   readSettings,
   settingKeys,
   settingMinRole,
@@ -60,5 +61,6 @@ export async function saveSettings(
     ),
     ...changed.map((u) => audit(db, actor, 'settings.update', { type: 'setting', id: u.key }, current[u.key], u.value, at)),
   ])
-  return { result: await getSettings(db), purge: { tags: [tags.site] } }
+  const publicChange = changed.some((u) => !privateSettingKeys.includes(u.key))
+  return { result: await getSettings(db), purge: publicChange ? { tags: [tags.site] } : {} }
 }

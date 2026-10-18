@@ -5,6 +5,7 @@ import type { AppDb } from '../db'
 import * as authSchema from '../db/schema/auth'
 import { EmailNotConfiguredError, type Mailer } from '../email'
 import { authSchemaOptions, type AuthSenders } from './options'
+import { trustedDeviceHooks } from './trusted-devices'
 
 // The runtime Better Auth instance, built on the schema-shaping options in options.ts. Pure (no cloudflare:*
 // imports) so tests can build one over the in-memory database; the Worker's instance is in instance.ts.
@@ -69,14 +70,45 @@ export function createAuthSenders(db: AppDb, mailer: Mailer): AuthSenders {
   }
 }
 
-export function createAuth(opts: { db: AppDb; env: AuthEnv; senders: AuthSenders }) {
+/**
+ * The origin Better Auth should use for a request: SITE_URL, or the request's own origin when it's a **preview
+ * version of the staging Worker**. ci.yml uploads each PR as a preview with `--preview-alias pr-<n>`, which Cloudflare
+ * serves at `pr-<n>-<staging host>`; every version also has `<8 hex>-<staging host>`. Nothing else is trusted: no
+ * other environment, no other host, no port, no plain http, and the label must be exactly one of those two shapes,
+ * so a preview can sign in without opening auth to arbitrary hosts. (Cloudflare only routes those hostnames to this
+ * Worker's versions, so the request URL's host can't be chosen by a client.)
+ */
+export function authOrigin(env: Pick<AuthEnv, 'SITE_ENV' | 'SITE_URL'>, requestUrl?: string | URL | null): string {
+  const fallback = new URL(env.SITE_URL).origin
+  if (env.SITE_ENV !== 'staging' || !requestUrl) return fallback
+  let url: URL
+  try {
+    url = new URL(requestUrl)
+  } catch {
+    return fallback
+  }
+  const site = new URL(env.SITE_URL)
+  if (url.protocol !== 'https:' || site.protocol !== 'https:' || url.port) return fallback
+  const host = url.hostname.toLowerCase()
+  if (host === site.hostname) return fallback
+  const suffix = `-${site.hostname.toLowerCase()}`
+  if (!host.endsWith(suffix)) return fallback
+  const label = host.slice(0, -suffix.length)
+  return PREVIEW_LABEL.test(label) ? `https://${host}` : fallback
+}
+
+/** `pr-<n>` (the PR's preview alias) or the version id's first 8 hex digits. */
+const PREVIEW_LABEL = /^(?:pr-\d{1,6}|[0-9a-f]{8})$/
+
+export function createAuth(opts: { db: AppDb; env: AuthEnv; senders: AuthSenders; origin?: string }) {
   const { env } = opts
+  const origin = opts.origin ?? new URL(env.SITE_URL).origin
   return betterAuth({
-    ...authSchemaOptions(opts.senders),
+    ...authSchemaOptions(opts.senders, trustedDeviceHooks(opts.db)),
     secret: authSecret(env),
-    baseURL: env.SITE_URL,
+    baseURL: origin,
     basePath: '/api/auth',
-    trustedOrigins: [env.SITE_URL],
+    trustedOrigins: [origin],
     database: drizzleAdapter(opts.db, { provider: 'sqlite', schema: authSchema, transaction: false }),
     emailAndPassword: { enabled: false },
     session: {
@@ -93,7 +125,7 @@ export function createAuth(opts: { db: AppDb; env: AuthEnv; senders: AuthSenders
     },
     advanced: {
       ipAddress: { ipAddressHeaders: ['cf-connecting-ip'] },
-      useSecureCookies: env.SITE_URL.startsWith('https://'),
+      useSecureCookies: origin.startsWith('https://'),
       database: { generateId: () => crypto.randomUUID() },
     },
     telemetry: { enabled: false },

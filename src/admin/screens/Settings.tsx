@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
-import type { SettingKey, SiteSettings } from '../../lib/content/settings'
+import { MAX_TRUST_DEVICE_DAYS, type SettingKey, type SiteSettings } from '../../lib/content/settings'
 import { atLeast, type UserRole } from '../../lib/roles'
 import { api, type Me, type PurgeResult } from '../api'
 import { Button, Card, Field, Notice, Select, TextArea, errorMessage, purgeNote } from '../ui'
@@ -227,6 +227,25 @@ export function Settings({ me }: { me: Me }) {
                 onChange={(e) => set({ ...v, emailRetentionDays: Number(e.target.value) })}
               />
             </div>
+          )}
+        </Section>
+
+        <Section
+          {...common}
+          k="security"
+          title="Sign-in security"
+          intro="After an email code or link, people with an authenticator app can tick “Trust this device” so that browser skips the app's code for a while. The time counts from when the code was entered; later sign-ins don't extend it."
+        >
+          {(v, set) => (
+            <Field
+              label="Days to trust a device"
+              type="number"
+              min={0}
+              max={MAX_TRUST_DEVICE_DAYS}
+              value={v.trustDeviceDays}
+              hint={`0 turns trusted devices off (every sign-in asks for the code). At most ${MAX_TRUST_DEVICE_DAYS}. A shorter period applies to devices already trusted.`}
+              onChange={(e) => set({ ...v, trustDeviceDays: Number(e.target.value) })}
+            />
           )}
         </Section>
       </div>

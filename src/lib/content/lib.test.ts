@@ -83,8 +83,9 @@ describe('media', () => {
   it('parseUploadFile', () => {
     expect(parseUploadFile('original.jpg')).toEqual({ kind: 'original', ext: 'jpg', mime: 'image/jpeg' })
     expect(parseUploadFile('original.pdf')).toEqual({ kind: 'original', ext: 'pdf', mime: 'application/pdf' })
-    expect(parseUploadFile('800.webp')).toEqual({ kind: 'variant', width: 800, mime: 'image/webp' })
-    for (const bad of ['original.svg', 'original.html', '1601.webp', '0800.webp', '../x.webp', 'original.jpg.html'])
+    expect(parseUploadFile('800.webp')).toEqual({ kind: 'variant', width: 800, ext: 'webp', mime: 'image/webp' })
+    expect(parseUploadFile('800.jpg')).toEqual({ kind: 'variant', width: 800, ext: 'jpg', mime: 'image/jpeg' })
+    for (const bad of ['original.svg', 'original.html', '1601.webp', '0800.webp', '../x.webp', 'original.jpg.html', '800.png', '800.jpeg'])
       expect.soft(parseUploadFile(bad)).toBeNull()
   })
   it('keys and urls', () => {
@@ -97,13 +98,38 @@ describe('media', () => {
       original: '/media/abc/original.png',
     })
     expect(mediaUrls({ id: 'p', mime: 'application/pdf', variants: [] }).src).toBe('/media/p/original.pdf')
+    // JPEG copies from browsers that can't encode WebP.
+    const j = { ...m, variantExt: 'jpg' as const }
+    expect(mediaKeys(j)).toEqual(['media/abc/800.jpg', 'media/abc/400.jpg', 'media/abc/original.png'])
+    expect(mediaUrls(j)).toMatchObject({ src: '/media/abc/800.jpg', thumb: '/media/abc/400.jpg' })
   })
   it('checkMediaMeta', () => {
     const ok = checkMediaMeta({ filename: 'a.jpg', mime: 'image/jpeg', bytes: 1000, width: 1200, height: 800, variants: [800, 400, 1200] })
     expect(ok).toEqual({
       ok: true,
-      value: { filename: 'a.jpg', mime: 'image/jpeg', bytes: 1000, width: 1200, height: 800, variants: [400, 800, 1200] },
+      value: {
+        filename: 'a.jpg',
+        mime: 'image/jpeg',
+        bytes: 1000,
+        width: 1200,
+        height: 800,
+        variants: [400, 800, 1200],
+        variantExt: 'webp',
+      },
     })
+    const jpg = checkMediaMeta({
+      filename: 'a.png',
+      mime: 'image/png',
+      bytes: 1000,
+      width: 300,
+      height: 200,
+      variants: [300],
+      variantExt: 'jpg',
+    })
+    expect(jpg.ok && jpg.value.variantExt).toBe('jpg')
+    expect(
+      checkMediaMeta({ filename: 'a.png', mime: 'image/png', bytes: 1000, width: 300, height: 200, variants: [300], variantExt: 'png' }).ok,
+    ).toBe(false)
     expect(checkMediaMeta({ filename: 'a.svg', mime: 'image/svg+xml', bytes: 10 }).ok).toBe(false)
     expect(checkMediaMeta({ filename: 'a.jpg', mime: 'image/jpeg', bytes: 1000, width: 1200, height: 800, variants: [400] }).ok).toBe(false)
     expect(
@@ -111,7 +137,7 @@ describe('media', () => {
     ).toBe(false)
     expect(checkMediaMeta({ filename: 'rules.pdf', mime: 'application/pdf', bytes: 5000 })).toEqual({
       ok: true,
-      value: { filename: 'rules.pdf', mime: 'application/pdf', bytes: 5000, width: null, height: null, variants: [] },
+      value: { filename: 'rules.pdf', mime: 'application/pdf', bytes: 5000, width: null, height: null, variants: [], variantExt: 'webp' },
     })
   })
 })

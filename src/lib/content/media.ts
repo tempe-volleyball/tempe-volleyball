@@ -1,10 +1,16 @@
+import { variantExts, type VariantExt } from '../../server/db/schema/enums'
 import { mediaOriginalUrl, mediaVariantUrl } from '../wp-import/routes'
 
 // Media library rules shared by the admin (which resizes images in the browser) and the Worker (which only checks
-// and stores what it's sent). R2 layout: media/<id>/original.<ext> plus media/<id>/<width>.webp per variant.
+// and stores what it's sent). R2 layout: media/<id>/original.<ext> plus media/<id>/<width>.<webp|jpg> per variant
+// (WebP, or JPEG from browsers that can't encode WebP; media.variant_ext says which).
 
-/** The WebP widths made for every image (the importer uses the same). */
+/** The widths made for every image (the importer uses the same). */
 export const MEDIA_WIDTHS = [400, 800, 1600] as const
+
+export { variantExts, type VariantExt }
+export const VARIANT_MIME = { webp: 'image/webp', jpg: 'image/jpeg' } as const satisfies Record<VariantExt, string>
+export const isVariantExt = (v: unknown): v is VariantExt => typeof v === 'string' && (variantExts as readonly string[]).includes(v)
 
 /** What can be uploaded, by MIME type, and the extension its original is stored under. No SVG (it can carry script). */
 export const UPLOAD_TYPES = {
@@ -45,14 +51,17 @@ export const isMediaId = (id: unknown): id is string => typeof id === 'string' &
 
 export const mediaKeyBase = (id: string) => `media/${id}`
 
-export type UploadFile = { kind: 'original'; ext: string; mime: UploadMime } | { kind: 'variant'; width: number; mime: 'image/webp' }
+export type UploadFile =
+  | { kind: 'original'; ext: string; mime: UploadMime }
+  | { kind: 'variant'; width: number; ext: VariantExt; mime: (typeof VARIANT_MIME)[VariantExt] }
 
-/** Parses the file part of an upload URL: "original.jpg" or "800.webp". null if it isn't one we accept. */
+/** Parses the file part of an upload URL: "original.jpg", "800.webp" or "800.jpg". null if it isn't one we accept. */
 export function parseUploadFile(name: string): UploadFile | null {
-  const variant = /^([1-9]\d{0,3})\.webp$/.exec(name)
+  const variant = /^([1-9]\d{0,3})\.(webp|jpg)$/.exec(name)
   if (variant) {
     const width = Number(variant[1])
-    return width <= MEDIA_WIDTHS.at(-1)! ? { kind: 'variant', width, mime: 'image/webp' } : null
+    const ext = variant[2] as VariantExt
+    return width <= MEDIA_WIDTHS.at(-1)! ? { kind: 'variant', width, ext, mime: VARIANT_MIME[ext] } : null
   }
   const original = /^original\.([a-z0-9]+)$/.exec(name)
   if (original) {
@@ -63,24 +72,30 @@ export function parseUploadFile(name: string): UploadFile | null {
 }
 
 /** The R2 keys a media row's files live under. */
-export function mediaKeys(m: { keyBase: string; mime: string; variants: readonly number[] }): string[] {
+export function mediaKeys(m: {
+  keyBase: string
+  mime: string
+  variants: readonly number[]
+  variantExt?: VariantExt | undefined
+}): string[] {
   const ext = isUploadMime(m.mime) ? UPLOAD_TYPES[m.mime] : null
-  const keys = m.variants.map((w) => `${m.keyBase}/${w}.webp`)
+  const keys = m.variants.map((w) => `${m.keyBase}/${w}.${m.variantExt ?? 'webp'}`)
   if (ext) keys.push(`${m.keyBase}/original.${ext}`)
   return keys
 }
 
 /** URLs for showing a media item: src (800 px or the largest), srcset, and the original file. */
-export function mediaUrls(m: { id: string; mime: string; variants: readonly number[] }) {
+export function mediaUrls(m: { id: string; mime: string; variants: readonly number[]; variantExt?: VariantExt | undefined }) {
+  const v = m.variantExt ?? 'webp'
   const ext = isUploadMime(m.mime) ? UPLOAD_TYPES[m.mime] : (m.mime.split('/')[1] ?? 'bin')
   const original = mediaOriginalUrl(m.id, ext)
   const widths = m.variants.toSorted((a, b) => a - b)
   if (widths.length === 0) return { src: original, srcset: null, thumb: null, original }
-  const src = mediaVariantUrl(m.id, widths.includes(800) ? 800 : widths.at(-1)!)
+  const src = mediaVariantUrl(m.id, widths.includes(800) ? 800 : widths.at(-1)!, v)
   return {
     src,
-    srcset: widths.map((w) => `${mediaVariantUrl(m.id, w)} ${w}w`).join(', '),
-    thumb: mediaVariantUrl(m.id, widths[0]!),
+    srcset: widths.map((w) => `${mediaVariantUrl(m.id, w, v)} ${w}w`).join(', '),
+    thumb: mediaVariantUrl(m.id, widths[0]!, v),
     original,
   }
 }
@@ -94,7 +109,15 @@ export function fileContentType(name: string): string | null {
 export type MediaMetaCheck =
   | {
       ok: true
-      value: { filename: string; mime: UploadMime; bytes: number; width: number | null; height: number | null; variants: number[] }
+      value: {
+        filename: string
+        mime: UploadMime
+        bytes: number
+        width: number | null
+        height: number | null
+        variants: number[]
+        variantExt: VariantExt
+      }
     }
   | { ok: false; message: string }
 
@@ -107,7 +130,9 @@ export function checkMediaMeta(input: Record<string, unknown>): MediaMetaCheck {
   const bytes = input.bytes
   if (typeof bytes !== 'number' || !Number.isInteger(bytes) || bytes < 1 || bytes > MAX_ORIGINAL_BYTES)
     return { ok: false, message: `Files can be at most ${MAX_ORIGINAL_BYTES / 1024 / 1024} MB.` }
-  if (!isImageMime(mime)) return { ok: true, value: { filename, mime, bytes, width: null, height: null, variants: [] } }
+  if (!isImageMime(mime)) return { ok: true, value: { filename, mime, bytes, width: null, height: null, variants: [], variantExt: 'webp' } }
+  const variantExt = input.variantExt ?? 'webp'
+  if (!isVariantExt(variantExt)) return { ok: false, message: 'Resized copies are WebP or JPEG.' }
   const width = input.width
   const height = input.height
   if (
@@ -125,5 +150,5 @@ export function checkMediaMeta(input: Record<string, unknown>): MediaMetaCheck {
   const variants = input.variants
   if (!Array.isArray(variants) || variants.length !== expected.length || !expected.every((w) => variants.includes(w)))
     return { ok: false, message: `Expected resized copies at ${expected.join(', ')} px.` }
-  return { ok: true, value: { filename, mime, bytes, width, height, variants: expected } }
+  return { ok: true, value: { filename, mime, bytes, width, height, variants: expected, variantExt } }
 }

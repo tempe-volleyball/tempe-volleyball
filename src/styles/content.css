@@ -87,7 +87,73 @@
   border: 0;
 }
 
+/* Images with settings (render.ts's <figure>; the editor renders the same classes). */
+.rich-text .figure img {
+  display: block;
+}
+.rich-text figcaption {
+  margin-top: 0.25em;
+  font-size: 0.875rem;
+  color: rgb(0 0 0 / 0.6);
+}
+.rich-text .figure-small {
+  max-width: 20rem;
+}
+.rich-text .figure-medium {
+  max-width: 28rem;
+}
+.rich-text .figure-large {
+  max-width: 42rem;
+}
+.rich-text .figure-center {
+  margin-left: auto;
+  margin-right: auto;
+  width: fit-content;
+}
+.rich-text .figure-left {
+  float: left;
+  max-width: 50%;
+  margin: 0.25em 1.5em 1em 0;
+}
+.rich-text .figure-right {
+  float: right;
+  max-width: 50%;
+  margin: 0.25em 0 1em 1.5em;
+}
+.rich-text a.button {
+  display: inline-block;
+  border-radius: 0.25rem;
+  background: var(--color-brand);
+  color: white;
+  padding: 0.4em 1em;
+  text-decoration: none;
+}
+
 /* Editor-only affordances. */
+.rich-text.ProseMirror::after {
+  content: '';
+  display: table;
+  clear: both;
+}
+.rich-text.ProseMirror figure.ProseMirror-selectednode {
+  outline: 3px solid var(--color-brand);
+}
+.rich-text.ProseMirror figure[data-href] img {
+  outline: 1px dashed var(--color-brand);
+}
+/* Screen-reader-only text is shown (dimmed) so it can be edited. */
+.rich-text.ProseMirror span.sr-only {
+  position: static;
+  width: auto;
+  height: auto;
+  margin: 0;
+  overflow: visible;
+  clip: auto;
+  clip-path: none;
+  white-space: normal;
+  color: rgb(0 0 0 / 0.45);
+  border-bottom: 1px dotted currentColor;
+}
 .rich-text.ProseMirror img.ProseMirror-selectednode,
 .rich-text.ProseMirror .embed.ProseMirror-selectednode {
   outline: 3px solid var(--color-brand);

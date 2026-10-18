@@ -22,7 +22,7 @@ export const leagueLadderRoute = (leagueSlug: string) => `${leagueRoute(leagueSl
 export const leagueFixturesRoute = (leagueSlug: string) => `${leagueRoute(leagueSlug)}#fixtures`
 export const seasonRoute = (leagueSlug: string, seasonSlug: string) => `/leagues/${leagueSlug}/${seasonSlug}`
 export const postRoute = (slug: string) => `${NEWS_ROUTE}/${slug}`
-export const mediaVariantUrl = (mediaId: string, width: number) => `/media/${mediaId}/${width}.webp`
+export const mediaVariantUrl = (mediaId: string, width: number, ext: 'webp' | 'jpg' = 'webp') => `/media/${mediaId}/${width}.${ext}`
 export const mediaOriginalUrl = (mediaId: string, ext: string) => `/media/${mediaId}/original.${ext}`
 
 /** The league slug for a code: lower case, "tnl". */

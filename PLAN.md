@@ -103,7 +103,7 @@ Backups go to a separate private bucket, `tempevb-backups` (30-day lifecycle rul
 
 - **`ci.yml`** (every PR): lint, format check, typecheck, test, build, then upload a **preview version** of the staging
   Worker with alias `pr-<n>` and post its URL in the job summary. Previews use the staging database and **don't** run
-  migrations.
+  migrations. Admin sign-in works on a preview URL (docs/admin.md §4.1: Better Auth uses the preview's own host).
 - **`deploy.yml`** (merge to `main`): check → migrate and deploy **staging**, then smoke-test `/api/health` → migrate and deploy
   **production** automatically, then smoke-test. A failure at any step stops the run before production. There's no manual
   approval step (decided 2026-10-17); one can be added later as required reviewers on the `production` environment. Migrations run before the new code goes live, so each one must work with the code that's already deployed

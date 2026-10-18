@@ -7,7 +7,7 @@ import { isIndexable } from './lib/indexing'
 import { guard, isAdminApi, isAdminPage, isInviteApi, needsSession } from './server/auth/guard'
 import { cachePublic, tags } from './server/cache'
 import { followRedirect, publicDb, siteMemo } from './server/public'
-import { getServices } from './server/services'
+import { getAuth } from './server/services'
 import { bumpSiteVersion, slashRedirect } from './server/site'
 
 // 0. Public paths with a trailing slash (every old WordPress URL) get a 301 to the slashless path, or straight to
@@ -40,7 +40,7 @@ export const onRequest = defineMiddleware(async (context, next) => {
   let setCookies: string[] = []
   if (admin) {
     if (needsSession(url.pathname)) {
-      const { headers, response: result } = await getServices().auth.api.getSession({ headers: request.headers, returnHeaders: true })
+      const { headers, response: result } = await getAuth(url).api.getSession({ headers: request.headers, returnHeaders: true })
       setCookies = headers?.getSetCookie() ?? []
       context.locals.user = result?.user ?? null
       context.locals.session = result?.session ?? null

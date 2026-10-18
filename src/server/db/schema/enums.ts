@@ -98,6 +98,10 @@ export type RedirectSource = (typeof redirectSources)[number]
 
 // ── Auth and admin ────────────────────────────────────────────────────────────
 
+/** Formats a media item's resized copies can be in (media.variant_ext). */
+export const variantExts = ['webp', 'jpg'] as const
+export type VariantExt = (typeof variantExts)[number]
+
 /** Admin roles, highest first: owner > admin > editor. */
 export const userRoles = ['owner', 'admin', 'editor'] as const
 export type UserRole = (typeof userRoles)[number]
@@ -189,6 +193,8 @@ export const auditActions = [
   'fixtures.import',
   'page.blocks',
   'analytics.fetch',
+  'auth.device_trust',
+  'auth.devices_revoke',
 ] as const
 export type AuditAction = (typeof auditActions)[number]
 

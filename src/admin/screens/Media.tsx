@@ -82,7 +82,9 @@ function Details({
             {isImage && (
               <>
                 <dt className="text-black/60">Copies</dt>
-                <dd>{item.variants.join(', ')} px wide (WebP)</dd>
+                <dd>
+                  {item.variants.join(', ')} px wide ({item.variantExt === 'jpg' ? 'JPEG' : 'WebP'})
+                </dd>
               </>
             )}
             <dt className="text-black/60">Uploaded</dt>

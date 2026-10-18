@@ -236,8 +236,60 @@ h3 {
 .prose .wp-block-column {
   @apply min-w-0 flex-1;
 }
-.prose .wp-block-button__link {
-  @apply bg-brand inline-block rounded px-4 py-2 text-white no-underline;
+.prose .wp-block-button__link,
+.prose a.button {
+  @apply bg-brand hover:bg-brand-dark inline-block rounded px-4 py-2 text-white no-underline;
+}
+
+/* Images with a caption, size, alignment or link (the editor's image settings; render.ts writes the classes). */
+.prose .figure {
+  @apply my-6;
+}
+.prose .figure img {
+  @apply block h-auto w-full;
+}
+.prose .figure-small {
+  @apply max-w-xs;
+}
+.prose .figure-medium {
+  @apply max-w-md;
+}
+.prose .figure-large {
+  @apply max-w-2xl;
+}
+.prose .figure-full {
+  @apply max-w-none;
+}
+.prose .figure-center {
+  @apply mx-auto;
+}
+.prose .figure:not(.figure-small, .figure-medium, .figure-large, .figure-full) img {
+  @apply w-auto max-w-full;
+}
+.prose .figure-center:not(.figure-small, .figure-medium, .figure-large, .figure-full) {
+  @apply w-fit;
+}
+@media (min-width: 40rem) {
+  .prose .figure-left,
+  .prose .figure-right {
+    @apply mt-1 mb-4 max-w-[50%];
+  }
+  .prose .figure-left {
+    @apply float-left mr-6;
+  }
+  .prose .figure-right {
+    @apply float-right ml-6;
+  }
+  .prose .figure-left.figure-small,
+  .prose .figure-right.figure-small {
+    @apply max-w-xs;
+  }
+}
+.prose::after {
+  /* Floated images never hang out of the body. */
+  content: '';
+  display: table;
+  clear: both;
 }
 
 /* Nav: the outer <details> is the mobile menu; on wide screens it's always open and the summary is hidden. */

@@ -1,4 +1,15 @@
-import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  pointerWithin,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type CollisionDetection,
+  type DragEndEvent,
+} from '@dnd-kit/core'
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
@@ -14,11 +25,13 @@ import {
 import { atLeast } from '../../lib/roles'
 import { programmePath } from '../../lib/programmes'
 import { api, type Me, type PurgeResult } from '../api'
+import { intoId, locate, moveItem, parseIntoId } from '../menu-move'
 import { Button, Card, Notice, errorMessage, purgeNote } from '../ui'
 import { useUnsavedWarning } from './Pages'
 
-// The menu editor (docs/admin.md §3.5): two levels, drag (or keyboard) to reorder within a level, "Move to" to
-// change level. A category item fills its dropdown on its own (the landing page, then its active programmes); the
+// The menu editor (docs/admin.md §3.5): two levels. Drag ⠿ to reorder, or between levels: onto a sub-item (or a
+// dropdown's "drop here" strip) to put an item in that dropdown, onto a top-level row to take a sub-item out.
+// Keyboard users reorder with the arrow keys on ⠿ and change level with "Move to". A category item fills its dropdown on its own (the landing page, then its active programmes); the
 // editor previews those automatic links under it, with a "show in menu" switch per programme (admins), and hand-made
 // sub-items can be pinned before or after them. Saved as a whole with one PUT.
 
@@ -109,8 +122,28 @@ const blank = (): Item => ({
   children: [],
 })
 
+/** While dragging: a strip at the end of a dropdown's list that drops the item into it. */
+/**
+ * The row under a dropdown's sub-items ("+ Add sub-item"), which is also where a dragged item drops into the
+ * dropdown. It's always there, so nothing jumps when a drag starts; while one can drop, it shows the hint.
+ */
+function DropZone({ id, label, enabled, children }: { id: string; label: string; enabled: boolean; children?: ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({ id, disabled: !enabled })
+  return (
+    <div
+      ref={setNodeRef}
+      className={`flex min-h-8 flex-wrap items-center gap-3 rounded border-2 border-dashed px-2 text-xs ${
+        !enabled ? 'border-transparent' : isOver ? 'border-brand bg-brand/10 text-brand' : 'border-black/20 text-black/50'
+      }`}
+    >
+      {children}
+      {enabled && <span>{label}</span>}
+    </div>
+  )
+}
+
 function Sortable({ id, children }: { id: string; children: (handle: ReactNode) => ReactNode }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging, isOver, active } = useSortable({ id })
   const handle = (
     <button
       type="button"
@@ -126,7 +159,7 @@ function Sortable({ id, children }: { id: string; children: (handle: ReactNode) 
     <li
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
-      className={isDragging ? 'relative z-10 opacity-80' : ''}
+      className={`${isDragging ? 'relative z-10 opacity-80' : ''} ${isOver && active && active.id !== id ? 'rounded ring-2 ring-brand/40' : ''}`}
     >
       {children(handle)}
     </li>
@@ -390,41 +423,69 @@ export function Menu({ me }: { me: Me }) {
     update((cur) => cur.filter((i) => i.key !== k).map((i) => ({ ...i, children: i.children.filter((c) => c.key !== k) })))
   }
 
-  const move = (k: string, to: string | null) =>
-    update((cur) => {
-      let moving: Item | undefined
-      const without = cur
-        .filter((i) => {
-          if (i.key === k) moving = i
-          return i.key !== k
-        })
-        .map((i) => ({
-          ...i,
-          children: i.children.filter((c) => {
-            if (c.key === k) moving = c
-            return c.key !== k
-          }),
-        }))
-      if (!moving) return cur
-      if (to === null) return [...without, moving]
-      return without.map((i) => (i.key === to ? { ...i, children: [...i.children, moving!] } : i))
-    })
+  const move = (k: string, to: string | null) => {
+    if (!items) return
+    const r = moveItem(items, k, { parent: to })
+    if (r.error) return setError(r.error)
+    update(() => r.items)
+  }
+
+  // Which item is being dragged (the drop strips show while something is).
+  const [dragging, setDragging] = useState<string | null>(null)
+  const topKeys = new Set(items?.map((i) => i.key))
+
+  // The pointer is usually over both a dropdown's top-level row (whose box holds its sub-items) and one of its
+  // sub-items or strips; the more specific target wins.
+  const collision: CollisionDetection = (args) => {
+    const within = pointerWithin(args)
+    if (within.length === 0) return closestCenter(args)
+    const specific = within.filter((c) => !topKeys.has(String(c.id)))
+    return specific.length ? specific : within
+  }
 
   const onDragEnd = (e: DragEndEvent) => {
+    setDragging(null)
     const { active, over } = e
-    if (!over || active.id === over.id) return
-    update((cur) => {
-      const a = String(active.id)
-      const o = String(over.id)
-      const ti = cur.findIndex((i) => i.key === a)
-      const to = cur.findIndex((i) => i.key === o)
-      if (ti >= 0 && to >= 0) return arrayMove(cur, ti, to)
-      return cur.map((p) => {
-        const ci = p.children.findIndex((c) => c.key === a)
-        const co = p.children.findIndex((c) => c.key === o)
-        return ci >= 0 && co >= 0 ? { ...p, children: arrayMove(p.children, ci, co) } : p
-      })
-    })
+    if (!over || active.id === over.id || !items) return
+    const a = String(active.id)
+    const o = String(over.id)
+    const from = locate(items, a)
+    if (!from) return
+    const zone = parseIntoId(o)
+    let result: ReturnType<typeof moveItem<Item>> | null = null
+    if (zone) {
+      result = moveItem(items, a, { parent: zone.parent, placement: zone.placement })
+    } else {
+      const target = locate(items, o)
+      if (!target) return
+      if (target.parent === from.parent) {
+        // Same list: reorder, as before.
+        return update((cur) => {
+          const ti = cur.findIndex((i) => i.key === a)
+          const to = cur.findIndex((i) => i.key === o)
+          if (ti >= 0 && to >= 0) return arrayMove(cur, ti, to)
+          return cur.map((p) => {
+            const ci = p.children.findIndex((c) => c.key === a)
+            const co = p.children.findIndex((c) => c.key === o)
+            return ci >= 0 && co >= 0 ? { ...p, children: arrayMove(p.children, ci, co) } : p
+          })
+        })
+      }
+      if (target.parent === null) {
+        // A sub-item dropped on a top-level row: out of its dropdown, above or below that row.
+        const rect = e.active.rect.current.translated
+        const below = rect ? rect.top > over.rect.top + 20 : false
+        const index = items.findIndex((i) => i.key === o)
+        const before = below ? (items[index + 1]?.key ?? null) : o
+        result = moveItem(items, a, { parent: null, before })
+      } else {
+        // Dropped on a sub-item of another dropdown: into that dropdown, just before it.
+        result = moveItem(items, a, { parent: target.parent, before: o, placement: target.item.placement })
+      }
+    }
+    if (result.error) return setError(result.error)
+    setError(null)
+    update(() => result.items)
   }
 
   const toggleProgramme = (id: string, shown: boolean) => {
@@ -474,17 +535,45 @@ export function Menu({ me }: { me: Me }) {
       {message && <Notice kind="success">{message}</Notice>}
       <Card>
         <p className="mb-4 text-sm text-black/70">
-          Drag ⠿ to reorder (or focus it and use the arrow keys). Use “Move to” to put an item under another. A Category item fills its
-          dropdown on its own: its landing page, then each active programme in it, so new programmes join and retired ones leave without
-          editing the menu. Pin your own links before or after them. Draft pages, hidden items and programmes that aren’t active stay off
-          the public menu.
+          Drag ⠿ to reorder, or drag between levels: onto a sub-item or a dropdown’s “drop here” strip to put an item in that dropdown, onto
+          a top-level row to take a sub-item out. With the keyboard, focus ⠿ and use the arrow keys to reorder, and “Move to” to change
+          level. A Category item fills its dropdown on its own: its landing page, then each active programme in it, so new programmes join
+          and retired ones leave without editing the menu. Pin your own links before or after them. Draft pages, hidden items and programmes
+          that aren’t active stay off the public menu.
         </p>
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={collision}
+          onDragStart={(e) => setDragging(String(e.active.id))}
+          onDragCancel={() => setDragging(null)}
+          onDragEnd={onDragEnd}
+        >
           <SortableContext items={items.map((i) => i.key)} strategy={verticalListSortingStrategy}>
             <ul className="space-y-3">
               {items.map((item) => {
                 const before = item.children.filter((c) => item.kind === 'category' && c.placement === 'before')
                 const after = item.children.filter((c) => !before.includes(c))
+                // Offer this dropdown's strips while dragging anything that could go in it (not itself, not a dropdown).
+                const draggedItem = dragging ? locate(items, dragging)?.item : undefined
+                const canDrop = !!draggedItem && dragging !== item.key && draggedItem.children.length === 0
+                const addSubItem = (
+                  <Button
+                    variant="link"
+                    className="text-xs"
+                    onClick={() => update((cur) => cur.map((i) => (i.key === item.key ? { ...i, children: [...i.children, blank()] } : i)))}
+                  >
+                    + Add sub-item
+                  </Button>
+                )
+                const zone = (placement?: 'before' | 'after', children?: ReactNode) => (
+                  <DropZone
+                    id={intoId(item.key, placement)}
+                    enabled={canDrop}
+                    label={`Drop here to put it in ${item.label || 'this dropdown'}${placement === 'before' ? ', before the programmes' : placement === 'after' ? ', after the programmes' : ''}`}
+                  >
+                    {children}
+                  </DropZone>
+                )
                 const childList = (list: Item[]) => (
                   <SortableContext items={list.map((c) => c.key)} strategy={verticalListSortingStrategy}>
                     <ul className="space-y-2">
@@ -525,6 +614,7 @@ export function Menu({ me }: { me: Me }) {
                           {item.kind === 'category' ? (
                             <>
                               {childList(before)}
+                              {canDrop && zone('before')}
                               <AutoLinks
                                 item={item}
                                 choices={choices}
@@ -533,19 +623,14 @@ export function Menu({ me }: { me: Me }) {
                                 onToggle={toggleProgramme}
                               />
                               {childList(after)}
+                              {zone('after', addSubItem)}
                             </>
                           ) : (
-                            childList(item.children)
+                            <>
+                              {childList(item.children)}
+                              {zone(undefined, addSubItem)}
+                            </>
                           )}
-                          <Button
-                            variant="link"
-                            className="text-xs"
-                            onClick={() =>
-                              update((cur) => cur.map((i) => (i.key === item.key ? { ...i, children: [...i.children, blank()] } : i)))
-                            }
-                          >
-                            + Add sub-item
-                          </Button>
                         </div>
                       </div>
                     )}

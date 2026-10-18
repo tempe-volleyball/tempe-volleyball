@@ -626,15 +626,52 @@ Each the more robust or more configurable option:
 
 ## 4. Admin UI/UX
 
-To be written with Jeremy. Known items so far:
+To be written with Jeremy. The known items:
 
-- PR preview URLs can't sign in (Better Auth's origin and cookie checks use the staging URL).
-- Trusted devices: every passwordless sign-in asks owners for a TOTP code.
-- Media: Safari versions without canvas WebP encoding can't upload; abandoned uploads leave files in R2.
-- Pages: re-inserting an image is needed after changing its alt text; the editor drops unsupported imported content on
-  first save (the original is kept as a revision).
-- Menu: no drag and drop between levels (“Move to” changes level).
-- Page editor: data blocks move by their ⠿ grip; there's no keyboard shortcut to insert one yet.
+| Item                                    | Status   | What's there                                                                                                                                                                                                                                                                                                                                                          |
+| --------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PR preview URLs can't sign in           | **Done** | On staging, a request to one of this Worker's own preview hosts (`pr-<n>-…` or `<8 hex>-…` in front of the staging host) gets a Better Auth instance whose base URL and only trusted origin are that host, so cookies, links and origin checks match it. No workflow change was needed. Previews share staging's D1, so the same admin accounts work.                 |
+| Trusted devices                         | **Done** | "Trust this device for N days" on the TOTP step (Better Auth's own trust-device records and signed cookie). N is Settings → Sign-in security (owners; 0 turns it off). Security shows the count and "Forget all trusted devices"; Admin users has "Forget devices". Forgotten automatically on TOTP set-up again or off and on a role change. Audited.                |
+| Media: Safari without canvas WebP       | **Done** | The uploader tests WebP encoding once and makes JPEG copies where it's missing (on white, since JPEG has no alpha); `media.variant_ext` records which, and every URL follows it. Not browser-tested on an old Safari (headless Chrome encodes WebP); the JPEG path is unit-tested.                                                                                    |
+| Media: abandoned uploads left in R2     | **Done** | Uploaded files are marked (`customMetadata.source`), and the hourly cron deletes marked files over 24 h old with no media row, 400 keys a run, resuming where it stopped. The importer's files are never touched.                                                                                                                                                     |
+| Pages: changing an image's alt text     | **Done** | Double-click an image (or Image settings… in the toolbar): description, caption, size (small/medium/large/full), alignment (centred, left or right with text wrapping), link, and "Choose another image" keeping the rest. render.ts writes a `<figure>` for them.                                                                                                    |
+| Pages: imported content on first save   | **Done** | The editor now keeps what staging's imported pages use: captioned `<figure>`s, linked images, WordPress buttons (a "Button" link style), screen-reader-only text, sub/superscript, H5/H6 and 100%-wide Google Forms. Before the first save of an imported page or post, a notice lists what's still converted (columns, colours, anchors …) with "View the original". |
+| Menu: drag and drop between levels      | **Done** | Drag onto a sub-item or a dropdown's "+ Add sub-item" strip to put an item in that dropdown, onto a top-level row to take a sub-item out. "Move to" stays for keyboard users; a dropdown with sub-items can't go inside another (two levels).                                                                                                                         |
+| Page editor: keyboard insert of a block | **Done** | Type `/` on an empty line: a filterable menu of the data blocks, image, table, embed, heading, list and line (↑/↓, Enter; Escape types the slash). The toolbar's "+ Block…" and Image tooltips say so.                                                                                                                                                                |
+
+### 4.1 Decisions (each the more robust or more configurable option)
+
+API and protocol details: [api/security.md](api/security.md).
+
+- **Previews derive their auth origin from the request, but only for this Worker's preview hosts.** `authOrigin()`
+  (`src/server/auth/auth.ts`) accepts `https://pr-<n>-<staging host>` and `https://<8 hex>-<staging host>`, only when
+  `SITE_ENV` is staging, with no port; anything else gets `SITE_URL`. Production never derives anything. Each preview
+  host gets its own Better Auth instance per isolate (built once, ~1 ms), so its trusted origins are exactly one
+  host, rather than Better Auth's dynamic `allowedHosts`, whose `*` wildcard also matches dots.
+- **Trusted devices reuse Better Auth's twoFactor trust-device records** rather than a parallel store: the verify
+  endpoints already create them and set the signed httpOnly cookie, so our passwordless hook only checks them, with
+  the same HMAC as Better Auth (no crypto of our own). Revoking is a delete of the user's `trust-device-*` rows.
+- **The trust period is fixed from when the code was entered**, not extended by each trusted sign-in (Better Auth's
+  own hook rotates and extends; ours doesn't rotate). Owners set it (Settings → Sign-in security, 0–90 days, default
+  30); a shorter period applies to devices already trusted; 0 turns it off and hides the tick box.
+- **Revoked automatically** on TOTP enable/disable (after hooks), and on a role change or removal (in the role
+  change's batch, next to signing them out). Admins and owners can forget the devices of anyone they could remove.
+- **JPEG copies, not "original only"**, on browsers without WebP encoding: pages still get small responsive images.
+  Transparent PNGs go on white.
+- **The R2 sweep only deletes files the admin uploader marked**, so imported media (which the importer uploads
+  without a marker, and which old page HTML may link to directly) is safe even if a row were missing. Per run: one R2
+  list, at most one multi-key delete, one or two D1 reads and one write.
+- **Image settings live in the image node** (caption, size, align, href attributes). A plain image still renders as
+  a bare `<img>`, so existing pages are unchanged. Size and alignment are presets, not free pixel values, so pages
+  stay consistent on phones (floats drop below 640 px).
+- **Imported constructs are supported where staging uses them** (checked against the imported pages on staging, through the public site):
+  figures with captions, linked images, WordPress buttons, `sr-only` spans, sub/sup, H5/H6, percentage iframe widths.
+  Neighbouring text with the same link now renders as one `<a>`, so "here" plus its screen-reader text stays one link.
+  The rest is listed before the first save by `importLosses()` (`src/lib/content/import-check.ts`), which must stay
+  in step with `src/admin/editor/extensions.ts`.
+- **The slash menu** opens only on an empty paragraph, so typing "/" in text still types a slash.
+- **Menu drop targets are always laid out** (the "+ Add sub-item" row is the drop strip), so nothing jumps when a drag
+  starts; the most specific target under the pointer wins (a sub-item over its dropdown's row).
 
 ## 5. Later or optional
 

@@ -3,6 +3,7 @@ import { batchGuard, runBatch, type AppDb } from '../db'
 import { adminInvites, auditLog, session, user } from '../db/schema'
 import type { AdminInvite, AuditAction, NewAuditLogEntry, UserRole } from '../db/schema'
 import { canAssign, canRemove, isRole, outranks } from '../../lib/roles'
+import { forgetTrustedDevices } from './trusted-devices'
 
 // Admin roles, invites and the audit log: every rule from PLAN.md "Auth and admin" lives here.
 //
@@ -175,6 +176,8 @@ export async function changeRole(db: AppDb, actor: Actor, targetId: string, to: 
       // Sign them out everywhere, so the new role applies from their next sign-in rather than when the session
       // cookie cache expires. (Unsafe API calls re-read the role anyway; this also covers page loads and GETs.)
       db.delete(session).where(eq(session.userId, target.id)),
+      // …and forget their trusted devices, so the next sign-in asks for the authenticator code again.
+      forgetTrustedDevices(db, target.id),
       db
         .insert(auditLog)
         .values(audit(actor, action, { type: 'user', id: target.id }, { role: target.role }, { role: to, email: target.email }, at)),
@@ -207,6 +210,7 @@ export async function removeUser(db: AppDb, actor: Actor, targetId: string, now 
     await runBatch(db, [
       // The cascade would remove sessions too; deleting them explicitly keeps that true whatever the FKs say.
       db.delete(session).where(eq(session.userId, target.id)),
+      forgetTrustedDevices(db, target.id),
       db.delete(user).where(eq(user.id, target.id)),
       db
         .insert(auditLog)

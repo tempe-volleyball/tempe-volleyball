@@ -14,6 +14,7 @@ import {
   parseUploadFile,
   UPLOAD_TYPES,
 } from '../../lib/content/media'
+import { UPLOAD_SOURCE } from './media-sweep'
 import { audit, conflict, invalid, likeEscaped, likePattern, notFound, type Editor } from './common'
 
 // The media library. Images are resized to WebP in the admin's browser; the Worker only streams the files it's
@@ -21,9 +22,11 @@ import { audit, conflict, invalid, likeEscaped, likePattern, notFound, type Edit
 //
 // Upload protocol (the admin's src/admin/media/upload.ts):
 //   1. PUT /api/admin/media/<new uuid>/original.<ext>   the original file
-//   2. PUT /api/admin/media/<uuid>/<width>.webp         each resized copy (images only)
-//   3. POST /api/admin/media { id, filename, mime, bytes, width, height, variants, alt }
-// Step 3 checks every file is in R2 before writing the row. Files from an abandoned upload stay in R2 unlisted.
+//   2. PUT /api/admin/media/<uuid>/<width>.webp         each resized copy (images only; .jpg from browsers that
+//                                                        can't encode WebP)
+//   3. POST /api/admin/media { id, filename, mime, bytes, width, height, variants, variantExt, alt }
+// Step 3 checks every file is in R2 before writing the row. Files from an abandoned upload are deleted by the
+// hourly cron after a day (media-sweep.ts).
 
 /** What the media routes need from the R2 binding (so tests can pass a fake). */
 export type MediaBucket = Pick<R2Bucket, 'put' | 'head' | 'delete' | 'get'>
@@ -88,6 +91,8 @@ export async function storeUpload(
   const key = `${mediaKeyBase(id)}/${name}`
   const object = await bucket.put(key, file.body, {
     httpMetadata: { contentType: parsed.mime, cacheControl: 'public, max-age=31536000, immutable' },
+    // Marks the file as ours for the abandoned-upload sweep (media-sweep.ts), which only ever deletes these.
+    customMetadata: { ...UPLOAD_SOURCE },
   })
   if (!object) throw new HttpError(500, 'upload_failed', 'The upload could not be stored.')
   return { key, size: object.size }
@@ -112,7 +117,7 @@ export async function createMedia(db: AppDb, bucket: MediaBucket, actor: Editor,
   const isImage = v.mime.startsWith('image/')
   const alt = isImage ? altText(input.alt) : (typeof input.alt === 'string' && input.alt.trim()) || v.filename
   const keyBase = mediaKeyBase(id)
-  const keys = mediaKeys({ keyBase, mime: v.mime, variants: v.variants })
+  const keys = mediaKeys({ keyBase, mime: v.mime, variants: v.variants, variantExt: v.variantExt })
   const heads = await Promise.all(keys.map((k) => bucket.head(k)))
   const missing = keys.filter((_, i) => !heads[i])
   if (missing.length)
@@ -129,6 +134,7 @@ export async function createMedia(db: AppDb, bucket: MediaBucket, actor: Editor,
       width: v.width,
       height: v.height,
       variants: v.variants,
+      variantExt: v.variantExt,
       bytes: v.bytes,
       uploadedBy: actor.id,
       updatedBy: actor.id,
