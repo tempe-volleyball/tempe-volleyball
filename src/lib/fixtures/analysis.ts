@@ -199,3 +199,45 @@ export function validate(s: Settings, weeks: Week[]): Issue[] {
 
   return issues
 }
+
+/** Issues with the same message on several nights, as one line ("A game has no duty team", 36 times, match days 1–9). */
+export type IssueGroup = { level: Issue['level']; message: string; count: number; weekIds: string[]; matchDays: number[] }
+
+/**
+ * Groups validate()'s issues by what they say, ignoring the "Match day N: " prefix, in first-seen order. For long
+ * lists that repeat one thing every night, such as an imported draw the old site kept without duty teams.
+ */
+export function groupIssues(issues: Issue[], weeks: Week[]): IssueGroup[] {
+  const dayOf = new Map(weeks.map((w) => [w.id, w.matchDay]))
+  const groups = new Map<string, IssueGroup>()
+  for (const i of issues) {
+    const text = i.message.replace(/^Match day \d+: /, '')
+    const message = text.charAt(0).toUpperCase() + text.slice(1)
+    const key = `${i.level}|${message}`
+    const g = groups.get(key) ?? { level: i.level, message, count: 0, weekIds: [], matchDays: [] }
+    g.count++
+    if (i.weekId && !g.weekIds.includes(i.weekId)) {
+      g.weekIds.push(i.weekId)
+      const day = dayOf.get(i.weekId)
+      if (day !== undefined) g.matchDays.push(day)
+    }
+    groups.set(key, g)
+  }
+  return [...groups.values()]
+}
+
+/** "match days 1–4, 6 and 8", for a list of match day numbers. */
+export function matchDaysText(days: number[]): string {
+  const sorted = [...new Set(days)].toSorted((a, b) => a - b)
+  if (sorted.length === 0) return ''
+  const runs: string[] = []
+  for (let i = 0; i < sorted.length;) {
+    let j = i
+    while (j + 1 < sorted.length && sorted[j + 1] === sorted[j]! + 1) j++
+    if (j - i >= 2) runs.push(`${sorted[i]}–${sorted[j]}`)
+    else for (let k = i; k <= j; k++) runs.push(`${sorted[k]}`)
+    i = j + 1
+  }
+  const list = runs.length > 1 ? `${runs.slice(0, -1).join(', ')} and ${runs.at(-1)}` : runs[0]!
+  return `${sorted.length === 1 ? 'match day' : 'match days'} ${list}`
+}

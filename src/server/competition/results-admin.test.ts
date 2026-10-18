@@ -2,13 +2,13 @@ import { eq } from 'drizzle-orm'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { generate, isTeam, shapeKey, type Result, type Week } from '../../lib/fixtures'
 import { createTestDb, type QueryStats, type TestDb } from '../db/testing'
-import { auditLog, courts, leagues, matchDays, matches, redirects, seasonTeams, teams, user, venues } from '../db/schema'
+import { auditLog, courts, leagues, matchDays, matches, redirects, seasons, seasonTeams, teams, user, venues } from '../db/schema'
 import { HttpError } from '../http'
 import { fixtureRows, ladderRows, toCompetition } from './adapter'
 import { moveMatch, undoMoveMatch } from './move'
 import { publishResults, saveResults, setMatchDetails, setMatchStatus } from './results'
 import { createSeason, getSeason, loadSeason, saveDraw, setSeasonStatus, setSeasonTeams, updateSeason, type SeasonView } from './seasons'
-import { createTeam, listTeams, mergeTeams } from './teams'
+import { createTeam, listTeams, mergeTeams, recentMerges, undoMerge } from './teams'
 
 // Results tab parity (docs/admin.md §1 "Results", "Matches", "Teams and rollover"): outcomes decided by hand, forfeit
 // scores and the 1–1 rule per season, a game's referee, moving one game to another night, and merging teams.
@@ -344,6 +344,68 @@ describe('merging teams', () => {
     const list = await listTeams(db)
     expect(list.find((t) => t.id === a)).toMatchObject({ seasons: 2 })
     expect(list.find((t) => t.id === a)!.history.map((h) => h.leagueCode)).toEqual(['TNL', 'TNL'])
+  })
+
+  it('can be undone from its audit row: B, its seasons, games, feeds and draw keys come back exactly', async () => {
+    const a = (await createTeam(db, admin, { name: 'Ice Cold' }, NOW)).id
+    const b = (await createTeam(db, admin, { name: 'Ice Cold!' }, NOW)).id
+    await db.update(teams).set({ wpId: 77 }).where(eq(teams.id, b))
+    const others = []
+    for (const name of ['P', 'Q', 'R']) others.push((await createTeam(db, admin, { name }, NOW)).id)
+    const first = await season(4, { quarter: 1, teamIds: [a, ...others] })
+    const second = await season(4, { quarter: 2, teamIds: [b, ...others] })
+    // A redirect that already led to B's feed (an earlier merge into B).
+    await db
+      .insert(redirects)
+      .values({ fromPath: '/leagues/tnl/teams/old.ics', toPath: '/leagues/tnl/teams/ice-cold-2.ics', source: 'manual' })
+    const snapshot = async () => ({
+      teams: await db.select({ id: teams.id, name: teams.name, slug: teams.slug, wpId: teams.wpId }).from(teams).orderBy(teams.id),
+      members: await db
+        .select({ s: seasonTeams.seasonId, t: seasonTeams.teamId })
+        .from(seasonTeams)
+        .orderBy(seasonTeams.seasonId, seasonTeams.teamId),
+      games: await db
+        .select({ id: matches.id, h: matches.homeTeamId, a: matches.awayTeamId, d: matches.dutyTeamId })
+        .from(matches)
+        .orderBy(matches.id),
+      redirects: await db.select({ from: redirects.fromPath, to: redirects.toPath }).from(redirects).orderBy(redirects.fromPath),
+      keys: await db.select({ id: seasons.id, g: seasons.generatedFrom }).from(seasons).orderBy(seasons.id),
+    })
+    const before = await snapshot()
+    await mergeTeams(db, admin, a, { mergeId: b }, at(1))
+    // The draw key follows the merge, so B's season doesn't say "Settings changed".
+    const merged = await getSeason(db, second.season.id)
+    expect(merged.competition.generatedFrom).toBe(shapeKey(merged.competition.settings))
+    expect((await getSeason(db, first.season.id)).competition.generatedFrom).toBe(first.competition.generatedFrom)
+
+    const [recent] = await recentMerges(db, at(2))
+    expect(recent).toMatchObject({ kept: { id: a, name: 'Ice Cold' }, merged: { id: b, name: 'Ice Cold!' }, blocked: null })
+    stats.reset()
+    const r = await undoMerge(db, admin, recent!.auditId, at(3))
+    expect(stats.queries + 1).toBeLessThanOrEqual(50)
+    expect(stats.maxParams).toBeLessThanOrEqual(100)
+    expect(r.result).toMatchObject({ team: { id: b, name: 'Ice Cold!' }, kept: { id: a } })
+    expect(await snapshot()).toEqual(before)
+    expect((await getSeason(db, second.season.id)).competition.generatedFrom).toBe(second.competition.generatedFrom)
+    const undoRow = await db.select().from(auditLog).where(eq(auditLog.action, 'team.merge_undo')).get()
+    expect(undoRow).toMatchObject({ targetId: b, after: { mergeAuditId: recent!.auditId } })
+
+    // Once undone, it can't be applied again, and the list says so.
+    expect((await recentMerges(db, at(4)))[0]!.blocked).toMatch(/Already undone/)
+    await rejects(undoMerge(db, admin, recent!.auditId, at(4)), 409, 'cannot_undo')
+  })
+
+  it('refuses to undo after 30 days, or when another team took the name', async () => {
+    const a = (await createTeam(db, admin, { name: 'Spikers' }, NOW)).id
+    const b = (await createTeam(db, admin, { name: 'Spikers 2' }, NOW)).id
+    await mergeTeams(db, admin, a, { mergeId: b }, NOW)
+    const [m] = await recentMerges(db, NOW)
+    const later = new Date(NOW.getTime() + 31 * 86_400_000)
+    expect(await recentMerges(db, later)).toEqual([])
+    await rejects(undoMerge(db, admin, m!.auditId, later), 409, 'cannot_undo')
+    await createTeam(db, admin, { name: 'Spikers 2' }, at(5))
+    const e = await rejects(undoMerge(db, admin, m!.auditId, at(6)), 409, 'cannot_undo')
+    expect(e.message).toMatch(/web address|Rename it first/)
   })
 
   it('refuses teams that played in the same season', async () => {

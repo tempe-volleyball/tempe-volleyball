@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
-  addDays,
   courtClashes,
   courtName,
   forfeitResult,
@@ -9,6 +8,7 @@ import {
   formatLong,
   makeResolver,
   moveToNight,
+  suggestCatchUpDate,
   refName,
   type Game,
   type MoveTarget,
@@ -110,10 +110,11 @@ export function MoveGameDialog({
   const game = from?.games.find((g) => g.id === gameId)
   const resolve = useMemo(() => makeResolver(s, weeks), [s, weeks])
   const nights = weeks.filter((w) => w.kind !== 'skip' && w.id !== weekId && !w.status)
-  const lastDate = weeks.at(-1)?.date ?? from?.date ?? ''
+  const fromDate = from?.date
+  const suggested = fromDate ? suggestCatchUpDate(weeks, fromDate) : null
   const [mode, setMode] = useState<'existing' | 'new'>(nights.some((w) => w.date > (from?.date ?? '')) ? 'existing' : 'new')
   const [toWeekId, setToWeekId] = useState(() => nights.find((w) => w.date > (from?.date ?? ''))?.id ?? nights[0]?.id ?? '')
-  const [date, setDate] = useState(() => (lastDate ? addDays(lastDate, 7) : ''))
+  const [date, setDate] = useState(() => suggested?.date ?? '')
   const [slot, setSlot] = useState('')
   // The other leagues' courts on the target night, as last fetched (for which date).
   const [fetched, setFetched] = useState<{ date: string; data: ClashDraws | null; error: string | null }>({
@@ -221,6 +222,12 @@ export function MoveGameDialog({
                 setSlot('')
               }}
             />
+            {mode === 'new' && suggested && date === suggested.date && !suggested.beforeFinals && (
+              <span className="basis-full text-xs text-black/70">
+                No week before the finals is free, so this is after them. If it has to count before the finals are seeded, pick another day
+                of the week.
+              </span>
+            )}
           </label>
         </fieldset>
         <label className="block">

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { normaliseStage, parseEventTitle, parseLabel, parseSide } from './titles'
+import { isPlaceholderTeamName, normaliseStage, parseEventTitle, parseLabel, parseSide } from './titles'
 
 describe('parseLabel', () => {
   it.each([
@@ -133,5 +133,14 @@ describe('parseEventTitle', () => {
     })
     expect(parseEventTitle('** EASTER SUNDAY &#8211; NO MATCHES **')).toEqual({ kind: 'skip', note: 'EASTER SUNDAY – NO MATCHES' })
     expect(parseEventTitle('NO GAMES THIS WEEK')).toEqual({ kind: 'skip', note: 'NO GAMES THIS WEEK' })
+  })
+})
+
+describe('isPlaceholderTeamName', () => {
+  it('spots the SportsPress placeholder teams and leaves real names alone', () => {
+    for (const n of ['BYE', 'Grand Final', '3rd Place', '3RD PLACE PLAYOFF', 'Semi Final 1', 'Winner SF1', 'LOSER GF', '2nd', 'TBC'])
+      expect({ n, placeholder: isPlaceholderTeamName(n) }).toEqual({ n, placeholder: true })
+    for (const n of ['ICE COLD', 'Byers', '3rd Degree Burns', 'WSF1 HIT FOR BRAINS', 'Finals Fever'])
+      expect({ n, placeholder: isPlaceholderTeamName(n) }).toEqual({ n, placeholder: false })
   })
 })

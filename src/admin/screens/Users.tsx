@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { canAssign, canRemove, roleLabel, type UserRole } from '../../lib/roles'
 import { api, formatWhen, type AdminUserRow, type InviteRow, type Me } from '../api'
-import { Skeleton, confirmAction, Button, Card, Field, Notice, RoleBadge, errorMessage } from '../ui'
+import { Skeleton, confirmAction, Button, Card, Field, Notice, RoleBadge, errorMessage, EmailText } from '../ui'
 import { useUnsavedWarning } from '../unsaved'
 
 // Admin users: list, invite, change role, remove, revoke invites. The server (src/server/auth/roles.ts) enforces
@@ -168,7 +168,9 @@ function UserRow({ me, row, ownerCount, onChange }: { me: Me; row: AdminUserRow;
           {row.name}
           {row.id === me.user.id && <span className="ml-1 text-xs font-normal text-black/60">(you)</span>}
         </div>
-        <div className="text-xs break-all text-black/70">{row.email}</div>
+        <div className="text-xs text-black/70">
+          <EmailText email={row.email} />
+        </div>
         {error && <div className="mt-1 text-xs text-red-700">{error}</div>}
       </td>
       <td className="py-2 pr-3">
@@ -264,8 +266,9 @@ export function Users({ me }: { me: Me }) {
           <ul className="divide-y divide-black/10">
             {data.invites.map((i) => (
               <li key={i.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
-                <span className="min-w-0 break-all">
-                  {i.email} <RoleBadge role={i.role} /> <span className="text-xs text-black/60">expires {formatWhen(i.expiresAt)}</span>
+                <span className="min-w-0">
+                  <EmailText email={i.email} /> <RoleBadge role={i.role} />{' '}
+                  <span className="text-xs text-black/60">expires {formatWhen(i.expiresAt)}</span>
                 </span>
                 {canAssign(me.user.role, null, i.role) && (
                   <Button variant="danger" className="px-2 py-1 text-xs" onClick={() => void revoke(i)}>

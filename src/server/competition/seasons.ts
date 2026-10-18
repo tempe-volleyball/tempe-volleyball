@@ -156,7 +156,10 @@ export type SeasonMeta = Pick<
   | 'publishedAt'
   | 'createdAt'
   | 'updatedAt'
->
+> & {
+  /** Came from the old WordPress site (wp_id): its draw didn't follow the generator's rules, so the admin calls them notes. */
+  imported: boolean
+}
 
 export const seasonMeta = (s: Season): SeasonMeta => ({
   id: s.id,
@@ -174,6 +177,7 @@ export const seasonMeta = (s: Season): SeasonMeta => ({
   publishedAt: s.publishedAt,
   createdAt: s.createdAt,
   updatedAt: s.updatedAt,
+  imported: s.wpId !== null,
 })
 
 export type CourtOption = { id: string; name: string; venueId: string; venueName: string; atLeagueVenue: boolean }

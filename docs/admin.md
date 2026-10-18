@@ -18,7 +18,7 @@ Status as of 2026-10-18: **Done** = built and on staging, **Partial** = some of 
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Leagues**                       | Leagues as records (TNL, FNL …) that own their seasons, with add, rename, retire and reactivate                                        | **Done**    | Admin → Leagues lists each league with its seasons; a league opens to Details, Enrolment and Seasons tabs: add, rename, change URL (leaves 301s for the league and its season pages), category, retire, reactivate, delete while it has no history. Training, Development and Events have their own sections (sessions, terms, dates). API: [api/programmes.md](api/programmes.md).                                                                                                                                                                                                                                                                                  |
 | **Seasons**                       | A league has quarterly seasons, each with its own settings                                                                             | **Done**    | Admin → Seasons: create, set up, publish, archive. Points per W/D/L and sets per match are per season.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| **Teams and rollover**            | Teams carry over between seasons; one-click "roll over to next season"                                                                 | **Done**    | "New season" copies the latest season's teams and settings. **Admin → Teams** lists every team across leagues with search and each team's seasons (history), and renames or creates teams. **Merge duplicates** moves team B's seasons, games (home, away, duty), ladder adjustments and enrolment groups to team A in one audited batch (`team.merge`), refused when both played in one season; B's team calendar feeds 301 to A's. Look-alike names that never shared a season are suggested for merging.                                                                                                                                                          |
+| **Teams and rollover**            | Teams carry over between seasons; one-click "roll over to next season"                                                                 | **Done**    | "New season" copies the latest season's teams and settings. **Admin → Teams** lists every team across leagues with search and each team's seasons (history), and renames or creates teams. **Merge duplicates** moves team B's seasons, games (home, away, duty), ladder adjustments and enrolment groups to team A in one audited batch (`team.merge`), refused when both played in one season; B's team calendar feeds 301 to A's. Look-alike names that never shared a season are suggested for merging. A merge can be undone for 30 days (§3.11).                                                                                                               |
 | **Venues and courts**             | Venues (Robyn Webster, MLC, Five Dock) separate from the courts inside them                                                            | **Done**    | Admin → Venues: name, URL, address, map link, directions; courts per venue with ordering and renames; delete only when unused. Programme, category and fixture pages read them. A **Venues** page block shows name, address, map link, directions and who plays there, so Where We Play can be generated (docs/content-map.md); until Michael swaps it in, the hand-typed page stays.                                                                                                                                                                                                                                                                                |
 | **Matches**                       | Date, time, teams, court, match day, status, plus duty team, bye and finals placeholders as real fields                                | **Done**    | Duty, byes and placeholders are fields. Status is scheduled, played, forfeit, cancelled, **postponed** or **TBD**, with a public note, set per game on the Results tab and shown on the public fixtures. **Move one game to another night** (Results tab → "Move to another night"): an existing night or a new catch-up night, in a free slot, checked against the season and the other leagues' courts (`clashes.ts`); the old night lists it as "moved to …", the new one "moved from …" (`matches.original_match_day_id`); audited and undoable. An optional **referee** per game (`matches.referee`, always shown for TVSL) is edited there and shown publicly. |
 | **Creating fixtures**             | The draw generator, with CSV import as a fallback                                                                                      | **Done**    | Generator (runs in the browser), plus **CSV import** for draft seasons, offered on the Setup tab and on the Fixtures tab before there's a draw: paste or pick a file, a preview listing every problem by line, then it becomes the draw (audited as `fixtures.import`). It meets the same checks as a generated draw. See docs/api/seasons.md.                                                                                                                                                                                                                                                                                                                       |
@@ -491,8 +491,29 @@ Each takes the more robust or more configurable option:
 - **Merging teams keeps the team you pick** (its name, slug and calendar URLs) and moves everything of the other one in
   one batch of single `UPDATE … WHERE team_id = B` statements (2 parameters each, so a big merge costs the same). It's
   refused when both teams played in one season. The duplicate's calendar feeds get 301s, redirects that pointed at
-  them are repointed (no chains), and its WordPress id moves over when the kept team has none. Not undoable (it's in
-  the audit log with the old team's details); suggestions only pair look-alike names that never shared a season.
+  them are repointed (no chains), and its WordPress id moves over when the kept team has none. Suggestions only pair
+  look-alike names that never shared a season. A merge is also refused when either team has games or adjustments in
+  the other's season, and B's seasons' draw keys (`generated_from`) follow it, so they don't say "Settings changed".
+- **Merges can be undone for 30 days** (Admin → Teams, "Recent merges"; the audit row links there). The merge's audit
+  row keeps what's needed (`before.undo`); undo re-creates B with its id, name, slug and WordPress id, and puts back
+  everything in B's seasons by season, so games added there since the merge go back to B too (A wasn't in those
+  seasons, or the merge would have been refused). Feed redirects the merge made are removed and re-pointed ones
+  restored. It's refused once undone (B exists again, so a double click can't apply it twice), when the kept team has
+  since gone, or when another team took B's name or web address. Audited as `team.merge_undo`. 30 days rather than
+  forever: after a month a split is better done by hand. Merges made before this existed say so and stay in the audit
+  log.
+- **Imported draws aren't "out of date".** The importer now writes `seasons.generated_from` (`drawShapeKey()`), so the
+  Fixtures tab's "Settings changed" banner only means a real change. `scripts/fix-imported-seasons.ts` (guarded,
+  idempotent, audited as `import.fix`) wrote the key for seasons imported before, in SQL that a test holds to the
+  TypeScript key, and removed SportsPress placeholder "teams" nothing used (BYE, Grand Final, 3rd Place); the importer
+  no longer creates those. Applied to staging on 2026-10-19.
+- **An imported draw's quirks are notes, not problems.** The old site kept no duty team for most games, had double
+  headers and uneven meetings. For an imported season (`SeasonMeta.imported`), whatever the saved draw already has
+  shows as grouped, neutral notes ("A game has no duty team (36 times, match days 1–9)") with a line saying nothing
+  needs fixing, the fairness table isn't coloured, and the save toast doesn't count them. Anything an edit adds (a
+  court change that clashes) is still a warning or problem, and the server still refuses new errors.
+- **Catch-up nights default to the first free week before the finals** (`suggestCatchUpDate`), so a postponed
+  round-robin game counts before the finals are seeded; if no week is free the dialog says the default is after them.
 - **CSV import is offered wherever there's no draw yet**: the Setup tab's summary and the Fixtures tab, which a draft
   can open before a draw exists (empty state: Generate draw, or Import fixtures from CSV).
 
@@ -687,8 +708,12 @@ API and protocol details: [api/security.md](api/security.md). The UX pass's deci
   The rest is listed before the first save by `importLosses()` (`src/lib/content/import-check.ts`), which must stay
   in step with `src/admin/editor/extensions.ts`.
 - **The slash menu** opens only on an empty paragraph, so typing "/" in text still types a slash.
-- **Menu drop targets are always laid out** (the "+ Add sub-item" row is the drop strip), so nothing jumps when a drag
-  starts; the most specific target under the pointer wins (a sub-item over its dropdown's row).
+- **Menu drop targets are always laid out at a fixed height**: the "+ Add sub-item" row and, in a category dropdown,
+  the "before the programmes" row (which says what it's for when idle), each one line with the hint cut short if
+  needed, so nothing moves when a drag starts and the drop lands under the pointer (checked at 1280 px and 390 px). The
+  dragged item stays in place, faded, and a `DragOverlay` of its own size follows the pointer (rows use
+  `CSS.Translate`, never a scale). The most specific target under the pointer wins (a sub-item over its dropdown's
+  row). The screen's long intro is now one line plus a collapsible "How the menu works".
 
 ### 4.2 Building blocks (src/admin/ui.tsx and friends)
 
@@ -740,6 +765,21 @@ New screens use these rather than one-off markup:
   league, court and duty move under the game.
 - **Settings has a section list** at the top (Banner, Contact, … Analytics), each card has an anchor, and saves toast
   "PayID: saved." instead of a notice inside the card.
+- **Results for a night that hasn't happened yet** ask first ("This night is Thu, 22 Oct 2026, in 3 days …", Publish
+  anyway), since an early forfeit is a real reason; and once scores are typed into a future night its card says so.
+- **Score boxes:** Enter moves to the next box (home set 1 → away set 1 → home set 2 …) and from a game's last box to
+  the next game's first. Every per-game button (Move…, Undo the move, Add a referee, Decide the outcome by hand, Enter
+  set scores instead, Clear) names its game for screen readers and voice control.
+- **The sticky save bar is one row on phones** (Discard · Save · Publish); the bye line and the problem note show from
+  640 px up (the problem is also the Publish button's title, and the game itself shows it). "Postpone or cancel"
+  drops "the night" on phones so it stays on one line.
+- **Enrolments list what's on or coming up first, soonest first** (the next session is at the top at the door), then
+  finished ones latest first (`targetOrder`).
+- **Emails wrap at the @ and the dots** (`EmailText`), never mid-word, in Admin users and the audit log.
+- **Image settings and data-block dialogs** use `confirmAction` (empty description) and `Skeleton` (loading).
+- **Admin GETs that return emails (users, audit) re-read the role** (`fresh`), so a demoted admin loses them at once.
+- **Image size presets set `sizes`** (small 20rem, medium 28rem, large 42rem), so a medium image doesn't fetch the
+  800 px copy on a phone. Pages pick it up on their next save.
 - **The season screen's other tabs are lazy**: Results is what's opened on a phone at the venue. `inputClass` moved to
   `src/admin/seasons/styles.ts` so dialogs don't drag SetupTab back into the Results chunk.
 

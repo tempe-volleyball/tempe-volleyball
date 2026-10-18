@@ -1,5 +1,6 @@
 import {
   DndContext,
+  DragOverlay,
   KeyboardSensor,
   PointerSensor,
   closestCenter,
@@ -122,28 +123,48 @@ const blank = (): Item => ({
   children: [],
 })
 
-/** While dragging: a strip at the end of a dropdown's list that drops the item into it. */
 /**
- * The row under a dropdown's sub-items ("+ Add sub-item"), which is also where a dragged item drops into the
- * dropdown. It's always there, so nothing jumps when a drag starts; while one can drop, it shows the hint.
+ * A strip in a dropdown where a dragged item drops into it: the "+ Add sub-item" row, and in a category dropdown
+ * also the row before its automatic links. Both are always laid out at one fixed height, and the hint is one line
+ * (cut short if it must be), so nothing moves when a drag starts and drops land where the pointer is.
  */
-function DropZone({ id, label, enabled, children }: { id: string; label: string; enabled: boolean; children?: ReactNode }) {
+function DropZone({
+  id,
+  label,
+  idle,
+  enabled,
+  children,
+}: {
+  id: string
+  label: string
+  /** Shown when nothing is being dragged (the "before" strip has no button). */
+  idle?: string
+  enabled: boolean
+  children?: ReactNode
+}) {
   const { setNodeRef, isOver } = useDroppable({ id, disabled: !enabled })
+  const text = enabled ? label : idle
   return (
     <div
       ref={setNodeRef}
-      className={`flex min-h-8 flex-wrap items-center gap-3 rounded border-2 border-dashed px-2 text-xs ${
-        !enabled ? 'border-transparent' : isOver ? 'border-brand bg-brand/10 text-brand' : 'border-black/20 text-black/60'
+      className={`flex h-8 min-w-0 flex-nowrap items-center gap-3 overflow-hidden rounded border-2 border-dashed px-2 text-xs ${
+        !enabled ? 'border-transparent text-black/60' : isOver ? 'border-brand bg-brand/10 text-brand' : 'border-black/20 text-black/60'
       }`}
     >
-      {children}
-      {enabled && <span>{label}</span>}
+      {children && <span className="shrink-0">{children}</span>}
+      {text && (
+        <span className="min-w-0 truncate" title={text}>
+          {text}
+        </span>
+      )}
     </div>
   )
 }
 
 function Sortable({ id, children }: { id: string; children: (handle: ReactNode) => ReactNode }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging, isOver, active } = useSortable({ id })
+  // Translate, not Transform: sortable items differ in height, and Transform would scale this one to its neighbour's.
+  // The item stays in its place (faded) while the DragOverlay follows the pointer at the item's own size.
   const handle = (
     <button
       type="button"
@@ -158,8 +179,8 @@ function Sortable({ id, children }: { id: string; children: (handle: ReactNode) 
   return (
     <li
       ref={setNodeRef}
-      style={{ transform: CSS.Transform.toString(transform), transition }}
-      className={`${isDragging ? 'relative z-10 opacity-80' : ''} ${isOver && active && active.id !== id ? 'rounded ring-2 ring-brand/40' : ''}`}
+      style={{ transform: CSS.Translate.toString(transform), transition }}
+      className={`${isDragging ? 'opacity-40' : ''} ${isOver && active && active.id !== id ? 'rounded ring-2 ring-brand/40' : ''}`}
     >
       {children(handle)}
     </li>
@@ -167,6 +188,27 @@ function Sortable({ id, children }: { id: string; children: (handle: ReactNode) 
 }
 
 const input = 'rounded border border-black/20 bg-white px-2 py-1 text-sm'
+
+/** What follows the pointer while dragging: the item's label (and its sub-items'), in a box the item's own size. */
+function DragPreview({ item }: { item: Item | undefined }) {
+  if (!item) return null
+  return (
+    <div className="h-full overflow-hidden rounded border border-black/20 bg-white p-2 text-sm shadow-xl">
+      <div className="flex items-center gap-2 font-semibold">
+        <span className="px-1 text-lg leading-none text-black/60">⠿</span>
+        {item.label || '(no label)'}
+        <span className="text-xs font-normal text-black/60">{KINDS[item.kind]}</span>
+      </div>
+      {item.children.length > 0 && (
+        <ul className="mt-1 ml-8 space-y-1 text-xs text-black/70">
+          {item.children.map((c) => (
+            <li key={c.key}>{c.label || '(no label)'}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
 
 function ItemRow({
   item,
@@ -543,13 +585,22 @@ export function Menu({ me }: { me: Me }) {
       {error && <Notice kind="error">{error}</Notice>}
       {message && <Notice kind="success">{message}</Notice>}
       <Card>
-        <p className="mb-4 text-sm text-black/70">
-          Drag ⠿ to reorder, or drag between levels: onto a sub-item or a dropdown’s “drop here” strip to put an item in that dropdown, onto
-          a top-level row to take a sub-item out. With the keyboard, focus ⠿ and use the arrow keys to reorder, and “Move to” to change
-          level. A Category item fills its dropdown on its own: its landing page, then each active programme in it, so new programmes join
-          and retired ones leave without editing the menu. Pin your own links before or after them. Draft pages, hidden items and programmes
-          that aren’t active stay off the public menu.
-        </p>
+        <p className="mb-2 text-sm text-black/70">Drag ⠿ to reorder or move an item in or out of a dropdown, then save.</p>
+        <details className="mb-4 text-sm text-black/70">
+          <summary className="text-brand cursor-pointer font-semibold">How the menu works</summary>
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            <li>
+              Drag ⠿ onto a sub-item or a dropdown’s dashed strip to put an item in that dropdown, or onto a top-level row to take a
+              sub-item out.
+            </li>
+            <li>With the keyboard, focus ⠿ and use the arrow keys to reorder, and “Move to” to change level.</li>
+            <li>
+              A Category item fills its dropdown on its own: its landing page, then each active programme in it, so new programmes join and
+              retired ones leave without editing the menu. Pin your own links before or after them.
+            </li>
+            <li>Draft pages, hidden items and programmes that aren’t active stay off the public menu.</li>
+          </ul>
+        </details>
         <DndContext
           sensors={sensors}
           collisionDetection={collision}
@@ -574,10 +625,11 @@ export function Menu({ me }: { me: Me }) {
                     + Add sub-item
                   </Button>
                 )
-                const zone = (placement?: 'before' | 'after', children?: ReactNode) => (
+                const zone = (placement?: 'before' | 'after', children?: ReactNode, idle?: string) => (
                   <DropZone
                     id={intoId(item.key, placement)}
                     enabled={canDrop}
+                    idle={idle}
                     label={`Drop here to put it in ${item.label || 'this dropdown'}${placement === 'before' ? ', before the programmes' : placement === 'after' ? ', after the programmes' : ''}`}
                   >
                     {children}
@@ -623,7 +675,7 @@ export function Menu({ me }: { me: Me }) {
                           {item.kind === 'category' ? (
                             <>
                               {childList(before)}
-                              {canDrop && zone('before')}
+                              {zone('before', undefined, before.length ? undefined : 'Links pinned here go before the programmes')}
                               <AutoLinks
                                 item={item}
                                 choices={choices}
@@ -648,6 +700,7 @@ export function Menu({ me }: { me: Me }) {
               })}
             </ul>
           </SortableContext>
+          <DragOverlay>{dragging ? <DragPreview item={locate(items, dragging)?.item} /> : null}</DragOverlay>
         </DndContext>
         <div className="mt-4 flex flex-wrap gap-2">
           <Button variant="secondary" onClick={() => update((cur) => [...cur, blank()])}>

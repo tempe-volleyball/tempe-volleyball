@@ -22,7 +22,7 @@ import {
 } from '../../lib/content/data-blocks'
 import { programmeKinds } from '../../server/db/schema/enums'
 import { api } from '../api'
-import { Button, Checkbox, Dialog, Field, Notice, Select, errorMessage } from '../ui'
+import { Button, Checkbox, Dialog, Field, Notice, Select, Skeleton, errorMessage } from '../ui'
 import type { DataBlockType } from './data-blocks'
 
 // The editor's view of a data block: a live preview (rendered by the server exactly as the public page will show it),
@@ -98,7 +98,7 @@ export const changedMessage = (line: Pick<ProgrammeLine, 'code' | 'name' | 'chan
 
 function PreviewBox({ preview, error }: { preview: Preview | null; error: string | null }) {
   if (error) return <Notice kind="error">{error}</Notice>
-  if (!preview) return <p className="text-sm text-black/60">Loading preview…</p>
+  if (!preview) return <Skeleton lines={3} label="Loading the preview…" />
   return (
     <>
       {preview.html ? (
@@ -223,7 +223,7 @@ function SettingsDialog({
   return (
     <Dialog title={`${LABELS[type]} settings`} onCancel={onCancel} wide>
       <div className="space-y-5">
-        {!choices && <p className="text-sm text-black/60">Loading…</p>}
+        {!choices && <Skeleton lines={4} label="Loading the block’s settings…" />}
         {choices && type === 'programmeList' && (
           <ProgrammeListSettings
             attrs={draft as ProgrammeListAttrs}
@@ -391,7 +391,7 @@ function ProgrammeListSettings({
           which wins over the generated summary line.
         </p>
         {!lines ? (
-          <p className="text-sm text-black/60">Loading…</p>
+          <Skeleton lines={3} label="Loading the lines…" />
         ) : lines.length === 0 ? (
           <p className="text-sm text-black/60">No programmes match.</p>
         ) : (

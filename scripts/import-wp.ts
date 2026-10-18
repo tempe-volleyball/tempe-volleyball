@@ -367,6 +367,7 @@ function printReport(r: {
       .join(', '),
   )
   console.info(`Leagues not mapped (no events; old 2020–23 leagues): ${c.unmappedLeagues.join('; ') || 'none'}`)
+  console.info(`Placeholder teams left out (unused): ${c.skippedPlaceholderTeams.join(', ') || 'none'}`)
   if (c.unmappedSeasons.length) console.info(`Seasons not mapped: ${c.unmappedSeasons.join('; ')}`)
   if (c.unmappedCourts.length) console.info(`Courts not mapped: ${c.unmappedCourts.join('; ')}`)
   if (c.skippedEvents.length) console.info(`Events skipped/flagged: ${c.skippedEvents.join('; ')}`)

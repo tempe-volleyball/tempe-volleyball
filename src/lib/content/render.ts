@@ -117,6 +117,13 @@ export const IMAGE_ALIGNS = ['center', 'left', 'right'] as const
 export const IMAGE_SIZES = ['small', 'medium', 'large', 'full'] as const
 export type ImageAlign = (typeof IMAGE_ALIGNS)[number]
 export type ImageSize = (typeof IMAGE_SIZES)[number]
+
+/** `sizes` for the presets that cap an image's width ('full' keeps the image's own). */
+const PRESET_SIZES: Partial<Record<ImageSize, string>> = {
+  small: '(max-width: 20rem) 100vw, 20rem',
+  medium: '(max-width: 28rem) 100vw, 28rem',
+  large: '(max-width: 42rem) 100vw, 42rem',
+}
 export const MAX_CAPTION_LENGTH = 500
 
 const oneOf = <T extends string>(list: readonly T[], v: unknown): T | null => (list.includes(v as T) ? (v as T) : null)
@@ -276,7 +283,10 @@ function renderNode(node: JsonNode, depth: number, o: RenderOptions): string {
       const src = safeImageSrc(a?.src)
       if (!src) return ''
       const srcset = safeSrcset(a?.srcset)
-      const sizes = typeof a?.sizes === 'string' && SIZES_RE.test(a.sizes) ? a.sizes : null
+      // A size preset caps the width (global.css: small 20rem, medium 28rem, large 42rem), so phones and desktops
+      // fetch a copy that size, not the 800 px one.
+      const preset = oneOf(IMAGE_SIZES, a?.size)
+      const sizes = (preset && PRESET_SIZES[preset]) || (typeof a?.sizes === 'string' && SIZES_RE.test(a.sizes) ? a.sizes : null)
       const img = `<img${attrs([
         ['src', src],
         ['srcset', srcset],

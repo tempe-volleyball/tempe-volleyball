@@ -1,9 +1,22 @@
-import { asc, eq, inArray, like, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, isNotNull, like, or, sql } from 'drizzle-orm'
+import type { AnySQLiteColumn } from 'drizzle-orm/sqlite-core'
 import { slugify } from '../../lib/content/paths'
 import { teamCalendarPath } from '../../lib/fixture-lists'
 import { tags } from '../cache'
 import { runBatch, type AppDb } from '../db'
-import { groups, ladderAdjustments, leagues, matches, redirects, seasons, seasonTeams, teams, type Season, type Team } from '../db/schema'
+import {
+  auditLog,
+  groups,
+  ladderAdjustments,
+  leagues,
+  matches,
+  redirects,
+  seasons,
+  seasonTeams,
+  teams,
+  type Season,
+  type Team,
+} from '../db/schema'
 import { audit, isUniqueFailure, notFound, type Changed, type Editor } from '../content/common'
 import { HttpError } from '../http'
 import { id as idOf, text } from './input'
@@ -141,12 +154,43 @@ export type MergeResult = { team: Pick<Team, 'id' | 'name' | 'slug' | 'updatedAt
 /** A team's calendar feed (src/pages/leagues/[league]/teams/[team].ics.ts). */
 const teamFeedPath = teamCalendarPath
 
+/** How long a merge can be undone (Admin → Teams, "Recent merges"). */
+export const MERGE_UNDO_DAYS = 30
+
+/**
+ * What a merge changed, kept in its audit row (`before.undo`) so undoMerge() can put B back exactly. Rows are
+ * re-pointed by season: in B's seasons A wasn't there before (a merge is refused otherwise), so every A row in them
+ * was B's, including games added after the merge.
+ */
+export type MergeUndoRecord = {
+  v: 1
+  team: Pick<Team, 'id' | 'name' | 'slug' | 'wpId' | 'createdAt'>
+  keepId: string
+  keepSlug: string
+  /** B's WordPress id moved to A. */
+  wpIdMoved: boolean
+  /** Seasons B was in (season_teams). */
+  memberSeasonIds: string[]
+  /** Every season with a game or adjustment of B's (a superset of memberSeasonIds in practice). */
+  seasonIds: string[]
+  groupIds: string[]
+  /** Redirects that led to one of B's feeds and were re-pointed to A's. */
+  repointedRedirectIds: string[]
+  /** B's feed paths now redirecting to A's, and what each redirect said before (null: there wasn't one). */
+  feeds: { fromPath: string; previousToPath: string | null }[]
+}
+
+const inJson = (column: AnySQLiteColumn, values: string[]) => sql`${column} in (select value from json_each(${JSON.stringify(values)}))`
+const quoted = (id: string) => JSON.stringify(id)
+
 /**
  * Merges duplicate team B (`mergeId`) into team A (`keepId`): every season B played in, its games (home, away and
  * duty), ladder adjustments and enrolment groups now point at A, and B is deleted. Refused when the two were in the
- * same season (that's two real teams). A keeps its name and slug; B's team calendar feeds 301 to A's, and B's
- * WordPress id moves to A when A has none (so a re-import finds it). One batch whatever the number of games: each
- * re-point is a single UPDATE … WHERE team_id = B (2 parameters). Admins. Audited as team.merge; purges the site.
+ * same season, or one has games in the other's season (that's two real teams). A keeps its name and slug; B's team
+ * calendar feeds 301 to A's, and B's WordPress id moves to A when A has none (so a re-import finds it). Seasons'
+ * draw keys (generated_from) follow, so B's seasons don't look out of date. One batch whatever the number of games:
+ * each re-point is a single UPDATE … WHERE team_id = B. Admins. Audited as team.merge with what undoMerge() needs to
+ * put it back; purges the site.
  */
 export async function mergeTeams(
   db: AppDb,
@@ -158,11 +202,10 @@ export async function mergeTeams(
   idOf(keepId, 'Team')
   const mergeId = idOf(input.mergeId, 'Team to merge')
   if (mergeId === keepId) throw new HttpError(400, 'invalid_input', 'Pick a different team to merge in.')
-  const [teamRows, memberRows] = (await runBatch(db, [
-    db
-      .select()
-      .from(teams)
-      .where(inArray(teams.id, [keepId, mergeId])),
+  const both = [keepId, mergeId]
+  const feedOf = sql`'%/teams/' || (select ${teams.slug} from ${teams} where ${teams.id} = ${mergeId}) || '.ics'`
+  const [teamRows, memberRows, homeRows, awayRows, dutyRows, adjustmentRows, groupRows, redirectRows] = (await runBatch(db, [
+    db.select().from(teams).where(inArray(teams.id, both)),
     db
       .select({
         teamId: seasonTeams.teamId,
@@ -173,20 +216,48 @@ export async function mergeTeams(
       .from(seasonTeams)
       .innerJoin(seasons, eq(seasons.id, seasonTeams.seasonId))
       .innerJoin(leagues, eq(leagues.id, seasons.leagueId))
-      .where(inArray(seasonTeams.teamId, [keepId, mergeId])),
-  ])) as unknown as [Team[], { teamId: string; seasonId: string; seasonName: string; leagueSlug: string }[]]
+      .where(inArray(seasonTeams.teamId, both)),
+    db.selectDistinct({ seasonId: matches.seasonId, teamId: matches.homeTeamId }).from(matches).where(inArray(matches.homeTeamId, both)),
+    db.selectDistinct({ seasonId: matches.seasonId, teamId: matches.awayTeamId }).from(matches).where(inArray(matches.awayTeamId, both)),
+    db.selectDistinct({ seasonId: matches.seasonId, teamId: matches.dutyTeamId }).from(matches).where(inArray(matches.dutyTeamId, both)),
+    db
+      .selectDistinct({ seasonId: ladderAdjustments.seasonId, teamId: ladderAdjustments.teamId })
+      .from(ladderAdjustments)
+      .where(inArray(ladderAdjustments.teamId, both)),
+    db.select({ id: groups.id }).from(groups).where(eq(groups.teamId, mergeId)),
+    db
+      .select({ id: redirects.id, fromPath: redirects.fromPath, toPath: redirects.toPath })
+      .from(redirects)
+      .where(or(sql`${redirects.toPath} like ${feedOf}`, sql`${redirects.fromPath} like ${feedOf}`)),
+  ])) as unknown as [
+    Team[],
+    { teamId: string; seasonId: string; seasonName: string; leagueSlug: string }[],
+    { seasonId: string; teamId: string }[],
+    { seasonId: string; teamId: string }[],
+    { seasonId: string; teamId: string }[],
+    { seasonId: string; teamId: string }[],
+    { id: string }[],
+    { id: string; fromPath: string; toPath: string }[],
+  ]
   const keep = teamRows.find((t) => t.id === keepId)
   const gone = teamRows.find((t) => t.id === mergeId)
   if (!keep || !gone) throw notFound('team')
-  const keepSeasons = new Set(memberRows.filter((m) => m.teamId === keepId).map((m) => m.seasonId))
+  const seasonsOf = (teamId: string) =>
+    new Set(
+      [...memberRows, ...homeRows, ...awayRows, ...dutyRows, ...adjustmentRows].filter((r) => r.teamId === teamId).map((r) => r.seasonId),
+    )
+  const keepSeasons = seasonsOf(keepId)
+  const goneSeasons = seasonsOf(mergeId)
   const theirs = memberRows.filter((m) => m.teamId === mergeId)
-  const shared = theirs.filter((m) => keepSeasons.has(m.seasonId))
-  if (shared.length)
+  const shared = [...goneSeasons].filter((s) => keepSeasons.has(s))
+  if (shared.length) {
+    const names = [...new Set(shared.map((s) => memberRows.find((m) => m.seasonId === s)?.seasonName ?? 'one season'))]
     throw new HttpError(
       409,
       'same_season',
-      `${keep.name} and ${gone.name} both played in ${shared.map((m) => m.seasonName).join(', ')}, so they're different teams. Rename one instead.`,
+      `${keep.name} and ${gone.name} both played in ${names.join(', ')}, so they're different teams. Rename one instead.`,
     )
+  }
   const at = now.toISOString()
   const by = { updatedAt: at, updatedBy: actor.id }
   const feeds = [...new Set(theirs.map((m) => m.leagueSlug))].map((slug) => ({
@@ -198,6 +269,24 @@ export async function mergeTeams(
     createdAt: at,
     ...by,
   }))
+  const goneFeed = `/teams/${gone.slug}.ics`
+  const memberSeasonIds = theirs.map((m) => m.seasonId)
+  const wpIdMoved = keep.wpId === null && gone.wpId !== null
+  const undo: MergeUndoRecord = {
+    v: 1,
+    team: { id: gone.id, name: gone.name, slug: gone.slug, wpId: gone.wpId, createdAt: gone.createdAt },
+    keepId,
+    keepSlug: keep.slug,
+    wpIdMoved,
+    memberSeasonIds,
+    seasonIds: [...goneSeasons],
+    groupIds: groupRows.map((g) => g.id),
+    repointedRedirectIds: redirectRows.filter((r) => r.toPath.endsWith(goneFeed)).map((r) => r.id),
+    feeds: feeds.map((f) => ({
+      fromPath: f.fromPath,
+      previousToPath: redirectRows.find((r) => r.fromPath === f.fromPath)?.toPath ?? null,
+    })),
+  }
   await runBatch(db, [
     db.update(seasonTeams).set({ teamId: keepId, updatedAt: at }).where(eq(seasonTeams.teamId, mergeId)),
     db
@@ -217,11 +306,16 @@ export async function mergeTeams(
       .set({ teamId: keepId, ...by })
       .where(eq(ladderAdjustments.teamId, mergeId)),
     db.update(groups).set({ teamId: keepId, updatedAt: at }).where(eq(groups.teamId, mergeId)),
+    // The draw key lists team ids, so B's seasons would otherwise say "Settings changed".
+    db
+      .update(seasons)
+      .set({ generatedFrom: sql`replace(${seasons.generatedFrom}, ${quoted(mergeId)}, ${quoted(keepId)})` })
+      .where(and(inJson(seasons.id, memberSeasonIds), isNotNull(seasons.generatedFrom))),
     // Feeds that pointed at B's now point at A's (no chains), then B's own feeds redirect.
     db
       .update(redirects)
-      .set({ toPath: sql`replace(${redirects.toPath}, ${`/teams/${gone.slug}.ics`}, ${`/teams/${keep.slug}.ics`})`, ...by })
-      .where(like(redirects.toPath, `%/teams/${gone.slug}.ics`)),
+      .set({ toPath: sql`replace(${redirects.toPath}, ${goneFeed}, ${`/teams/${keep.slug}.ics`})`, ...by })
+      .where(like(redirects.toPath, `%${goneFeed}`)),
     // 5 parameters a row (id, from, to, status, source + 3 stamps): ≤ 12 rows a statement keeps under 100.
     ...Array.from({ length: Math.ceil(feeds.length / 12) }, (_, i) =>
       db
@@ -232,15 +326,15 @@ export async function mergeTeams(
     db.delete(teams).where(eq(teams.id, mergeId)),
     db
       .update(teams)
-      .set({ ...(keep.wpId === null && gone.wpId !== null ? { wpId: gone.wpId } : {}), ...by })
+      .set({ ...(wpIdMoved ? { wpId: gone.wpId } : {}), ...by })
       .where(eq(teams.id, keepId)),
     audit(
       db,
       actor,
       'team.merge',
       { type: 'team', id: keepId },
-      { id: gone.id, name: gone.name, slug: gone.slug, wpId: gone.wpId, seasons: theirs.map((m) => m.seasonName) },
-      { id: keep.id, name: keep.name, slug: keep.slug, seasons: keepSeasons.size + theirs.length },
+      { id: gone.id, name: gone.name, slug: gone.slug, wpId: gone.wpId, seasons: theirs.map((m) => m.seasonName), undo },
+      { id: keep.id, name: keep.name, slug: keep.slug, seasons: keepSeasons.size + goneSeasons.size },
       at,
     ),
   ])
@@ -248,8 +342,175 @@ export async function mergeTeams(
     result: {
       team: { id: keep.id, name: keep.name, slug: keep.slug, updatedAt: at },
       merged: { id: gone.id, name: gone.name },
-      seasons: keepSeasons.size + theirs.length,
+      seasons: memberRows.filter((m) => m.teamId === keepId).length + theirs.length,
     },
+    purge: { tags: [tags.site] },
+  }
+}
+
+/** A merge in the last MERGE_UNDO_DAYS days, for Admin → Teams. */
+export type RecentMerge = {
+  auditId: string
+  at: string
+  kept: { id: string; name: string }
+  merged: { id: string; name: string }
+  /** Why it can't be undone (null: it can). */
+  blocked: string | null
+}
+
+const undoRecordOf = (before: unknown): MergeUndoRecord | null => {
+  const r = (before as { undo?: MergeUndoRecord } | null)?.undo
+  return r && r.v === 1 && typeof r.team?.id === 'string' ? r : null
+}
+
+const undoCutoff = (now: Date) => new Date(now.getTime() - MERGE_UNDO_DAYS * 86_400_000).toISOString()
+
+/** Merges of the last MERGE_UNDO_DAYS days, newest first, with whether each can still be undone. One batch. */
+export async function recentMerges(db: AppDb, now = new Date()): Promise<RecentMerge[]> {
+  const [rows, present] = (await runBatch(db, [
+    db
+      .select({ id: auditLog.id, at: auditLog.at, before: auditLog.before, after: auditLog.after })
+      .from(auditLog)
+      .where(and(eq(auditLog.action, 'team.merge'), gte(auditLog.at, undoCutoff(now))))
+      .orderBy(desc(auditLog.at))
+      .limit(20),
+    // Which teams exist now (a hundred or so): the kept one must, the merged one mustn't (it's back if undone).
+    db.select({ id: teams.id }).from(teams),
+  ])) as unknown as [{ id: string; at: string; before: unknown; after: unknown }[], { id: string }[]]
+  const exists = new Set(present.map((t) => t.id))
+  return rows.map((r) => {
+    const before = (r.before ?? {}) as { id?: string; name?: string }
+    const after = (r.after ?? {}) as { id?: string; name?: string }
+    const record = undoRecordOf(r.before)
+    const merged = { id: before.id ?? '', name: before.name ?? '?' }
+    const kept = { id: after.id ?? '', name: after.name ?? '?' }
+    const blocked = !record
+      ? 'This merge was made before merges could be undone.'
+      : exists.has(merged.id)
+        ? 'Already undone.'
+        : !exists.has(kept.id)
+          ? `${kept.name} has since been merged or deleted.`
+          : null
+    return { auditId: r.id, at: r.at, kept, merged, blocked }
+  })
+}
+
+/**
+ * Undoes a team merge from its audit row: B comes back with its id, name, slug and WordPress id, and its seasons,
+ * games, duties, adjustments, enrolment groups, feed redirects and draw keys go back to it. Refused after
+ * MERGE_UNDO_DAYS days, once undone (B exists again: the insert would fail anyway, so a double click can't apply it
+ * twice), when A has gone, or when another team has taken B's name or web address since. One batch. Admins.
+ * Audited as team.merge_undo; purges the site.
+ */
+export async function undoMerge(
+  db: AppDb,
+  actor: Editor,
+  auditId: string,
+  now = new Date(),
+): Promise<Changed<{ team: Pick<Team, 'id' | 'name' | 'slug'>; kept: Pick<Team, 'id' | 'name'> }>> {
+  idOf(auditId, 'Merge')
+  const cannot = (why: string) => new HttpError(409, 'cannot_undo', why)
+  const entry = await db
+    .select()
+    .from(auditLog)
+    .where(and(eq(auditLog.id, auditId), eq(auditLog.action, 'team.merge')))
+    .get()
+  if (!entry) throw notFound('merge')
+  const r = undoRecordOf(entry.before)
+  if (!r) throw cannot('This merge was made before merges could be undone. Its details are in the audit log.')
+  if (entry.at < undoCutoff(now)) throw cannot(`Merges can only be undone for ${MERGE_UNDO_DAYS} days.`)
+  const b = r.team
+  const clashes = await db
+    .select({ id: teams.id, name: teams.name, slug: teams.slug, wpId: teams.wpId })
+    .from(teams)
+    .where(
+      or(
+        inArray(teams.id, [r.keepId, b.id]),
+        eq(teams.slug, b.slug),
+        sql`lower(${teams.name}) = ${b.name.toLowerCase()}`,
+        ...(b.wpId !== null && !r.wpIdMoved ? [eq(teams.wpId, b.wpId)] : []),
+      ),
+    )
+    .all()
+  if (clashes.some((t) => t.id === b.id)) throw cannot(`${b.name} is back already: this merge has been undone.`)
+  const keep = clashes.find((t) => t.id === r.keepId)
+  if (!keep) throw cannot('The team it was merged into has since been merged or deleted, so this can’t be undone automatically.')
+  const other = clashes.find((t) => t.id !== r.keepId)
+  if (other)
+    throw cannot(
+      other.slug === b.slug
+        ? `Another team (${other.name}) now has ${b.name}’s web address, so it can’t come back. Merge or rename that team first.`
+        : `There's a team called “${other.name}” now. Rename it first.`,
+    )
+  const at = now.toISOString()
+  const by = { updatedAt: at, updatedBy: actor.id }
+  const keepFeed = `/teams/${r.keepSlug}.ics`
+  const goneFeed = `/teams/${b.slug}.ics`
+  const createdFeeds = r.feeds.filter((f) => f.previousToPath === null).map((f) => f.fromPath)
+  const restoredFeeds = r.feeds.filter((f) => f.previousToPath !== null)
+  await runBatch(db, [
+    // The WordPress id is unique, so A gives it back before B returns.
+    ...(r.wpIdMoved && b.wpId !== null
+      ? [
+          db
+            .update(teams)
+            .set({ wpId: null })
+            .where(and(eq(teams.id, r.keepId), eq(teams.wpId, b.wpId))),
+        ]
+      : []),
+    db.insert(teams).values({ id: b.id, name: b.name, slug: b.slug, wpId: b.wpId, createdAt: b.createdAt, ...by }),
+    db
+      .update(seasonTeams)
+      .set({ teamId: b.id, updatedAt: at })
+      .where(and(eq(seasonTeams.teamId, r.keepId), inJson(seasonTeams.seasonId, r.memberSeasonIds))),
+    db
+      .update(matches)
+      .set({ homeTeamId: b.id, ...by })
+      .where(and(eq(matches.homeTeamId, r.keepId), inJson(matches.seasonId, r.seasonIds))),
+    db
+      .update(matches)
+      .set({ awayTeamId: b.id, ...by })
+      .where(and(eq(matches.awayTeamId, r.keepId), inJson(matches.seasonId, r.seasonIds))),
+    db
+      .update(matches)
+      .set({ dutyTeamId: b.id, ...by })
+      .where(and(eq(matches.dutyTeamId, r.keepId), inJson(matches.seasonId, r.seasonIds))),
+    db
+      .update(ladderAdjustments)
+      .set({ teamId: b.id, ...by })
+      .where(and(eq(ladderAdjustments.teamId, r.keepId), inJson(ladderAdjustments.seasonId, r.seasonIds))),
+    db
+      .update(groups)
+      .set({ teamId: b.id, updatedAt: at })
+      .where(and(eq(groups.teamId, r.keepId), inJson(groups.id, r.groupIds))),
+    db
+      .update(seasons)
+      .set({ generatedFrom: sql`replace(${seasons.generatedFrom}, ${quoted(r.keepId)}, ${quoted(b.id)})` })
+      .where(and(inJson(seasons.id, r.memberSeasonIds), isNotNull(seasons.generatedFrom))),
+    db
+      .update(redirects)
+      .set({ toPath: sql`replace(${redirects.toPath}, ${keepFeed}, ${goneFeed})`, ...by })
+      .where(and(inJson(redirects.id, r.repointedRedirectIds), like(redirects.toPath, `%${keepFeed}`))),
+    db.delete(redirects).where(and(inJson(redirects.fromPath, createdFeeds), like(redirects.toPath, `%${keepFeed}`))),
+    ...restoredFeeds.map((f) =>
+      db
+        .update(redirects)
+        .set({ toPath: f.previousToPath!, ...by })
+        .where(eq(redirects.fromPath, f.fromPath)),
+    ),
+    db.update(teams).set(by).where(eq(teams.id, r.keepId)),
+    audit(
+      db,
+      actor,
+      'team.merge_undo',
+      { type: 'team', id: b.id },
+      { id: keep.id, name: keep.name },
+      { id: b.id, name: b.name, slug: b.slug, mergeAuditId: auditId },
+      at,
+    ),
+  ])
+  return {
+    result: { team: { id: b.id, name: b.name, slug: b.slug }, kept: { id: keep.id, name: keep.name } },
     purge: { tags: [tags.site] },
   }
 }

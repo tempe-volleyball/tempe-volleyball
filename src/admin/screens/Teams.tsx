@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'wouter'
 import { duplicateGroups, shareASeason, teamKey } from '../../lib/teams'
-import { api, type Me, type PurgeResult, type TeamListItem } from '../api'
-import { Skeleton, Button, Card, Dialog, Notice, errorMessage, purgeNote } from '../ui'
+import { api, formatWhen, type Me, type PurgeResult, type RecentMerge, type TeamListItem } from '../api'
+import { Skeleton, Button, Card, Dialog, Notice, confirmAction, errorMessage, purgeNote } from '../ui'
 
 // Admin → Teams (docs/admin.md §1 "Teams and rollover"): every team across leagues, with the seasons each played,
 // search, rename, new team, and merging duplicates (a duplicate's seasons, games, adjustments and enrolment groups move
 // to the team kept, in one audited batch). Teams that look alike and never shared a season are suggested for merging.
+// A merge can be undone for 30 days from "Recent merges" (docs/admin.md §3.11).
 
 const seasonsText = (n: number) => `${n} season${n === 1 ? '' : 's'}`
 
@@ -15,6 +16,8 @@ const inputClass = 'focus:border-brand rounded border border-black/20 bg-white p
 export function Teams({ me }: { me: Me }) {
   const isAdmin = me.user.role !== 'editor'
   const [teams, setTeams] = useState<TeamListItem[] | null>(null)
+  const [merges, setMerges] = useState<RecentMerge[]>([])
+  const [undoing, setUndoing] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [query, setQuery] = useState('')
@@ -25,8 +28,11 @@ export function Teams({ me }: { me: Me }) {
 
   const load = useCallback(
     () =>
-      api<{ teams: TeamListItem[] }>('/api/admin/teams')
-        .then((r) => setTeams(r.teams))
+      api<{ teams: TeamListItem[]; merges: RecentMerge[] }>('/api/admin/teams')
+        .then((r) => {
+          setTeams(r.teams)
+          setMerges(r.merges ?? [])
+        })
         .catch((e: unknown) => setError(errorMessage(e))),
     [],
   )
@@ -44,6 +50,31 @@ export function Teams({ me }: { me: Me }) {
     setMessage(text)
     setError(null)
     void load()
+  }
+
+  const undo = async (m: RecentMerge) => {
+    if (
+      !(await confirmAction({
+        title: `Undo merging ${m.merged.name} into ${m.kept.name}?`,
+        body: `${m.merged.name} comes back as its own team, with its seasons, games, duties, ladder adjustments, enrolments and calendar feeds. Anything added to those seasons since goes with it.`,
+        confirmLabel: 'Undo merge',
+      }))
+    )
+      return
+    setUndoing(m.auditId)
+    try {
+      const r = await api<{ team: { name: string }; kept: { name: string }; cache?: PurgeResult }>(
+        `/api/admin/teams/merges/${m.auditId}/undo`,
+        {
+          method: 'POST',
+        },
+      )
+      done(`${r.team.name} is its own team again.${purgeNote(r.cache)}`)
+    } catch (e) {
+      setError(errorMessage(e))
+    } finally {
+      setUndoing(null)
+    }
   }
 
   if (!teams) return error ? <Notice kind="error">{error}</Notice> : <Skeleton />
@@ -87,6 +118,38 @@ export function Teams({ me }: { me: Me }) {
               </li>
             ))}
           </ul>
+        </Card>
+      )}
+
+      {merges.length > 0 && (
+        <Card title="Recent merges">
+          <ul id="merges" className="divide-y divide-black/10 text-sm">
+            {merges.map((m) => (
+              <li key={m.auditId} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
+                <span>
+                  <strong>{m.merged.name}</strong> merged into <strong>{m.kept.name}</strong>
+                </span>
+                <span className="text-xs text-black/60">{formatWhen(m.at)}</span>
+                <span className="ml-auto">
+                  {m.blocked ? (
+                    <span className="text-xs text-black/60">{m.blocked}</span>
+                  ) : (
+                    isAdmin && (
+                      <Button
+                        variant="link"
+                        busy={undoing === m.auditId}
+                        aria-label={`Undo merging ${m.merged.name} into ${m.kept.name}`}
+                        onClick={() => void undo(m)}
+                      >
+                        Undo merge
+                      </Button>
+                    )
+                  )}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs text-black/60">A merge can be undone for 30 days.</p>
         </Card>
       )}
 
@@ -306,8 +369,8 @@ function MergeDialog({
           <p>
             {merge.name}’s {merge.seasons} season{merge.seasons === 1 ? '' : 's'} ({merge.history.map((h) => h.name).join(', ') || 'none'}),
             its games, duties, ladder adjustments and enrolment groups move to <strong>{keep.name}</strong>, which keeps its name and web
-            address. {merge.name} is then deleted, and its calendar feeds redirect to {keep.name}’s. This can’t be undone (it’s in the audit
-            log).
+            address. {merge.name} is then deleted, and its calendar feeds redirect to {keep.name}’s. You can undo it for 30 days from Recent
+            merges on this screen.
           </p>
         )}
       </div>

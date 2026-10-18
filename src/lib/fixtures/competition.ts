@@ -7,8 +7,21 @@ import { dutyEnabled, type Competition, type Settings } from './types'
  * they're just the default court for each slot and can be changed per game.
  */
 export function shapeKey(s: Settings): string {
-  return JSON.stringify([s.teams.map((t) => t.id), s.sessions.length, s.meetings, s.includeFinals, dutyEnabled(s)])
+  return drawShapeKey({
+    teamIds: s.teams.map((t) => t.id),
+    sessions: s.sessions.length,
+    meetings: s.meetings,
+    includeFinals: s.includeFinals,
+    duty: dutyEnabled(s),
+  })
 }
+
+/**
+ * shapeKey() from its parts, for code that has rows rather than Settings (the WordPress importer). Team ids are in
+ * the season's team order (season_teams.sort, then name). scripts/wp/shape.ts writes the same key in SQL.
+ */
+export const drawShapeKey = (p: { teamIds: string[]; sessions: number; meetings: number; includeFinals: boolean; duty: boolean }) =>
+  JSON.stringify([p.teamIds, p.sessions, p.meetings, p.includeFinals, p.duty])
 
 export const isStale = (c: Competition) => !!c.weeks && c.generatedFrom !== shapeKey(c.settings)
 

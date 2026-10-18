@@ -121,6 +121,9 @@ export const auditActions = [
   'match.update',
   'match.move',
   'match.move_undo',
+  'team.merge_undo',
+  /** A one-off data script tidied imported rows (scripts/fix-imported-seasons.ts). */
+  'import.fix',
   'season.create',
   'season.update',
   'season.draw_save',

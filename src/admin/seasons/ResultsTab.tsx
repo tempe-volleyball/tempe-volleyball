@@ -25,7 +25,7 @@ import {
   type WeekResultsState,
 } from '../../lib/fixtures'
 import { formatWhen, type AdjustmentRow, type SeasonView } from '../api'
-import { sydneyDate } from '../../lib/time'
+import { daysBetween, relativeDays, sydneyDate } from '../../lib/time'
 import { Button, Card, Notice, errorMessage } from '../ui'
 import { ConfirmDialog } from './dialogs'
 import { formFromResult, resultFromForm, type ResultForm } from './results-form'
@@ -188,6 +188,7 @@ export function ResultsTab({
               canEnter={canEnter}
               canManage={canManage}
               resetKey={`${resets.all}:${resets[w.id] ?? 0}`}
+              today={today}
               actions={actions}
             />
           ),
@@ -234,6 +235,7 @@ function MatchDay({
   canEnter,
   canManage,
   resetKey,
+  today,
   actions,
 }: {
   saved: Week
@@ -253,6 +255,8 @@ function MatchDay({
   canEnter: boolean
   /** Admins on a published season: whole-night actions. */
   canManage: boolean
+  /** Sydney's date, "YYYY-MM-DD": a later night gets a "hasn't happened yet" warning while scores go in. */
+  today: string
   actions: ResultsActions
 }) {
   const w = edit?.week ?? saved
@@ -308,8 +312,15 @@ function MatchDay({
               </Button>
             ) : (
               !wasPublished && (
-                <Button variant="link" className="text-xs" disabled={busy || unsaved} onClick={() => actions.onNight(w.id)}>
-                  Postpone or cancel the night
+                <Button
+                  variant="link"
+                  className="text-xs whitespace-nowrap"
+                  disabled={busy || unsaved}
+                  onClick={() => actions.onNight(w.id)}
+                  title="Postpone or cancel the night"
+                  aria-label="Postpone or cancel the night"
+                >
+                  Postpone or cancel<span className="hidden sm:inline"> the night</span>
                 </Button>
               )
             ))}
@@ -328,6 +339,11 @@ function MatchDay({
         </span>
       </header>
 
+      {editing && w.date > today && (unsaved || state !== 'empty') && state !== 'published' && (
+        <p className="border-accent bg-accent/15 border-b px-3 py-2 text-sm sm:px-4" role="note">
+          This night is {formatLong(w.date)}, {relativeDays(daysBetween(today, w.date))}. Check these are the right night’s scores.
+        </p>
+      )}
       <ul className="divide-y divide-black/10">
         {w.games.map((g) => (
           <ResultRow
@@ -366,24 +382,32 @@ function MatchDay({
       )}
 
       <footer
-        className={`flex flex-wrap items-center gap-2 border-t border-black/10 bg-white px-3 py-2.5 sm:px-4 ${
+        className={`flex flex-wrap items-center gap-2 border-t border-black/10 bg-white px-3 py-2 max-sm:flex-nowrap sm:px-4 sm:py-2.5 ${
           editing
             ? 'sticky bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-10 rounded-b shadow-[0_-2px_6px_rgba(0,0,0,0.06)] lg:bottom-0'
             : ''
         }`}
       >
-        {byes.length > 0 && <span className="text-xs text-black/60">Bye: {byes.map((t) => refName(s, { team: t })).join(', ')}</span>}
-        <SaveNote note={saveNote} unsaved={unsaved} />
-        <span className="ml-auto flex flex-wrap items-center justify-end gap-2">
-          {editing && problem && state !== 'empty' && <span className="text-xs text-black/70">{problem}</span>}
+        {/* Phones, while editing: one compact row. The bye line and the problem note show from sm up only (the
+            problem is also the Publish button's title, and the game itself says which box is wrong). */}
+        {byes.length > 0 && (
+          <span className={`text-xs text-black/60 ${editing ? 'max-sm:hidden' : ''}`}>
+            Bye: {byes.map((t) => refName(s, { team: t })).join(', ')}
+          </span>
+        )}
+        <span className="min-w-0 max-sm:truncate">
+          <SaveNote note={saveNote} unsaved={unsaved} />
+        </span>
+        <span className="ml-auto flex shrink-0 items-center justify-end gap-2 sm:flex-wrap">
+          {editing && problem && state !== 'empty' && <span className="text-xs text-black/70 max-sm:hidden">{problem}</span>}
           {unsaved && (
             <>
-              <Button variant="secondary" className="py-1.5" disabled={busy} onClick={() => actions.onDiscard(w.id)}>
+              <Button variant="secondary" className="px-3 py-1.5" disabled={busy} onClick={() => actions.onDiscard(w.id)}>
                 Discard
               </Button>
               <Button
                 variant="secondary"
-                className="py-1.5"
+                className="px-3 py-1.5"
                 busy={busy}
                 disabled={problems.length > 0}
                 onClick={() => actions.onSave(w.id)}
@@ -410,21 +434,43 @@ function MatchDay({
           )}
           {editing && (
             <Button
-              className="py-1.5"
+              className="px-3 py-1.5"
               busy={busy}
               disabled={!canPublish}
+              title={problem && state !== 'empty' ? problem : undefined}
               onClick={() => {
                 setOpened(false)
                 actions.onPublish(w.id)
               }}
             >
-              {wasPublished ? (unsaved ? 'Save and publish changes' : 'Publish changes') : unsaved ? 'Save and publish' : 'Publish results'}
+              {/* Phones: the short label keeps the bar on one row. */}
+              <span className="sm:hidden">{wasPublished || unsaved ? 'Publish' : 'Publish results'}</span>
+              <span className="max-sm:hidden">
+                {wasPublished
+                  ? unsaved
+                    ? 'Save and publish changes'
+                    : 'Publish changes'
+                  : unsaved
+                    ? 'Save and publish'
+                    : 'Publish results'}
+              </span>
             </Button>
           )}
         </span>
       </footer>
     </section>
   )
+}
+
+/**
+ * Where Enter goes from a score box: the box `next` names (home set 1 → away set 1 → home set 2 …), else the next
+ * enabled box on the page, which is the next game's first box after a game's last.
+ */
+function nextBox(from: HTMLInputElement, next: string | undefined): HTMLInputElement | null {
+  const named = next ? (document.getElementById(next) as HTMLInputElement | null) : null
+  if (named && !named.disabled) return named
+  const boxes = [...document.querySelectorAll<HTMLInputElement>('input[data-score-box]:not(:disabled)')]
+  return boxes[boxes.indexOf(from) + 1] ?? null
 }
 
 function ResultRow({
@@ -520,6 +566,12 @@ function ResultRow({
         if (!wide && v.length === 2 && next) document.getElementById(next)?.focus()
       }}
       enterKeyHint="next"
+      data-score-box=""
+      onKeyDown={(e) => {
+        if (e.key !== 'Enter') return
+        e.preventDefault()
+        nextBox(e.currentTarget, next)?.focus()
+      }}
       autoComplete="off"
       className={`h-12 w-12 rounded border text-center text-lg font-bold tabular-nums outline-none focus:border-brand focus:ring-2 focus:ring-accent/60 disabled:border-transparent disabled:bg-transparent disabled:text-ink sm:h-9 sm:w-11 sm:text-base ${
         changed ? 'border-accent bg-accent/10' : 'border-black/20 bg-white'
@@ -549,12 +601,23 @@ function ResultRow({
         {note && <span className="italic">{note}</span>}
         {movedFrom && <span className="bg-accent/20 rounded px-1.5 font-semibold text-ink">Moved from {formatLong(movedFrom)}</span>}
         {movedFrom && canManage && !isComplete(g.publishedResult) && (
-          <button type="button" className="text-brand hover:underline" onClick={onUndoMove}>
+          <button
+            type="button"
+            className="text-brand hover:underline"
+            onClick={onUndoMove}
+            aria-label={`Undo the move of ${homeName} v ${awayName}`}
+          >
             Undo the move
           </button>
         )}
         {canManage && !isComplete(g.publishedResult) && (
-          <button type="button" className="text-brand hover:underline" onClick={onMove} title="Move this game to another night">
+          <button
+            type="button"
+            className="text-brand hover:underline"
+            onClick={onMove}
+            title="Move this game to another night"
+            aria-label={`Move ${homeName} v ${awayName} to another night`}
+          >
             {status === 'postponed' || status === 'tbd' ? 'Move to another night' : 'Move…'}
           </button>
         )}
@@ -692,18 +755,24 @@ function ResultRow({
       )}
       {problem && editing && <p className="mt-1 text-xs text-red-700">{problem}</p>}
       {!ready && <p className="mt-1 text-xs text-black/60">Teams are decided once the earlier results are published.</p>}
-      <RefereeField game={g} canEdit={canEnter} always={!dutyEnabled(s)} onSave={onReferee} />
+      <RefereeField game={g} gameName={`${homeName} v ${awayName}`} canEdit={canEnter} always={!dutyEnabled(s)} onSave={onReferee} />
       {editing && ready && !cancelled && (
         <div className="mt-1 flex flex-wrap gap-3 text-xs">
           <button
             type="button"
             className="text-brand hover:underline"
             onClick={() => update(setsMode ? { ...form, mode: 'totals' } : { ...form, mode: 'sets' })}
+            aria-label={`${setsMode ? 'Enter sets and points totals instead' : 'Enter set scores instead'} for ${homeName} v ${awayName}`}
           >
             {setsMode ? 'Enter sets and points totals instead' : 'Enter set scores instead'}
           </button>
           {!form.outcome && !deciding && (
-            <button type="button" className="text-brand hover:underline" onClick={() => setDeciding(true)}>
+            <button
+              type="button"
+              className="text-brand hover:underline"
+              onClick={() => setDeciding(true)}
+              aria-label={`Decide the outcome of ${homeName} v ${awayName} by hand`}
+            >
               Decide the outcome by hand
             </button>
           )}
@@ -711,6 +780,7 @@ function ResultRow({
             <button
               type="button"
               className="text-black/60 hover:text-red-700 hover:underline"
+              aria-label={`Clear the result of ${homeName} v ${awayName}`}
               onClick={() => {
                 setDeciding(false)
                 update(formFromResult(undefined, setsPerMatch))
@@ -731,11 +801,14 @@ function ResultRow({
  */
 function RefereeField({
   game: g,
+  gameName,
   canEdit,
   always,
   onSave,
 }: {
   game: Game
+  /** "PENGUINS v ICE COLD", for accessible names. */
+  gameName: string
   canEdit: boolean
   always: boolean
   onSave: (referee: string) => Promise<void>
@@ -749,7 +822,12 @@ function RefereeField({
   if (!canEdit) return saved ? <p className="mt-1 text-xs text-black/60">Referee: {saved}</p> : null
   if (!always && !saved && !open)
     return (
-      <button type="button" className="text-brand mt-1 text-xs hover:underline" onClick={() => setOpen(true)}>
+      <button
+        type="button"
+        className="text-brand mt-1 text-xs hover:underline"
+        onClick={() => setOpen(true)}
+        aria-label={`Add a referee for ${gameName}`}
+      >
         Add a referee
       </button>
     )

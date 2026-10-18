@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Link } from 'wouter'
 import { api, formatWhen, type AuditRow, type Me } from '../api'
-import { Button, Card, Notice, errorMessage } from '../ui'
+import { Button, Card, EmailText, Notice, errorMessage } from '../ui'
 
 // The audit log, newest first, 50 at a time.
 
@@ -35,6 +36,8 @@ export const ACTIONS: Record<string, string> = {
   'match.move': 'Moved game to another night',
   'match.move_undo': 'Moved game back',
   'team.merge': 'Merged teams',
+  'team.merge_undo': 'Undid team merge',
+  'import.fix': 'Tidied imported data',
   'ladder.adjust': 'Adjusted ladder',
   'team.create': 'Created team',
   'team.rename': 'Renamed team',
@@ -46,6 +49,16 @@ export const ACTIONS: Record<string, string> = {
   'season.push_back': 'Pushed season back',
   'fixtures.import': 'Imported fixtures (CSV)',
 }
+
+/** A merge can be undone from Admin → Teams for 30 days (the screen says whether this one still can). */
+const UndoLink = ({ row, now }: { row: AuditRow; now: number }) =>
+  row.action === 'team.merge' && now - Date.parse(row.at) < 30 * 86_400_000 ? (
+    <Link href="/teams#merges" className="text-brand ml-2 text-xs underline">
+      Undo on Teams
+    </Link>
+  ) : null
+
+const lengthOf = (v: unknown) => (Array.isArray(v) ? v.length : 0)
 
 const who = (r: AuditRow) => r.actorEmail ?? (r.actorUserId ? 'Removed user' : 'System')
 
@@ -89,6 +102,11 @@ export const describe = (row: AuditRow) => {
   if (row.action === 'match.move' || row.action === 'match.move_undo')
     return `${String(after.season ?? '')} ${String(after.game ?? '')}: ${String(before.date ?? '?')} → ${String(after.date ?? '?')}`
   if (row.action === 'team.merge') return `${String(before.name ?? '?')} merged into ${String(after.name ?? '?')}`
+  if (row.action === 'team.merge_undo') return `${String(after.name ?? '?')} split from ${String(before.name ?? '?')} again`
+  if (row.action === 'import.fix') {
+    const n = lengthOf
+    return `${n(before.seasonsWithoutKey)} imported seasons' draw keys, ${n(before.placeholderTeams)} placeholder teams removed`
+  }
   if (row.action === 'team.create') return String(after.name ?? '')
   if (row.action === 'team.rename') return `${String(before.name ?? '?')} → ${String(after.name ?? '?')}`
   return row.targetType ? `${row.targetType} ${row.targetId ?? ''}` : ''
@@ -99,6 +117,7 @@ export function Audit({ me }: { me: Me }) {
   const [next, setNext] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [now] = useState(() => Date.now())
 
   const fetchPage = useCallback(
     (before?: string) =>
@@ -144,11 +163,14 @@ export function Audit({ me }: { me: Me }) {
                 {rows.map((r) => (
                   <tr key={r.id} className="border-t border-black/10 align-top">
                     <td className="hidden py-2 pr-3 whitespace-nowrap sm:table-cell">{formatWhen(r.at)}</td>
-                    <td className="hidden py-2 pr-3 break-all sm:table-cell">{who(r)}</td>
+                    <td className="hidden py-2 pr-3 sm:table-cell">{r.actorEmail ? <EmailText email={r.actorEmail} /> : who(r)}</td>
                     <td className="py-2 pr-3 sm:whitespace-nowrap">
                       <span className="font-semibold sm:font-normal">{ACTIONS[r.action] ?? r.action}</span>
                       {/* Phones: one stacked entry (what, details, then when and who) instead of four narrow columns. */}
-                      <span className="block break-words sm:hidden">{describe(r)}</span>
+                      <span className="block break-words sm:hidden">
+                        {describe(r)}
+                        <UndoLink row={r} now={now} />
+                      </span>
                       <span className="block text-xs text-black/60 sm:hidden">
                         {formatWhen(r.at)} · {who(r)}
                         {r.ip && ` · ${r.ip}`}
@@ -156,6 +178,7 @@ export function Audit({ me }: { me: Me }) {
                     </td>
                     <td className="hidden py-2 break-all sm:table-cell">
                       {describe(r)}
+                      <UndoLink row={r} now={now} />
                       {r.ip && <span className="ml-2 text-xs text-black/60">{r.ip}</span>}
                     </td>
                   </tr>

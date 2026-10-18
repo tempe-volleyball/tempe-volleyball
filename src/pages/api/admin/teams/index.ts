@@ -1,13 +1,15 @@
 import type { APIRoute } from 'astro'
-import { createTeam, listTeams } from '../../../../server/competition/teams'
+import { createTeam, listTeams, recentMerges } from '../../../../server/competition/teams'
 import { handle, json, readJson, requireRole } from '../../../../server/http'
 import { getServices } from '../../../../server/services'
 
-/** Every team, with its newest season. Editors and up. */
+/** Every team, with its newest season, and the merges of the last 30 days (with whether each can be undone). Editors and up. */
 export const GET: APIRoute = ({ locals, request }) =>
   handle(async () => {
     await requireRole(locals.user, 'editor', request, getServices().db)
-    return json({ teams: await listTeams(getServices().db) })
+    const { db } = getServices()
+    const [teams, merges] = await Promise.all([listTeams(db), recentMerges(db)])
+    return json({ teams, merges })
   })
 
 /** Creates a team: { name }. Admins. Audited. */
