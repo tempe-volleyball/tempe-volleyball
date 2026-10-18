@@ -1,4 +1,4 @@
-import { formatAU } from './dates'
+import { addDays, formatAU } from './dates'
 import { isComplete } from './results'
 import { isOffStatus } from './status'
 import { courtName, dutyEnabled, isTeam, type Game, type Ref, type Settings, type Week } from './types'
@@ -12,6 +12,21 @@ import { courtName, dutyEnabled, isTeam, type Game, type Ref, type Settings, typ
 // on (Game.originalWeekId, matches.original_match_day_id): that night lists it as "moved to …", the new one as
 // "moved from …". A postponed or TBD game becomes scheduled again. Court clashes with other leagues are checked by
 // the caller with courtClashes() on the plan's weeks.
+
+/**
+ * The date a new catch-up night defaults to: the first free week after the game's night (same weekday) that's
+ * before the finals, so a round-robin game is played before the finals are seeded. When no week before the finals is
+ * free, the first free week after the season (`beforeFinals` false: the dialog says so).
+ */
+export function suggestCatchUpDate(weeks: Week[], fromDate: string): { date: string; beforeFinals: boolean } {
+  const taken = new Set(weeks.map((w) => w.date))
+  const finals = weeks.find((w) => w.kind === 'semi' || w.kind === 'final')?.date
+  for (let d = addDays(fromDate, 7), i = 0; i < 52 && (!finals || d < finals); d = addDays(d, 7), i++)
+    if (!taken.has(d)) return { date: d, beforeFinals: true }
+  let d = addDays(weeks.at(-1)?.date ?? fromDate, 7)
+  while (taken.has(d)) d = addDays(d, 7)
+  return { date: d, beforeFinals: !finals }
+}
 
 /** Where to move a game: a night by id, or a date (an existing night on that date, or a new one with `newWeekId`). */
 export type MoveTarget = { weekId?: string; date?: string; newWeekId?: string; session: number; position: number }

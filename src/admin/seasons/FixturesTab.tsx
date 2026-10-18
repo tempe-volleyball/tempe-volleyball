@@ -19,7 +19,9 @@ import {
   dutyEnabled,
   flipGame,
   formatLong,
+  groupIssues,
   isStale,
+  matchDaysText,
   isTeam,
   moveGame,
   refKey,
@@ -113,14 +115,31 @@ function DrawEditor({ view, draft, onChange, readOnly, generating, onGenerate }:
   const [showIssues, setShowIssues] = useState(false)
   const [dragging, setDragging] = useState<{ week: Week; game: Game } | null>(null)
 
-  const issues = useMemo(() => validate(s, weeks), [s, weeks])
-  const clashes = useClashes(view, s, weeks)
+  const allIssues = useMemo(() => validate(s, weeks), [s, weeks])
+  const allClashes = useClashes(view, s, weeks)
+  // An imported draw comes from the old site, which didn't follow the generator's rules (it often recorded no duty
+  // team, and had double headers). What the saved draw already had are notes, shown calmly; anything a change here
+  // adds is still a problem or warning (docs/admin.md §3.11).
+  const imported = view.season.imported && !!view.competition.weeks
+  const savedMessages = useMemo(
+    () =>
+      imported && view.competition.weeks
+        ? new Set(validate(view.competition.settings, view.competition.weeks).map((i) => i.message))
+        : new Set<string>(),
+    [imported, view.competition],
+  )
+  const issues = useMemo(() => allIssues.filter((i) => !savedMessages.has(i.message)), [allIssues, savedMessages])
+  const notes = useMemo(() => allIssues.filter((i) => savedMessages.has(i.message)), [allIssues, savedMessages])
+  const clashes = useMemo(() => (imported ? [] : allClashes), [imported, allClashes])
+  const noteClashes = useMemo(() => (imported ? allClashes : []), [imported, allClashes])
+  const noteGroups = useMemo(() => groupIssues(notes, weeks), [notes, weeks])
   const clashGames = useMemo(
     () => new Set(clashes.flatMap((x) => x.bookings.filter((b) => b.seasonId === view.season.id).map((b) => b.gameId))),
     [clashes, view.season.id],
   )
   const errors = issues.filter((i) => i.level === 'error').length
   const warnings = issues.length - errors + clashes.length
+  const noteCount = noteGroups.length + noteClashes.length
 
   const edit = (next: Week[]) => onChange({ ...draft, competition: { ...c, weeks: next, edited: published ? c.edited : true } })
 
@@ -158,10 +177,12 @@ function DrawEditor({ view, draft, onChange, readOnly, generating, onGenerate }:
           type="button"
           onClick={() => setShowIssues((v) => !v)}
           aria-expanded={showIssues}
-          className={`rounded px-3 py-2 text-sm font-semibold ${errors ? 'bg-red-700 text-white' : warnings ? 'bg-accent text-ink' : 'bg-brand text-white'}`}
+          className={`rounded px-3 py-2 text-sm font-semibold ${errors ? 'bg-red-700 text-white' : warnings ? 'bg-accent text-ink' : noteCount ? 'border border-black/15 bg-white text-ink' : 'bg-brand text-white'}`}
         >
           {errors + warnings === 0
-            ? '✓ No problems'
+            ? noteCount
+              ? `${noteCount} note${noteCount > 1 ? 's' : ''} on the imported draw`
+              : '✓ No problems'
             : [errors && `${errors} problem${errors > 1 ? 's' : ''}`, warnings && `${warnings} warning${warnings > 1 ? 's' : ''}`]
                 .filter(Boolean)
                 .join(' · ')}
@@ -193,8 +214,15 @@ function DrawEditor({ view, draft, onChange, readOnly, generating, onGenerate }:
       </div>
 
       {showIssues && (issues.length > 0 || clashes.length > 0) && <IssueList issues={issues} clashes={clashes} />}
+      {showIssues && noteCount > 0 && <ImportNotes groups={noteGroups} clashes={noteClashes} />}
 
-      <FairnessTable settings={s} weeks={weeks} highlight={highlight} onToggle={(id) => setHighlight((h) => (h === id ? '' : id))} />
+      <FairnessTable
+        settings={s}
+        weeks={weeks}
+        highlight={highlight}
+        calm={imported}
+        onToggle={(id) => setHighlight((h) => (h === id ? '' : id))}
+      />
 
       <p className="text-sm text-black/60">
         {mode === 'edit'
@@ -277,6 +305,39 @@ function scrollToWeek(id: string) {
   document.getElementById(`week-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
 }
 
+/** What an imported draw already had that the generator wouldn't do: information, nothing to fix. */
+function ImportNotes({ groups, clashes }: { groups: ReturnType<typeof groupIssues>; clashes: CourtClash[] }) {
+  return (
+    <div className="rounded border border-black/10 bg-white p-4 text-sm">
+      <p className="mb-2 text-black/70">
+        This draw came from the old website, which didn’t follow every rule the draw generator does (it often recorded no duty team, for
+        one). These notes are for information: nothing needs fixing, and the ladder and results aren’t affected.
+      </p>
+      <ul className="space-y-1">
+        {groups.map((g) => (
+          <li key={`${g.level}|${g.message}`} className="flex gap-2">
+            <span className="mt-0.5 h-4 shrink-0 rounded bg-black/10 px-1.5 text-[10px] leading-4 font-bold uppercase">Note</span>
+            <span>
+              {g.message}
+              {g.count > 1 && ` (${g.count} times`}
+              {g.matchDays.length > 0 && `${g.count > 1 ? ', ' : ' ('}${matchDaysText(g.matchDays)}`}
+              {(g.count > 1 || g.matchDays.length > 0) && ')'}
+            </span>
+          </li>
+        ))}
+        {clashes.map((x, n) => (
+          <li key={`c${n}`} className="flex gap-2">
+            <span className="mt-0.5 h-4 shrink-0 rounded bg-black/10 px-1.5 text-[10px] leading-4 font-bold uppercase">Note</span>
+            <button type="button" onClick={() => scrollToWeek(x.bookings[0].weekId)} className="text-left hover:underline">
+              {x.message}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 export function IssueList({ issues, clashes = [] }: { issues: Issue[]; clashes?: CourtClash[] }) {
   return (
     <ul className="space-y-1 rounded border border-black/10 bg-white p-4 text-sm">
@@ -311,19 +372,23 @@ export function IssueList({ issues, clashes = [] }: { issues: Issue[]; clashes?:
 const range = (xs: number[]) => [Math.min(...xs), Math.max(...xs)] as const
 // flag anything outside the tightest possible spread
 const off = (v: number, [lo, hi]: readonly [number, number], allowed: number) => hi - lo > allowed && (v === lo || v === hi)
-const cell = (bad: boolean) => `px-3 py-1.5 text-center tabular-nums ${bad ? 'bg-red-50 font-semibold text-red-700' : ''}`
+const cellClass = (bad: boolean) => `px-3 py-1.5 text-center tabular-nums ${bad ? 'bg-red-50 font-semibold text-red-700' : ''}`
 
 function FairnessTable({
   settings: s,
   weeks,
   highlight,
+  calm = false,
   onToggle,
 }: {
   settings: Settings
   weeks: Week[]
   highlight: string
+  /** An imported draw: uneven counts are the old site's, so they're not shown in red. */
+  calm?: boolean
   onToggle: (teamId: string) => void
 }) {
+  const cell = (bad: boolean) => cellClass(bad && !calm)
   const stats = teamStats(s, weeks)
   const duty = dutyEnabled(s)
   const games = range(stats.map((t) => t.games))

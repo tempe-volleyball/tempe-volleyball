@@ -8,7 +8,7 @@ import { runJobs } from '../cron'
 import { hashKey, pruneRateLimits } from '../ratelimit'
 import { OFFER_BATCH_MAX } from './core'
 import { ENROL_LIMITS, submitPublicEnrolment, type PublicEnrolInput } from './submit'
-import { addEntry, getTargetDetail, groupAction, listTargets, registrationAction, updateProduct } from './admin'
+import { addEntry, getTargetDetail, groupAction, listTargets, registrationAction, targetOrder, updateProduct } from './admin'
 import { CRON_OFFER_LIMIT, respondToOffer, runEnrolmentCron, viewOffer } from './offers'
 import { createForm, deleteForm, setFormProgrammes, updateForm } from './forms'
 import { loadEnrolmentForm } from './public'
@@ -501,6 +501,26 @@ describe('waitlist and offers', () => {
 })
 
 describe('admin', () => {
+  it('lists upcoming targets soonest first, then finished ones latest first', () => {
+    const t = (id: string, kind: 'season' | 'session', startsOn: string, status = 'scheduled') => ({
+      ref: { kind, id },
+      startsOn,
+      endsOn: kind === 'session' ? startsOn : null,
+      status,
+      programme: { id: 'p', name: 'Training', code: 'TRN', kind: 'training' as const, status: 'active' as const },
+    })
+    const list = [
+      t('nov5', 'session', '2026-11-05'),
+      t('oct29', 'session', '2026-10-29'),
+      t('oct15', 'session', '2026-10-15'),
+      t('oct22', 'session', '2026-10-22'),
+      t('q4', 'season', '2026-10-01', 'published'),
+      t('q3', 'season', '2026-07-02', 'archived'),
+      t('oct8', 'session', '2026-10-08'),
+    ]
+    expect(list.toSorted(targetOrder('2026-10-19')).map((x) => x.ref.id)).toEqual(['q4', 'oct22', 'oct29', 'nov5', 'oct15', 'oct8', 'q3'])
+  })
+
   it('lists targets with counts, marks paid, moves, places free agents and deletes, all audited', async () => {
     const s = await setup({ capPlayers: 2 })
     await enrolSession(s)

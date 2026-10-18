@@ -21,6 +21,18 @@ export function sydneyDateTime(at: Date): string {
 /** The Sydney calendar date of an instant, "YYYY-MM-DD" (e.g. the day an email counts against the daily cap). */
 export const sydneyDate = (at: Date): string => sydneyDateTime(at).slice(0, 10)
 
+/** Whole days from one "YYYY-MM-DD" to another (negative when `to` is earlier). */
+export const daysBetween = (from: string, to: string): number =>
+  Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000)
+
+/** "today", "tomorrow", "in 4 days", "yesterday", "3 days ago". */
+export function relativeDays(n: number): string {
+  if (n === 0) return 'today'
+  if (n === 1) return 'tomorrow'
+  if (n === -1) return 'yesterday'
+  return n > 0 ? `in ${n} days` : `${-n} days ago`
+}
+
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 

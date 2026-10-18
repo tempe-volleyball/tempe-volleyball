@@ -129,7 +129,7 @@ export const formatWhen = (iso: string) =>
 // Type-only imports: nothing from src/server ends up in the browser bundle.
 
 export type { SeasonView, SeasonMeta, CourtOption, LeagueListItem, SeasonListItem, SaveDrawResult } from '../server/competition/seasons'
-export type { TeamListItem } from '../server/competition/teams'
+export type { RecentMerge, TeamListItem } from '../server/competition/teams'
 export type { ClashDraws } from '../server/competition/clashes'
 export type { MatchDayState } from '../server/competition/results'
 export type { AdjustmentRow } from '../server/competition/adjustments'

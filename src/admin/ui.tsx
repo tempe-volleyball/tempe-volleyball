@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useEffect,
   useId,
   useRef,
@@ -93,6 +94,36 @@ export function Notice({ kind = 'info', children }: { kind?: 'info' | 'error' | 
     <div role={kind === 'error' ? 'alert' : 'status'} className={`rounded border px-4 py-3 text-sm ${styles}`}>
       {children}
     </div>
+  )
+}
+
+/**
+ * An email address that wraps sensibly on a phone: before the @ and at the domain's dots first, and mid-word only
+ * when one part is still too long for the line (overflow-wrap: anywhere), never "owner@examp le.com".
+ */
+export function EmailText({ email, className = '' }: { email: string; className?: string }) {
+  const at = email.lastIndexOf('@')
+  const local = at > 0 ? email.slice(0, at) : email
+  const domain = at > 0 ? email.slice(at + 1).split('.') : []
+  return (
+    <span className={`[overflow-wrap:anywhere] ${className}`} title={email}>
+      {local}
+      {domain.length > 0 && (
+        <>
+          <wbr />@
+          {domain.map((part, i) => (
+            <Fragment key={i}>
+              {i > 0 && (
+                <>
+                  <wbr />.
+                </>
+              )}
+              {part}
+            </Fragment>
+          ))}
+        </>
+      )}
+    </span>
   )
 }
 

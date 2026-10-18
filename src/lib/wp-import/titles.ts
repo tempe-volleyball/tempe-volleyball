@@ -44,6 +44,18 @@ export function parseLabel(s: string): { label: string; rest: string } | null {
   return { label: `${who} ${round}${m[3] ?? ''}`, rest }
 }
 
+/**
+ * SportsPress team posts that were really placeholders in finals or byes ("BYE", "Grand Final", "3rd Place",
+ * "Winner SF1", "2nd", "TBC"), not teams. The importer leaves them out when no game or season uses them.
+ */
+export function isPlaceholderTeamName(name: string): boolean {
+  const t = name.trim().replace(/\s+/g, ' ')
+  if (/^(bye|tbc|tba|tbd|finals?|grand final|semi ?finals?( \d)?|3rd place( play-?off)?|preliminary semi ?final( \d)?)$/i.test(t))
+    return true
+  const l = parseLabel(t)
+  return !!l && !l.rest
+}
+
 /** "RICE SPICE ELITE (3RD)", "(LOSER SF1)", "(WSF1 HIT FOR BRAINS)", "LSF2 BENCHIES", "LOSER GF" … */
 export function parseSide(text: string): SideText {
   const t = text

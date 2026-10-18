@@ -2,12 +2,14 @@ import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useRef, useSta
 import { Link, useLocation } from 'wouter'
 import {
   ALL_TABS,
+  formatLong,
   isOffStatus,
   landingTab,
   publishWeekResults,
   setResult,
   shapeKey,
   undoWeekResultChanges,
+  validate,
   weekdayName,
   type Issue,
   type Result,
@@ -29,7 +31,20 @@ import {
 } from '../api'
 import { setLeaveBlocker, leaveTo } from '../leave-guard'
 import { useUnsavedWarning } from '../unsaved'
-import { Breadcrumbs, Button, LoadError, Notice, Skeleton, StatusBadge, errorMessage, isNetworkError, purgeNote, toast } from '../ui'
+import { daysBetween, relativeDays, sydneyDate } from '../../lib/time'
+import {
+  Breadcrumbs,
+  Button,
+  LoadError,
+  Notice,
+  Skeleton,
+  StatusBadge,
+  confirmAction,
+  errorMessage,
+  isNetworkError,
+  purgeNote,
+  toast,
+} from '../ui'
 import { generateInWorker, newSeed } from './browser'
 import { ConfirmDialog, LeaveDialog } from './dialogs'
 import { GameStatusDialog, NightDialog, WithdrawDialog, type NightChoice } from './NightDialogs'
@@ -200,7 +215,12 @@ export function SeasonPage({ me, id, tab: requested }: { me: Me; id: string; tab
             ...(draft.source ? { source: draft.source } : {}),
           },
         })
-        warnings = r.issues.filter((i) => i.level === 'warning')
+        // An imported draw's own quirks are notes on the Fixtures tab, not warnings (docs/admin.md §3.11).
+        const saved =
+          view.season.imported && view.competition.weeks
+            ? new Set(validate(view.competition.settings, view.competition.weeks).map((i) => i.message))
+            : null
+        warnings = r.issues.filter((i) => i.level === 'warning' && !saved?.has(i.message))
         cache = r.cache
       } else if (plan.settings) {
         cache = (
@@ -388,23 +408,38 @@ export function SeasonPage({ me, id, tab: requested }: { me: Me; id: string; tab
         toast('Saved. Publish the match day when it’s ready.')
       }),
     onPublish: (weekId) =>
-      void dayAction(weekId, async () => {
-        const token = await saveDay(weekId)
-        const r = await api<{ matchDay: MatchDayState; cache: PurgeResult }>(`/api/admin/seasons/${id}/match-days/${weekId}/publish`, {
-          body: { baseUpdatedAt: token },
+      void (async () => {
+        // A night that hasn't happened yet: an early forfeit is a real reason, typing into the wrong card is likelier.
+        const date = savedWeek(weekId)?.date
+        const today = sydneyDate(new Date())
+        if (
+          date &&
+          date > today &&
+          !(await confirmAction({
+            title: 'Publish results for a night that hasn’t happened yet?',
+            body: `This night is ${formatLong(date)}, ${relativeDays(daysBetween(today, date))}. The ladder and the website count published results straight away.`,
+            confirmLabel: 'Publish anyway',
+          }))
+        )
+          return
+        await dayAction(weekId, async () => {
+          const token = await saveDay(weekId)
+          const r = await api<{ matchDay: MatchDayState; cache: PurgeResult }>(`/api/admin/seasons/${id}/match-days/${weekId}/publish`, {
+            body: { baseUpdatedAt: token },
+          })
+          const at = new Date(r.matchDay.resultsPublishedAt ?? Date.now())
+          applyDay(weekId, r.matchDay, (weeks) => publishWeekResults(weeks, weekId, at))
+          setView((v) => {
+            if (!v) return v
+            const ids = new Set(v.competition.weeks?.find((w) => w.id === weekId)?.games.map((g) => g.id))
+            const matches = { ...v.matches }
+            for (const [mid, m] of Object.entries(matches))
+              if (ids.has(mid) && m.status === 'scheduled') matches[mid] = { ...m, status: 'played' }
+            return { ...v, matches }
+          })
+          toast(`Published: the ladder and website are updated.${purgeNote(r.cache)}`)
         })
-        const at = new Date(r.matchDay.resultsPublishedAt ?? Date.now())
-        applyDay(weekId, r.matchDay, (weeks) => publishWeekResults(weeks, weekId, at))
-        setView((v) => {
-          if (!v) return v
-          const ids = new Set(v.competition.weeks?.find((w) => w.id === weekId)?.games.map((g) => g.id))
-          const matches = { ...v.matches }
-          for (const [mid, m] of Object.entries(matches))
-            if (ids.has(mid) && m.status === 'scheduled') matches[mid] = { ...m, status: 'played' }
-          return { ...v, matches }
-        })
-        toast(`Published: the ladder and website are updated.${purgeNote(r.cache)}`)
-      }),
+      })(),
     onDiscard: (weekId) => {
       dropEdit(weekId)
       resetDay(weekId)

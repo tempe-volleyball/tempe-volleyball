@@ -102,6 +102,12 @@ describe('renderBlocks', () => {
     ])
     expect(fig).toMatch(/^<figure class="figure figure-right figure-small"><a href="\/leagues\/tnl"><img [^>]+><\/a>/)
     expect(fig).toContain('<figcaption>Grand final &lt;2026&gt;</figcaption></figure>')
+    // A size preset sets `sizes` to its width, so phones don't fetch the 800 px copy for a medium image.
+    const srcset = '/media/a/400.webp 400w, /media/a/800.webp 800w'
+    expect(renderBlocks([{ type: 'image', attrs: { ...img, srcset, size: 'medium' } }])).toContain(
+      'sizes="(max-width: 28rem) 100vw, 28rem"',
+    )
+    expect(renderBlocks([{ type: 'image', attrs: { ...img, srcset } }])).toContain('sizes="(max-width: 800px) 100vw, 800px"')
     const bad = renderBlocks([{ type: 'image', attrs: { ...img, align: 'top" onload="x', size: 'huge', href: 'javascript:alert(1)' } }])
     expect(bad).toMatch(/^<img /)
     expect(renderBlocks([{ type: 'image', attrs: { ...img, href: 'https://example.com' } }])).toContain(

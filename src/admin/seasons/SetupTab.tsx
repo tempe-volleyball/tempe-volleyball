@@ -693,9 +693,9 @@ function Summary({
 
   const rows: [string, string][] = [
     ['Games a night', `${shape.gamesPerNight} of ${shape.slotsPerNight} slots`],
-    ['Byes a night', shape.byesPerNight ? `${shape.byesPerNight} team` : 'None'],
+    ['Byes a night', shape.byesPerNight ? `${shape.byesPerNight} team${shape.byesPerNight === 1 ? '' : 's'}` : 'None'],
     ['Games per team', String(shape.gamesPerTeam)],
-    ['Round robin', `${shape.regularRounds} weeks`],
+    ['Round robin', `${shape.regularRounds} week${shape.regularRounds === 1 ? '' : 's'}`],
     ['Finals', shape.finalsWeeks ? 'Semis + finals (2 weeks)' : s.includeFinals ? 'Needs 4+ teams' : 'None'],
     ['Duty', dutyEnabled(s) ? 'Teams' : 'None (referees)'],
     ['Sets per match', String(draft.setsPerMatch)],

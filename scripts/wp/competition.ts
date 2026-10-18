@@ -17,7 +17,8 @@ import { mapEventResult, type MappedResult } from '../../src/lib/wp-import/resul
 import { leagueSlug, parseSeasonName, seasonName, seasonSlug } from '../../src/lib/wp-import/routes'
 import type { SqlValue } from '../../src/lib/wp-import/sql'
 import { decodeEntities, nameKey } from '../../src/lib/wp-import/text'
-import { parseEventTitle, type SideText } from '../../src/lib/wp-import/titles'
+import { isPlaceholderTeamName, parseEventTitle, type SideText } from '../../src/lib/wp-import/titles'
+import { drawShapeKey } from '../../src/lib/fixtures/competition'
 import { stableId } from './ids'
 import type { SpEvent, WpData } from './types'
 
@@ -96,6 +97,7 @@ export type Competition = {
 
 export type CompetitionReport = {
   unmappedLeagues: string[]
+  skippedPlaceholderTeams: string[]
   unmappedSeasons: string[]
   unmappedCourts: string[]
   skippedEvents: string[]
@@ -122,6 +124,7 @@ export const venueId = (key: string) => stableId('venue', key)
 export function buildCompetition(data: WpData): Competition {
   const report: CompetitionReport = {
     unmappedLeagues: [],
+    skippedPlaceholderTeams: [],
     unmappedSeasons: [],
     unmappedCourts: [],
     skippedEvents: [],
@@ -545,18 +548,33 @@ export function buildCompetition(data: WpData): Competition {
       points_loss: 1,
       sets_per_match: superLeague ? 5 : 2,
       duty_enabled: !superLeague,
-      generated_from: null,
+      // What the draw was "generated from", so the Fixtures tab doesn't call an imported draw out of date (isStale).
+      generated_from: drawShapeKey({
+        teamIds: members.map((t) => teamIdByWp.get(t)!),
+        sessions: sessions.length,
+        meetings: settings.meetings ?? 1,
+        includeFinals: settings.includeFinals ?? false,
+        duty: !superLeague,
+      }),
       edited: true,
       published_at: iso(firstGmt),
       wp_id: info.wpId,
     })
   }
 
+  // Placeholder "teams" (BYE, Grand Final, 3rd Place …) that nothing uses stay out of Admin → Teams.
+  const used = new Set<unknown>([
+    ...seasonTeams.map((r) => r.team_id),
+    ...matches.flatMap((m) => [m.home_team_id, m.away_team_id, m.duty_team_id]),
+  ])
+  const realTeams = teams.filter((t) => used.has(t.id) || !isPlaceholderTeamName(String(t.name)))
+  for (const t of teams) if (!realTeams.includes(t)) report.skippedPlaceholderTeams.push(String(t.name))
+
   return {
     venues,
     courts,
     leagues,
-    teams,
+    teams: realTeams,
     seasons,
     seasonTeams,
     matchDays,

@@ -288,8 +288,23 @@ export async function listTargets(
       e.endDate,
       e.status === 'cancelled' ? 'cancelled' : (e.endDate ?? e.startDate) < today ? 'past' : null,
     )
-  return out.toSorted((a, b) => (b.startsOn ?? '').localeCompare(a.startsOn ?? '') || a.programme.name.localeCompare(b.programme.name))
+  return out.toSorted(targetOrder(today))
 }
+
+/**
+ * Admin → Enrolments order: what's on now or coming up first, soonest first (so the next session is at the top at
+ * the door), then what's finished, latest first. A season counts as current until it's archived.
+ */
+export const targetOrder =
+  (today: string) =>
+  (a: Pick<TargetSummary, 'ref' | 'startsOn' | 'endsOn' | 'status' | 'programme'>, b: typeof a): number => {
+    const done = (t: typeof a) => (t.ref.kind === 'season' ? t.status === 'archived' : (t.endsOn ?? t.startsOn ?? '') < today)
+    const da = done(a)
+    const db = done(b)
+    if (da !== db) return da ? 1 : -1
+    const byDate = (a.startsOn ?? '').localeCompare(b.startsOn ?? '')
+    return (da ? -byDate : byDate) || a.programme.name.localeCompare(b.programme.name)
+  }
 
 export type EntryType = FormEntryType
 

@@ -253,7 +253,10 @@ function SourceCard({ s, canFetch, onFetched }: { s: StatsResponse['sources'][nu
         <span className={`rounded px-2 py-0.5 text-xs font-bold ${tone}`}>{state}</span>
       </div>
       {!s.configured ? (
-        <p className="text-black/70">Needs {s.missing.join(', ')}. See docs/admin.md §2 for the setup steps.</p>
+        <p className="text-black/70">
+          Needs {s.missing.length > 1 ? `${s.missing.slice(0, -1).join(', ')} and ${s.missing.at(-1)}` : s.missing[0]}. See docs/admin.md §2
+          for the setup steps.
+        </p>
       ) : (
         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-black/70">
           <dt>Data up to</dt>

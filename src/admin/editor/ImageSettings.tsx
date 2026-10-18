@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { IMAGE_ALIGNS, IMAGE_SIZES, MAX_CAPTION_LENGTH, safeHref, type ImageAlign, type ImageSize } from '../../lib/content/render'
 import { MAX_ALT_LENGTH } from '../../lib/content/media'
-import { Button, Dialog, Field, Notice, Select, TextArea } from '../ui'
+import { Button, Dialog, Field, Notice, Select, TextArea, confirmAction } from '../ui'
 
 // The image node's settings (double-click an image, or Image settings… in the toolbar): its description (alt text),
 // caption, size, alignment and link, plus swapping the file while keeping the rest. render.ts writes them as a
@@ -50,11 +50,19 @@ export function ImageSettings({
   const [href, setHref] = useState(attrs.href ?? '')
   const [error, setError] = useState<string | null>(null)
 
-  const save = () => {
+  const save = async () => {
     const link = href.trim()
     const normalised = link && /^[\w.-]+\.[a-z]{2,}(\/|$)/i.test(link) ? `https://${link}` : link
     if (normalised && !safeHref(normalised)) return setError('That link isn’t allowed. Use https://…, a /path, mailto: or tel:.')
-    if (!alt.trim() && !window.confirm('Leave the description empty? Only do that for purely decorative images.')) return
+    if (
+      !alt.trim() &&
+      !(await confirmAction({
+        title: 'Leave the description empty?',
+        body: 'Screen readers and search engines use it. Only leave it empty for a purely decorative image.',
+        confirmLabel: 'Leave it empty',
+      }))
+    )
+      return
     onSave({
       alt: alt.trim(),
       caption: caption.trim() || null,
@@ -72,7 +80,7 @@ export function ImageSettings({
         onKeyDown={(e) => {
           if (e.key === 'Enter' && e.target instanceof HTMLInputElement) {
             e.preventDefault()
-            save()
+            void save()
           }
         }}
       >
@@ -125,7 +133,7 @@ export function ImageSettings({
           hint="Optional: where clicking the image goes."
         />
         <div className="flex gap-2">
-          <Button onClick={save}>Apply</Button>
+          <Button onClick={() => void save()}>Apply</Button>
           <Button variant="secondary" onClick={onCancel}>
             Cancel
           </Button>

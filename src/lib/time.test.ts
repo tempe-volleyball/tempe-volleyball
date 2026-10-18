@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatAud, sydneyDate, sydneyDateTime } from './time'
+import { daysBetween, formatAud, relativeDays, sydneyDate, sydneyDateTime } from './time'
 
 describe('sydneyDateTime', () => {
   it('uses AEDT (+11) in summer', () => {
@@ -19,6 +19,15 @@ describe('sydneyDate', () => {
   it('is the Sydney calendar day', () => {
     expect(sydneyDate(new Date('2026-10-16T13:59:00Z'))).toBe('2026-10-17')
     expect(sydneyDate(new Date('2026-10-16T12:59:00Z'))).toBe('2026-10-16')
+  })
+})
+
+describe('daysBetween and relativeDays', () => {
+  it('counts calendar days, across a DST change too', () => {
+    expect(daysBetween('2026-10-18', '2026-10-22')).toBe(4)
+    expect(daysBetween('2026-10-03', '2026-10-05')).toBe(2)
+    expect(daysBetween('2026-10-22', '2026-10-18')).toBe(-4)
+    expect([0, 1, 4, -1, -3].map(relativeDays)).toEqual(['today', 'tomorrow', 'in 4 days', 'yesterday', '3 days ago'])
   })
 })
 
