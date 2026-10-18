@@ -11,6 +11,7 @@ import {
   confirmAction,
   Button,
   Card,
+  Checkbox,
   Field,
   Notice,
   StatusBadge,
@@ -93,7 +94,29 @@ export function PostList() {
   )
 }
 
-type Form = { title: string; slug: string; excerpt: string; category: string; coverMediaId: string | null; publishedAt: string }
+type Form = {
+  title: string
+  slug: string
+  excerpt: string
+  category: string
+  coverMediaId: string | null
+  publishedAt: string
+  seoTitle: string
+  seoDescription: string
+  noindex: boolean
+}
+
+const EMPTY_FORM: Form = {
+  title: '',
+  slug: '',
+  excerpt: '',
+  category: '',
+  coverMediaId: null,
+  publishedAt: '',
+  seoTitle: '',
+  seoDescription: '',
+  noindex: false,
+}
 
 const pad = (n: number) => String(n).padStart(2, '0')
 
@@ -111,12 +134,15 @@ const formOf = (p: PostRow): Form => ({
   category: p.category ?? '',
   coverMediaId: p.coverMediaId,
   publishedAt: toLocalInput(p.publishedAt),
+  seoTitle: p.seoTitle ?? '',
+  seoDescription: p.seoDescription ?? '',
+  noindex: p.noindex,
 })
 
 export function PostEditor({ id }: { id: string | null }) {
   const [, navigate] = useLocation()
   const [post, setPost] = useState<PostRow | null>(null)
-  const [form, setForm] = useState<Form>({ title: '', slug: '', excerpt: '', category: '', coverMediaId: null, publishedAt: '' })
+  const [form, setForm] = useState<Form>(EMPTY_FORM)
   const [slugEdited, setSlugEdited] = useState(false)
   const blocks = useRef<unknown[] | undefined>(undefined)
   const [editorKey, setEditorKey] = useState(0)
@@ -158,6 +184,9 @@ export function PostEditor({ id }: { id: string | null }) {
       excerpt: form.excerpt,
       category: form.category,
       coverMediaId: form.coverMediaId,
+      seoTitle: form.seoTitle,
+      seoDescription: form.seoDescription,
+      noindex: form.noindex,
       baseUpdatedAt: post?.updatedAt,
     }
     if (form.publishedAt && post?.publishedAt) body.publishedAt = new Date(form.publishedAt).toISOString()
@@ -298,7 +327,12 @@ export function PostEditor({ id }: { id: string | null }) {
                 hint="Shown in the news list and to search engines. Left empty, the start of the post is used."
               />
               <Field label="Category" maxLength={60} value={form.category} onChange={(e) => set('category', e.target.value)} />
-              <ImageField label="Cover image" mediaId={form.coverMediaId} onChange={(v) => set('coverMediaId', v)} />
+              <ImageField
+                label="Cover image"
+                mediaId={form.coverMediaId}
+                onChange={(v) => set('coverMediaId', v)}
+                hint="Also the image shown when the post is shared. Empty = the site’s default image."
+              />
               {post?.publishedAt && (
                 <Field
                   label="Publish date"
@@ -308,6 +342,33 @@ export function PostEditor({ id }: { id: string | null }) {
                   hint="Posts are listed newest first by this date."
                 />
               )}
+            </div>
+          </Card>
+          <Card title="Search and sharing">
+            <div className="space-y-4">
+              <Field
+                label="Search title"
+                maxLength={120}
+                value={form.seoTitle}
+                placeholder={form.title}
+                onChange={(e) => set('seoTitle', e.target.value)}
+                hint="The title in search results, when it should differ from the post title. “| Tempe Volleyball” is added."
+              />
+              <TextArea
+                label="Search description"
+                rows={3}
+                maxLength={300}
+                value={form.seoDescription}
+                placeholder={form.excerpt}
+                onChange={(e) => set('seoDescription', e.target.value)}
+                hint={`What search engines show under the title, when it should differ from the excerpt. Aim for 120–160 characters (${form.seoDescription.length} now).`}
+              />
+              <Checkbox
+                label="Hide from search engines"
+                checked={form.noindex}
+                onChange={(v) => set('noindex', v)}
+                hint="Asks Google and others not to list this post, and leaves it out of the sitemap. It still shows in the news list."
+              />
             </div>
           </Card>
         </div>

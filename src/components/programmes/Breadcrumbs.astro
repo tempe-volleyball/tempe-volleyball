@@ -1,9 +1,18 @@
 ---
 // "Home › Mixed Leagues › Thursday Night League": the category a programme sits in (programme URLs are flat, so the
-// breadcrumb is where the category shows). The last item is the current page.
+// breadcrumb is where the category shows). The last item is the current page. The same trail goes out as a
+// schema.org BreadcrumbList (only the linked items and the page itself), so search results show it.
+import { normalisePath } from '../../lib/wp-import/routes'
+import { breadcrumbLd, jsonLdText } from '../../lib/seo/jsonld'
+
 type Props = { items: { label: string; href?: string | undefined }[] }
 const { items } = Astro.props
 const all = [{ label: 'Home', href: '/' }, ...items]
+const origin = Astro.site ?? Astro.url
+const here = new URL(normalisePath(Astro.url.pathname), origin).href
+const crumbs = all.flatMap((item, i) =>
+  i === all.length - 1 ? [{ name: item.label, url: here }] : item.href ? [{ name: item.label, url: new URL(item.href, origin).href }] : [],
+)
 ---
 
 <nav aria-label="Breadcrumb" class="mb-4 text-sm">
@@ -25,3 +34,4 @@ const all = [{ label: 'Home', href: '/' }, ...items]
     })}
   </ol>
 </nav>
+<script is:inline type="application/ld+json" set:html={jsonLdText({ '@context': 'https://schema.org', ...breadcrumbLd(crumbs) })} />

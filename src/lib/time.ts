@@ -70,6 +70,19 @@ export function sydneyToUtc(local: string): string | null {
   return new Date(t).toISOString()
 }
 
+/**
+ * A Sydney date and optional wall-clock time as ISO 8601 with Sydney's UTC offset that day, for machine-readable
+ * dates (JSON-LD): ("2026-10-22", "18:30") -> "2026-10-22T18:30:00+11:00"; a date alone stays "2026-10-22".
+ */
+export function sydneyIso(date: string, time?: string | null): string {
+  const utc = time ? sydneyToUtc(`${date}T${time}`) : null
+  if (!utc) return date
+  const offsetMin = Math.round((Date.parse(`${date}T${time}:00Z`) - Date.parse(utc)) / 60_000)
+  const abs = Math.abs(offsetMin)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date}T${time}:00${offsetMin < 0 ? '-' : '+'}${pad(Math.floor(abs / 60))}:${pad(abs % 60)}`
+}
+
 /** The datetime-local value ("2026-10-18T09:00") for a UTC instant, in Sydney time. '' for null. */
 export const utcToSydneyInput = (iso: string | null | undefined): string => (iso ? sydneyDateTime(new Date(iso)).replace(' ', 'T') : '')
 

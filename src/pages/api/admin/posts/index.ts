@@ -10,7 +10,7 @@ export const GET: APIRoute = ({ locals, request, url }) =>
     return json({ posts: await listPosts(getServices().db, { q: url.searchParams.get('q') ?? undefined }) })
   })
 
-/** Creates a draft post: { title, slug, excerpt?, category?, coverMediaId?, blocks? }. */
+/** Creates a draft post: { title, slug, excerpt?, category?, coverMediaId?, seoTitle?, seoDescription?, noindex?, blocks? }. */
 export const POST: APIRoute = ({ locals, request }) =>
   handle(async () => {
     const actor = await requireRole(locals.user, 'editor', request, getServices().db)

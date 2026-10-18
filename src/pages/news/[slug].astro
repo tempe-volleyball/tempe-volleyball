@@ -3,7 +3,9 @@ import NotFound from '../../components/NotFound.astro'
 import PageBody from '../../components/PageBody.astro'
 import BaseLayout from '../../layouts/BaseLayout.astro'
 import { DEFAULT_DESCRIPTION, documentTitle, formatPostDate, metaDescription } from '../../lib/content'
-import { normalisePath, postRoute } from '../../lib/wp-import/routes'
+import { breadcrumbLd, newsArticleLd } from '../../lib/seo/jsonld'
+import { socialImageUrl } from '../../lib/seo/meta'
+import { NEWS_ROUTE, normalisePath, postRoute } from '../../lib/wp-import/routes'
 import { cachePublic, tags } from '../../server/cache'
 import { publicDb, publicSite, redirectFor } from '../../server/public'
 import { findPost, pageTitles } from '../../server/site'
@@ -17,16 +19,45 @@ if (!post) {
   if (redirect) return redirect
   Astro.response.status = 404
 } else cachePublic(Astro.cache, tags.news, tags.post(slug))
+
+const origin = (Astro.site ?? Astro.url).origin
+const url = new URL(postRoute(slug), origin).href
+const description = post ? metaDescription(post.seoDescription ?? post.excerpt, { bodyHtml: post.body.html }) : DEFAULT_DESCRIPTION
+const seo = post
+  ? {
+      imageIds: [post.coverMediaId],
+      noindex: post.noindex,
+      article: { publishedTime: post.publishedAt, modifiedTime: post.updatedAt, section: post.category },
+      jsonLd: [
+        newsArticleLd({
+          origin,
+          url,
+          headline: post.title,
+          description,
+          publishedAt: post.publishedAt,
+          updatedAt: post.updatedAt,
+          image: socialImageUrl(origin, [post.coverMediaId], site.settings.seo),
+          section: post.category,
+        }),
+        breadcrumbLd([
+          { name: 'Home', url: `${origin}/` },
+          { name: 'News', url: new URL(NEWS_ROUTE, origin).href },
+          { name: post.title, url },
+        ]),
+      ],
+    }
+  : undefined
 ---
 
 {post ? (
   <BaseLayout
-    title={documentTitle(post.title)}
-    description={metaDescription(post.excerpt, { bodyHtml: post.body.html })}
+    title={documentTitle(post.seoTitle?.trim() || post.title)}
+    description={description}
     site={site}
     sidebar
     canonicalPath={postRoute(slug)}
     ogType="article"
+    seo={seo}
   >
     <PageBody title={post.title} html={post.body.html} titles={titles}>
       {post.publishedAt && (
@@ -43,6 +74,6 @@ if (!post) {
   </BaseLayout>
 ) : (
   <BaseLayout title={documentTitle('Page not found')} description={DEFAULT_DESCRIPTION} site={site}>
-    <NotFound />
+    <NotFound site={site} />
   </BaseLayout>
 )}

@@ -1,0 +1,83 @@
+---
+// Everything in <head> that search engines and link previews read (docs/public-site.md "SEO"): <title>, the meta
+// description, the canonical URL, Open Graph and Twitter cards, an optional robots opt-out, the Search Console
+// verification (production www only), and one JSON-LD @graph with the WebSite, the club (SportsOrganization, from
+// Site settings) and whatever the page adds (events, an article). BaseLayout renders it; pages pass `seo` extras.
+import { env } from 'cloudflare:workers'
+import { analyticsTags } from '../lib/analytics/tags'
+import { isIndexable } from '../lib/indexing'
+import { jsonLdGraph, jsonLdText, organizationLd, websiteLd, type Thing } from '../lib/seo/jsonld'
+import { LOGO_PATH, pickSocialImage, robotsMeta, siteDescription } from '../lib/seo/meta'
+import { SITE_NAME } from '../lib/site'
+import { DEFAULT_DESCRIPTION } from '../lib/content'
+import type { Site } from '../server/site'
+
+export type SeoExtras = {
+  /** Media ids for the sharing image, most specific first (a post's cover, a programme's image …). */
+  imageIds?: (string | null | undefined)[]
+  imageAlt?: string
+  /** JSON-LD nodes for this page, added to the @graph after the WebSite and the organisation (nulls are skipped). */
+  jsonLd?: (Thing | null)[]
+  /** Keep this page out of search results (the page's own setting, or pages like /enrol/confirm). */
+  noindex?: boolean
+  /** og:type article details (UTC ISO). */
+  article?: { publishedTime?: string | null; modifiedTime?: string | null; section?: string | null }
+}
+
+type Props = SeoExtras & {
+  title: string
+  description: string
+  site: Site
+  canonical: URL
+  /** An explicit image path (used when no media id is given). */
+  ogImage?: string | undefined
+  ogType?: 'website' | 'article'
+}
+
+const { title, site, canonical, ogImage, ogType = 'website', imageIds = [], imageAlt, jsonLd = [], noindex, article } = Astro.props
+const seo = site.settings.seo
+const description = siteDescription(Astro.props.description, seo)
+const origin = new URL(Astro.site ?? canonical).origin
+const picked = pickSocialImage(imageIds, seo, { path: ogImage, alt: imageAlt })
+const image = new URL(picked.path, origin)
+const robots = robotsMeta(noindex)
+const verification = analyticsTags(site.settings.analytics, isIndexable(Astro.url, env.SITE_ENV)).searchConsoleVerification
+const graph = jsonLdGraph([
+  websiteLd(origin),
+  organizationLd({
+    origin,
+    contact: site.settings.contact,
+    social: site.settings.social,
+    seo,
+    description: seo.description || DEFAULT_DESCRIPTION,
+    venues: site.venues,
+    logo: new URL(LOGO_PATH, origin).href,
+  }),
+  ...jsonLd.filter((n): n is Thing => !!n),
+])
+---
+
+<title>{title}</title>
+<meta name="description" content={description} />
+<link rel="canonical" href={canonical} />
+{robots && <meta name="robots" content={robots} />}
+<meta property="og:site_name" content={SITE_NAME} />
+<meta property="og:locale" content="en_AU" />
+<meta property="og:type" content={ogType} />
+<meta property="og:title" content={title} />
+<meta property="og:description" content={description} />
+<meta property="og:url" content={canonical} />
+<meta property="og:image" content={image} />
+{picked.width && <meta property="og:image:width" content={String(picked.width)} />}
+{picked.height && <meta property="og:image:height" content={String(picked.height)} />}
+{picked.alt && <meta property="og:image:alt" content={picked.alt} />}
+{ogType === 'article' && article?.publishedTime && <meta property="article:published_time" content={article.publishedTime} />}
+{ogType === 'article' && article?.modifiedTime && <meta property="article:modified_time" content={article.modifiedTime} />}
+{ogType === 'article' && article?.section && <meta property="article:section" content={article.section} />}
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content={title} />
+<meta name="twitter:description" content={description} />
+<meta name="twitter:image" content={image} />
+{picked.alt && <meta name="twitter:image:alt" content={picked.alt} />}
+{verification && <meta name="google-site-verification" content={verification} />}
+<script is:inline type="application/ld+json" set:html={jsonLdText(graph)} />

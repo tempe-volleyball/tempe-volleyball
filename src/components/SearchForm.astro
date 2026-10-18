@@ -1,0 +1,28 @@
+---
+// A GET search form for /search (the search page and the 404 page). Works without JavaScript.
+import { MAX_QUERY, SEARCH_ROUTE } from '../lib/seo/search'
+
+type Props = { value?: string; id?: string; label?: string }
+const { value = '', id = 'site-search', label = 'Search the site' } = Astro.props
+---
+
+<form action={SEARCH_ROUTE} method="get" role="search" class="my-6 max-w-xl">
+  <label for={id} class="mb-1 block font-bold">
+    {label}
+  </label>
+  <div class="flex gap-2">
+    <input
+      id={id}
+      name="q"
+      type="search"
+      value={value}
+      maxlength={MAX_QUERY}
+      required
+      autocomplete="off"
+      class="min-w-0 flex-1 border border-neutral-500 bg-white px-3 py-2 text-base"
+    />
+    <button type="submit" class="bg-brand hover:bg-brand-dark px-4 py-2 font-bold text-white">
+      Search
+    </button>
+  </div>
+</form>

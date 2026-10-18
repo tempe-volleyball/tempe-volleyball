@@ -84,6 +84,8 @@ export type PageSummary = {
 export type PageRow = PageSummary & {
   metaDescription: string | null
   ogImageId: string | null
+  seoTitle: string | null
+  noindex: boolean
   body: ContentBody
   updatedBy: string | null
 }
@@ -98,7 +100,14 @@ export type PostSummary = {
   updatedAt: string
   publishedAt: string | null
 }
-export type PostRow = PostSummary & { excerpt: string | null; coverMediaId: string | null; body: ContentBody }
+export type PostRow = PostSummary & {
+  excerpt: string | null
+  coverMediaId: string | null
+  seoTitle: string | null
+  seoDescription: string | null
+  noindex: boolean
+  body: ContentBody
+}
 
 export type MediaItem = {
   id: string

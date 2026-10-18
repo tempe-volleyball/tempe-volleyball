@@ -1,4 +1,5 @@
 import { FIXTURE_LIST_ROUTE, fixtureQueryString, parseFixtureQuery } from './fixture-lists'
+import { SEARCH_ROUTE, searchQueryString } from './seo/search'
 
 // Query strings on public pages (docs/admin.md §3.14 "Query strings"). Cloudflare's edge cache keys on the whole URL,
 // so `/?x=<random>` would miss the cache every time and make the Worker read D1 on every request. The middleware
@@ -33,6 +34,7 @@ const EXEMPT = ['/api', '/admin', '/media', '/_astro', '/_image', '/_server-isla
 /** Each public route that reads query parameters: its canonical query string ('' or '?…') from the request's. */
 const ROUTE_QUERIES: Record<string, (params: URLSearchParams) => string> = {
   [FIXTURE_LIST_ROUTE]: (p) => fixtureQueryString(parseFixtureQuery(p)),
+  [SEARCH_ROUTE]: searchQueryString,
 }
 
 /** Whether the normaliser applies to this path at all. */
