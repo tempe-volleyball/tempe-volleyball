@@ -206,6 +206,11 @@ export const leagues = sqliteTable(
     waitlistEnabled: integer('waitlist_enabled', { mode: 'boolean' }).notNull().default(true),
     /** How long a waitlist offer stays open before it passes to the next person. */
     waitlistOfferHours: integer('waitlist_offer_hours').notNull().default(48),
+    /**
+     * Public entries wait for the person to click a link emailed to them before they hold a spot (status
+     * pending_email). Null = automatic: on when the instance has a player or team cap. products.email_confirm overrides.
+     */
+    enrolmentEmailConfirm: integer('enrolment_email_confirm', { mode: 'boolean' }),
   },
   (t) => [
     uniqueIndex('leagues_code_unique').on(t.code),

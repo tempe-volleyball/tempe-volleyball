@@ -175,6 +175,7 @@ export const auditActions = [
   'enrolment.offer',
   'enrolment.place',
   'enrolment.delete',
+  'enrolment.export',
   'match_day.postpone',
   'match_day.cancel',
   'match_day.restore',
@@ -205,7 +206,9 @@ export type GroupKind = (typeof groupKinds)[number]
 
 /**
  * Phase 5 (Stripe) used pending_payment → paid. Phase 6 manual enrolment uses `confirmed` (has a spot; paid or not is
- * registrations.paid_at), `waitlist`, and `offered` (a freed spot offered until offer_expires_at).
+ * registrations.paid_at), `waitlist`, and `offered` (a freed spot offered until offer_expires_at). `pending_email`: a public
+ * entry waiting for its emailed confirm link to be clicked (until hold_expires_at); it holds no spot and isn't on the
+ * waitlist yet (docs/admin.md §3.7).
  */
 export const registrationStatuses = [
   'pending_payment',
@@ -216,6 +219,7 @@ export const registrationStatuses = [
   'waitlist',
   'confirmed',
   'offered',
+  'pending_email',
 ] as const
 export type RegistrationStatus = (typeof registrationStatuses)[number]
 
@@ -225,7 +229,7 @@ export const spotHoldingStatuses = ['pending_payment', 'paid', 'confirmed', 'off
 export const closedRegistrationStatuses = ['cancelled', 'expired', 'refunded'] as const satisfies readonly RegistrationStatus[]
 
 /** A team entry (groups.status). Same meanings as for registrations. */
-export const groupStatuses = ['confirmed', 'waitlist', 'offered', 'cancelled'] as const
+export const groupStatuses = ['confirmed', 'waitlist', 'offered', 'cancelled', 'pending_email'] as const
 export type GroupStatus = (typeof groupStatuses)[number]
 
 /** Where a registration came from. */

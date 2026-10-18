@@ -177,7 +177,7 @@ describe('entry types, references and labels', () => {
     expect(formatTime('18:30')).toBe('6:30pm')
     expect(formatTime('12:00')).toBe('12pm')
     expect(sessionLabel({ date: '2026-10-21', startTime: '18:30', endTime: '20:00', title: 'Serving' })).toBe(
-      'Wed 21 Oct 2026, 6:30pm–8pm: Serving',
+      'Wed 21 Oct 2026, 6:30–8pm: Serving',
     )
   })
 })

@@ -7,7 +7,7 @@ import { getServices } from '../../../../server/services'
 export const GET: APIRoute = ({ locals, request }) =>
   handle(async () => {
     const { db } = getServices()
-    await requireRole(locals.user, 'admin', request, db)
+    await requireRole(locals.user, 'admin', request, db, { fresh: true })
     return json(await listForms(db))
   })
 

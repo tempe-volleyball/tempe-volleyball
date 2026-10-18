@@ -4,8 +4,9 @@ import { atLeast, type UserRole } from '../../lib/roles'
 import { api, type Me, type PurgeResult } from '../api'
 import { Button, Card, Field, Notice, Select, TextArea, errorMessage, purgeNote } from '../ui'
 
-// Site settings: contact details, announcement banner, social links, PayID and the Revolutionise link. Each card
-// saves its own key; PayID and Revolutionise are admin+ (the server checks too).
+// Site settings: contact details, announcement banner, social links, PayID, the Revolutionise link, enrolment and
+// email housekeeping, and analytics. Each card saves its own key; PayID, Revolutionise, enrolment and analytics are
+// admin+ (the server checks too).
 
 type Data = { settings: SiteSettings; minRole: Record<SettingKey, UserRole> }
 
@@ -196,6 +197,36 @@ export function Settings({ me }: { me: Me }) {
         >
           {(v, set) => (
             <Field label="Revolutionise link" type="url" placeholder="https://…" value={v} onChange={(e) => set(e.target.value)} />
+          )}
+        </Section>
+
+        <Section
+          {...common}
+          k="enrolment"
+          title="Enrolment and email"
+          intro="Where a programme asks people to confirm their email address before a spot is held, how long the link works. And how long sent emails (with their addresses) stay in the outbox before they're deleted."
+        >
+          {(v, set) => (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field
+                label="Hours to confirm an email address"
+                type="number"
+                min={1}
+                max={168}
+                value={v.confirmHours}
+                hint="Unconfirmed entries expire after this. Default 24."
+                onChange={(e) => set({ ...v, confirmHours: Number(e.target.value) })}
+              />
+              <Field
+                label="Days to keep sent emails"
+                type="number"
+                min={1}
+                max={365}
+                value={v.emailRetentionDays}
+                hint="Default 30. Queued emails are always kept."
+                onChange={(e) => set({ ...v, emailRetentionDays: Number(e.target.value) })}
+              />
+            </div>
           )}
         </Section>
       </div>

@@ -1,0 +1,26 @@
+---
+// Where "confirm your enrolment" emails link to: /enrol/confirm#<token>. The token stays in the fragment (never sent
+// in a URL); the island posts it to /api/enrol/confirm. Confirming takes a click on the page, not just opening the
+// link, so a mail scanner that follows links can't confirm anything. Nothing personal is rendered on the server, so
+// the shell can be cached, but it's never indexed.
+import ConfirmResponse from '../../components/enrolment/ConfirmResponse'
+import BaseLayout from '../../layouts/BaseLayout.astro'
+import { documentTitle } from '../../lib/content'
+import { cachePublic, tags } from '../../server/cache'
+import { publicDb } from '../../server/public'
+import { loadSite } from '../../server/site'
+
+const site = await loadSite(publicDb())
+cachePublic(Astro.cache, tags.page('/enrol/confirm'))
+Astro.response.headers.set('X-Robots-Tag', 'noindex, nofollow')
+---
+
+<BaseLayout title={documentTitle('Confirm your enrolment')} description="Confirm your email address to finish enrolling." site={site}>
+  <article class="mx-auto max-w-2xl space-y-4 py-6">
+    <h1 class="font-display text-brand text-2xl font-bold">Confirm your enrolment</h1>
+    <ConfirmResponse client:only="react" />
+    <noscript>
+      <p>This page needs JavaScript. Reply to the email and we'll confirm your enrolment by hand.</p>
+    </noscript>
+  </article>
+</BaseLayout>

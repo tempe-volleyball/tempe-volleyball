@@ -5,12 +5,12 @@ import { entryTypesFor } from '../../lib/enrolment/defaults'
 import { formEntryTypes, type FormEntryType } from '../../lib/enrolment/forms'
 import { newReference } from '../../lib/enrolment/reference'
 import { isTargetKind, type TargetRef } from '../../lib/enrolment/targets'
-import { normaliseEmail, validateEnrolment, type MappedAnswers, type PersonInput } from '../../lib/enrolment/validate'
+import { canonicalMailbox, normaliseEmail, validateEnrolment, type MappedAnswers, type PersonInput } from '../../lib/enrolment/validate'
 import { runBatch, type AppDb } from '../db'
 import { closedRegistrationStatuses, groups, players, registrations, type RegistrationSource } from '../db/schema'
 import { isUniqueFailure } from '../content/common'
 import { getSettings } from '../content/settings'
-import type { Mailer } from '../email'
+import type { Mailer, SendOptions } from '../email'
 import { HttpError } from '../http'
 import { hashKey, hit, type Limit } from '../ratelimit'
 import { verifyTurnstile } from '../turnstile'
@@ -24,16 +24,26 @@ import {
   resolveForm,
   sendQuietly,
   settleStatements,
+  waitlistRankSql,
   type Effective,
   type ResolvedForm,
   type Target,
 } from './core'
+import { confirmToken, confirmUrl } from './tokens'
 
 // Taking an enrolment: the public form (POST /api/enrol) and the admin's "Add enrolment". Both go through
 // createEntry(), which matches or creates the player, inserts the entry holding a spot and settles it against the
 // caps in the same batch (core.ts), so the last spot can't be taken twice.
+//
+// Where the target asks for email confirmation (Effective.emailConfirm, on by default for anything capped), a public
+// entry is inserted as pending_email instead: it holds no spot and isn't on the waitlist. The emailed link
+// (confirm.ts) settles it against the caps when it's clicked, so a spot is never held for an address nobody owns.
 
-/** Public form limits (fixed windows, counted before Turnstile so a flood costs one upsert each). */
+/**
+ * Public form limits (fixed windows). Only the IP limit is counted before Turnstile, so nobody can lock a person
+ * out by sending junk with their email; the email limits (on the canonical mailbox) are counted once the check
+ * has passed.
+ */
 export const ENROL_LIMITS = {
   perIpHour: 20,
   perEmailHour: 6,
@@ -44,8 +54,12 @@ const HOUR = 3_600_000
 
 export type EnrolStatus = 'confirmed' | 'waitlist'
 
+/** The largest form answers (JSON) a public entry may carry; the real ceiling of 60 questions is far below it. */
+export const MAX_ANSWERS_BYTES = 32 * 1024
+
 export type EnrolResult = {
-  status: EnrolStatus
+  /** pending_email: waiting for the emailed link (public entries where the target asks for it). */
+  status: EnrolStatus | 'pending_email'
   reference: string
   /** 1-based place on the waitlist, when waitlisted. */
   position: number | null
@@ -64,6 +78,8 @@ export type EntryOptions = {
   actorId?: string | null
   /** Admin: put the entry straight onto the waitlist, or confirm it even over the cap. */
   forceStatus?: EnrolStatus | null
+  /** Public, email confirmation on: insert it as pending_email (no spot held) until this deadline (UTC ISO). */
+  pendingUntil?: string | null
   now: Date
   /** More statements for the same batch (the admin's audit entry). */
   extra?: (ids: { registrationId: string; groupId: string | null; reference: string }) => BatchItem<'sqlite'>[]
@@ -87,7 +103,13 @@ async function findPlayer(db: AppDb, person: PersonInput, productId: string) {
   return db
     .select({
       id: players.id,
+      liveId: registrations.id,
       liveReference: registrations.reference,
+      liveStatus: registrations.status,
+      liveCreatedAt: registrations.createdAt,
+      liveHoldExpiresAt: registrations.holdExpiresAt,
+      liveGroupId: registrations.groupId,
+      liveFreeAgent: registrations.freeAgent,
     })
     .from(players)
     .leftJoin(
@@ -110,12 +132,31 @@ async function findPlayer(db: AppDb, person: PersonInput, productId: string) {
     .get()
 }
 
-const duplicate = (target: Target) =>
-  new HttpError(
-    409,
-    'duplicate',
-    `You're already enrolled in ${target.label}. Check your email for the confirmation, or contact us to change it.`,
-  )
+/** The live entry a duplicate submission matched, when it's known (not when a unique index caught a race). */
+export type ExistingEntry = {
+  registrationId: string
+  reference: string
+  status: string
+  createdAt: string
+  holdExpiresAt: string | null
+  groupId: string | null
+  freeAgent: boolean
+}
+
+/** 409 duplicate. The public form never shows it (it answers as for a new entry and emails the person instead). */
+export class DuplicateEntryError extends HttpError {
+  readonly existing: ExistingEntry | null
+  constructor(target: Target, existing: ExistingEntry | null) {
+    super(
+      409,
+      'duplicate',
+      `You're already enrolled in ${target.label}. Check your email for the confirmation, or contact us to change it.`,
+    )
+    this.existing = existing
+  }
+}
+
+const duplicate = (target: Target, existing: ExistingEntry | null = null) => new DuplicateEntryError(target, existing)
 
 const teamTaken = (name: string) =>
   new HttpError(409, 'team_name_taken', `A team called “${name}” has already entered. Choose another name, or contact us if it's yours.`, {
@@ -151,7 +192,16 @@ export async function createEntry(
     if (taken) throw teamTaken(teamName)
   }
   const existing = await findPlayer(db, person, product.id)
-  if (existing?.liveReference) throw duplicate(target)
+  if (existing?.liveId)
+    throw duplicate(target, {
+      registrationId: existing.liveId,
+      reference: existing.liveReference!,
+      status: existing.liveStatus!,
+      createdAt: existing.liveCreatedAt!,
+      holdExpiresAt: existing.liveHoldExpiresAt ?? null,
+      groupId: existing.liveGroupId ?? null,
+      freeAgent: !!existing.liveFreeAgent,
+    })
 
   const at = opts.now.toISOString()
   const playerId = existing?.id ?? crypto.randomUUID()
@@ -190,10 +240,12 @@ export async function createEntry(
       })
 
   const force = opts.forceStatus ?? null
+  const pending = !force && opts.pendingUntil ? opts.pendingUntil : null
+  const startStatus = pending ? ('pending_email' as const) : ('confirmed' as const)
   for (let attempt = 0; ; attempt++) {
     const reference = newReference()
     const settle =
-      force === 'confirmed'
+      force === 'confirmed' || pending
         ? []
         : force === 'waitlist'
           ? settleStatements(
@@ -213,7 +265,7 @@ export async function createEntry(
                 name: teamName!,
                 captainPlayerId: playerId,
                 productId: product.id,
-                status: 'confirmed',
+                status: startStatus,
                 answers: {},
                 createdAt: at,
                 updatedAt: at,
@@ -226,8 +278,9 @@ export async function createEntry(
           productId: product.id,
           playerId,
           groupId,
-          status: 'confirmed',
+          status: startStatus,
           reference,
+          holdExpiresAt: pending,
           answers,
           vnswConfirmed: mapped.vnswConfirmed ?? false,
           freeAgent: entryType === 'free_agent',
@@ -241,7 +294,7 @@ export async function createEntry(
         }),
         ...settle,
         // Refused for lack of room: don't leave a new player row behind.
-        ...(!existing && !force && !eff.waitlistEnabled
+        ...(!existing && !force && !pending && !eff.waitlistEnabled
           ? [
               db
                 .delete(players)
@@ -250,11 +303,20 @@ export async function createEntry(
           : []),
         ...(opts.extra?.({ registrationId, groupId, reference }) ?? []),
         db.select({ status: registrations.status }).from(registrations).where(eq(registrations.id, registrationId)),
+        // The place on the waitlist is read as a rank (stored positions keep gaps; core.ts waitlistRankSql).
         ...(groupId
-          ? [db.select({ status: groups.status, position: groups.waitlistPosition }).from(groups).where(eq(groups.id, groupId))]
+          ? [
+              db
+                .select({ status: groups.status, position: sql<number>`${waitlistRankSql('group', product.id, groupId)}`.as('wl_rank') })
+                .from(groups)
+                .where(eq(groups.id, groupId)),
+            ]
           : [
               db
-                .select({ status: registrations.status, position: registrations.waitlistPosition })
+                .select({
+                  status: registrations.status,
+                  position: sql<number>`${waitlistRankSql('registration', product.id, registrationId)}`.as('wl_rank'),
+                })
                 .from(registrations)
                 .where(eq(registrations.id, registrationId)),
             ]),
@@ -266,9 +328,9 @@ export async function createEntry(
       }
       const row = last[0]!
       return {
-        status: row.status === 'waitlist' ? 'waitlist' : 'confirmed',
+        status: row.status === 'waitlist' ? 'waitlist' : row.status === 'pending_email' ? 'pending_email' : 'confirmed',
         reference,
-        position: row.status === 'waitlist' ? row.position : null,
+        position: row.status === 'waitlist' ? Number(row.position) : null,
         registrationId,
         groupId,
         teamName,
@@ -286,21 +348,71 @@ export async function createEntry(
   }
 }
 
-/** The confirmation or waitlist email for a new entry. Never throws. */
-export async function emailNewEntry(db: AppDb, mailer: Pick<Mailer, 'sendEmail'>, to: string, firstName: string, r: EnrolResult) {
+/**
+ * The confirmation or waitlist email for an entry that has (or waits for) a spot. Never throws. `priority` when it
+ * follows an admin action or a confirmed address (mailer.ts), not an anonymous form.
+ */
+export async function emailNewEntry(
+  db: AppDb,
+  mailer: Pick<Mailer, 'sendEmail'>,
+  to: string,
+  firstName: string,
+  r: Omit<EnrolResult, 'status'> & { status: EnrolStatus },
+  opts: Pick<SendOptions, 'priority'> = {},
+) {
   const base = { name: firstName, programme: r.programme, target: r.target, reference: r.reference, teamName: r.teamName }
   if (r.status === 'waitlist')
-    return sendQuietly(() => mailer.sendEmail(to, 'enrolment.waitlisted', { ...base, position: r.position }), 'waitlisted')
+    return sendQuietly(() => mailer.sendEmail(to, 'enrolment.waitlisted', { ...base, position: r.position }, opts), 'waitlisted')
   const payid = r.amountCents ? (await getSettings(db)).payid : null
   return sendQuietly(
     () =>
-      mailer.sendEmail(to, 'enrolment.confirmed', {
-        ...base,
-        amount: r.amountCents ? formatAud(r.amountCents) : null,
-        payid: payid?.payId ? payid : null,
-        message: r.message,
-      }),
+      mailer.sendEmail(
+        to,
+        'enrolment.confirmed',
+        {
+          ...base,
+          amount: r.amountCents ? formatAud(r.amountCents) : null,
+          payid: payid?.payId ? payid : null,
+          message: r.message,
+        },
+        opts,
+      ),
     'confirmation',
+  )
+}
+
+/** The "confirm your email address" email for a pending entry. Never throws. */
+export async function emailConfirmLink(
+  deps: { mailer: Pick<Mailer, 'sendEmail'>; secret: string; siteUrl: string },
+  to: string,
+  entry: {
+    firstName: string
+    programme: string
+    target: string
+    teamName: string | null
+    registrationId: string
+    createdAt: string
+    expiresAt: string
+  },
+  opts: Pick<SendOptions, 'priority'> = {},
+) {
+  const token = await confirmToken(deps.secret, { id: entry.registrationId, createdAt: entry.createdAt })
+  return sendQuietly(
+    () =>
+      deps.mailer.sendEmail(
+        to,
+        'enrolment.confirm_email',
+        {
+          name: entry.firstName,
+          programme: entry.programme,
+          target: entry.target,
+          teamName: entry.teamName,
+          url: confirmUrl(deps.siteUrl, token),
+          expiresAt: entry.expiresAt,
+        },
+        opts,
+      ),
+    'confirm-email',
   )
 }
 
@@ -311,9 +423,16 @@ export type PublicEnrolDeps = {
   mailer: Pick<Mailer, 'sendEmail'>
   /** Null when Turnstile isn't configured (production without keys): enrolment is refused. */
   turnstileSecret: string | null
+  /** The site's hostname, checked against Turnstile's answer (null with the test keys, which answer example.com). */
+  turnstileHostname?: string | null
   ip: string | null
-  /** Salts the rate-limit keys (BETTER_AUTH_SECRET), so the stored hashes can't be reversed to IPs or emails. */
-  hashSalt?: string
+  /**
+   * BETTER_AUTH_SECRET: signs the confirm links (with its own key label) and salts the rate-limit keys, so the
+   * stored hashes can't be reversed to IPs or emails. Required.
+   */
+  secret: string
+  /** For the confirm link. */
+  siteUrl: string
   fetch?: typeof fetch
   now?: Date
 }
@@ -326,36 +445,60 @@ export type PublicEnrolInput = {
   turnstileToken?: unknown
 }
 
-/** What the public form gets back. */
-export type PublicEnrolResult = Pick<
-  EnrolResult,
-  'status' | 'reference' | 'position' | 'teamName' | 'amountCents' | 'message' | 'programme' | 'target'
->
+/**
+ * What the public form gets back. `pending_email`: check your inbox (no reference yet). `emailed`: a repeat of an
+ * entry that already exists, where no confirmation is asked for; its reference went to the address on file.
+ * A repeat where confirmation is asked for answers exactly like a new entry (pending_email), so the form can't be
+ * used to find out who is enrolled.
+ */
+export type PublicEnrolResult = Omit<
+  Pick<EnrolResult, 'status' | 'reference' | 'position' | 'teamName' | 'amountCents' | 'message' | 'programme' | 'target'>,
+  'status' | 'reference'
+> & { status: EnrolResult['status'] | 'emailed'; reference: string | null; confirmHours?: number }
 
-/** POST /api/enrol. Rate limit → Turnstile → target open? → validate → createEntry → email. */
+const rateLimited = (retryAfter: number) =>
+  new HttpError(429, 'rate_limited', 'Too many enrolments from here just now. Please wait a while and try again.', { retryAfter })
+
+/**
+ * POST /api/enrol. IP limit → Turnstile → email limits → target open? → validate → createEntry (pending_email when
+ * the target asks for email confirmation) → email (the confirm link, or the confirmation).
+ */
 export async function submitPublicEnrolment(deps: PublicEnrolDeps, input: PublicEnrolInput): Promise<PublicEnrolResult> {
   const { db } = deps
   const now = deps.now ?? new Date()
+  if (!deps.secret) throw new Error('submitPublicEnrolment: no secret (BETTER_AUTH_SECRET is not set)')
   if (!deps.turnstileSecret)
     throw new HttpError(503, 'unavailable', 'Online enrolment is unavailable right now. Please contact us to enrol.')
   const ref = parseRef(input.target)
+  if (JSON.stringify(input.answers ?? {}).length > MAX_ANSWERS_BYTES)
+    throw new HttpError(413, 'too_large', 'Those answers are too long. Please shorten them and try again.')
+
+  // Only the IP is counted before Turnstile: a request without a solved check can't use up someone's email limit.
+  if (deps.ip) {
+    const byIp = await hit(
+      db,
+      [{ key: `enrol:ip:${await hashKey(deps.ip, deps.secret)}`, max: ENROL_LIMITS.perIpHour, windowMs: HOUR }],
+      now,
+    )
+    if (!byIp.ok) throw rateLimited(byIp.retryAfter)
+  }
+
+  const human = await verifyTurnstile(deps.turnstileSecret, input.turnstileToken, deps.ip, deps.fetch, {
+    hostname: deps.turnstileHostname ?? null,
+  })
+  if (!human.ok) throw new HttpError(403, 'turnstile_failed', 'Please complete the "are you human" check and try again.')
 
   const email = normaliseEmail((input.person as { email?: unknown } | undefined)?.email)
-  const limits: Limit[] = []
-  if (deps.ip) limits.push({ key: `enrol:ip:${await hashKey(deps.ip, deps.hashSalt)}`, max: ENROL_LIMITS.perIpHour, windowMs: HOUR })
   if (email) {
-    const h = await hashKey(email, deps.hashSalt)
-    limits.push({ key: `enrol:email:${h}`, max: ENROL_LIMITS.perEmailHour, windowMs: HOUR })
-    limits.push({ key: `enrol:email-day:${h}`, max: ENROL_LIMITS.perEmailDay, windowMs: 24 * HOUR })
+    // On the mailbox, so +tags and Gmail dots don't get round it.
+    const h = await hashKey(canonicalMailbox(email), deps.secret)
+    const limits: Limit[] = [
+      { key: `enrol:email:${h}`, max: ENROL_LIMITS.perEmailHour, windowMs: HOUR },
+      { key: `enrol:email-day:${h}`, max: ENROL_LIMITS.perEmailDay, windowMs: 24 * HOUR },
+    ]
+    const byEmail = await hit(db, limits, now)
+    if (!byEmail.ok) throw rateLimited(byEmail.retryAfter)
   }
-  const limited = await hit(db, limits, now)
-  if (!limited.ok)
-    throw new HttpError(429, 'rate_limited', 'Too many enrolments from here just now. Please wait a while and try again.', {
-      retryAfter: limited.retryAfter,
-    })
-
-  const human = await verifyTurnstile(deps.turnstileSecret, input.turnstileToken, deps.ip, deps.fetch)
-  if (!human.ok) throw new HttpError(403, 'turnstile_failed', 'Please complete the "are you human" check and try again.')
 
   const target = await loadTarget(db, ref, sydneyDate(now))
   if (!target || target.programme.status === 'draft') throw notFound('programme')
@@ -372,8 +515,44 @@ export async function submitPublicEnrolment(deps: PublicEnrolDeps, input: Public
   if (!check.ok) throw invalid('Please check the highlighted answers.', { fieldErrors: check.errors })
   if (!eff.waitlistEnabled && eff.capPlayers === 0) throw new HttpError(409, 'full', `${target.label} is full.`)
 
-  const result = await createEntry(db, target, eff, form, entryType, check, { source: 'public', now })
-  await emailNewEntry(db, deps.mailer, check.person.email, check.person.firstName, result)
+  const confirmHours = eff.emailConfirm ? (await getSettings(db)).enrolment.confirmHours : 0
+  const pendingUntil = eff.emailConfirm ? new Date(now.getTime() + confirmHours * HOUR).toISOString() : null
+  const teamName = entryType === 'team' ? (check.mapped.teamName ?? '').trim() || null : null
+  const pendingAnswer: PublicEnrolResult = {
+    status: 'pending_email',
+    reference: null,
+    position: null,
+    teamName,
+    amountCents: eff.amountCents,
+    message: null,
+    programme: target.programme.name,
+    target: target.label,
+    confirmHours,
+  }
+  const emailDeps = { mailer: deps.mailer, secret: deps.secret, siteUrl: deps.siteUrl }
+
+  let result: EnrolResult
+  try {
+    result = await createEntry(db, target, eff, form, entryType, check, { source: 'public', now, pendingUntil })
+  } catch (e) {
+    if (!(e instanceof DuplicateEntryError)) throw e
+    // Don't say so on the page (that would tell anyone who is enrolled): email the address on file instead.
+    await emailExisting(db, emailDeps, target, check.person, e.existing, now)
+    return eff.emailConfirm ? pendingAnswer : { ...pendingAnswer, status: 'emailed', confirmHours: undefined }
+  }
+  if (result.status === 'pending_email') {
+    await emailConfirmLink(emailDeps, check.person.email, {
+      firstName: check.person.firstName,
+      programme: result.programme,
+      target: result.target,
+      teamName: result.teamName,
+      registrationId: result.registrationId,
+      createdAt: now.toISOString(),
+      expiresAt: pendingUntil!,
+    })
+    return pendingAnswer
+  }
+  await emailNewEntry(db, deps.mailer, check.person.email, check.person.firstName, { ...result, status: result.status })
   return {
     status: result.status,
     reference: result.reference,
@@ -384,4 +563,64 @@ export async function submitPublicEnrolment(deps: PublicEnrolDeps, input: Public
     programme: result.programme,
     target: result.target,
   }
+}
+
+/**
+ * A repeat submission of an entry that exists: a pending one gets its confirm link again (same link, same
+ * deadline); any other gets an "already enrolled" email with its reference. Sent to the submitted address, which
+ * is the address on file (duplicates match on it). Never throws.
+ */
+async function emailExisting(
+  db: AppDb,
+  deps: { mailer: Pick<Mailer, 'sendEmail'>; secret: string; siteUrl: string },
+  target: Target,
+  person: PersonInput,
+  existing: ExistingEntry | null,
+  now: Date,
+) {
+  if (!existing) return false
+  const teamName =
+    existing.groupId && !existing.freeAgent
+      ? ((await db.select({ name: groups.name }).from(groups).where(eq(groups.id, existing.groupId)).get())?.name ?? null)
+      : null
+  const what = { programme: target.programme.name, target: target.label }
+  if (existing.status === 'pending_email') {
+    const until = existing.holdExpiresAt
+    if (!until || until <= now.toISOString()) return false
+    return emailConfirmLink(deps, person.email, {
+      firstName: person.firstName,
+      ...what,
+      teamName,
+      registrationId: existing.registrationId,
+      createdAt: existing.createdAt,
+      expiresAt: until,
+    })
+  }
+  const state = existing.status === 'waitlist' ? 'waitlist' : existing.status === 'offered' ? 'offered' : 'confirmed'
+  const position =
+    state === 'waitlist' && target.product
+      ? Number(
+          (
+            await db
+              .select({
+                rank: sql<number>`${waitlistRankSql(existing.groupId && !existing.freeAgent ? 'group' : 'registration', target.product.id, existing.groupId && !existing.freeAgent ? existing.groupId : existing.registrationId)}`,
+              })
+              .from(registrations)
+              .where(eq(registrations.id, existing.registrationId))
+              .get()
+          )?.rank ?? 0,
+        ) || null
+      : null
+  return sendQuietly(
+    () =>
+      deps.mailer.sendEmail(person.email, 'enrolment.already', {
+        name: person.firstName,
+        ...what,
+        reference: existing.reference,
+        state,
+        position,
+        teamName,
+      }),
+    'already-enrolled',
+  )
 }

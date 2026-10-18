@@ -50,6 +50,14 @@ export type AnalyticsSettings = {
   retentionDays: number
 }
 
+/** Enrolment and email housekeeping (docs/admin.md §3.7). */
+export type EnrolmentSettings = {
+  /** How long someone has to click the confirm link before an unconfirmed entry expires (hours). */
+  confirmHours: number
+  /** Sent and failed emails (with their addresses) are deleted from the outbox after this many days. */
+  emailRetentionDays: number
+}
+
 export type SiteSettings = {
   contact: ContactSettings
   payid: PayIdSettings
@@ -57,6 +65,7 @@ export type SiteSettings = {
   revolutioniseUrl: string
   announcement: AnnouncementSettings
   analytics: AnalyticsSettings
+  enrolment: EnrolmentSettings
 }
 
 export type SettingKey = keyof SiteSettings
@@ -67,6 +76,7 @@ export const settingKeys = [
   'revolutioniseUrl',
   'announcement',
   'analytics',
+  'enrolment',
 ] as const satisfies readonly SettingKey[]
 
 /** Who may change each key. PayID is where players send money, so it's admin+ like other payment settings. */
@@ -77,6 +87,7 @@ export const settingMinRole: Record<SettingKey, UserRole> = {
   revolutioniseUrl: 'admin',
   announcement: 'editor',
   analytics: 'admin',
+  enrolment: 'admin',
 }
 
 export const DEFAULT_SETTINGS: SiteSettings = {
@@ -99,6 +110,7 @@ export const DEFAULT_SETTINGS: SiteSettings = {
     backfillDays: 90,
     retentionDays: 1095,
   },
+  enrolment: { confirmHours: 24, emailRetentionDays: 30 },
 }
 
 export const isSettingKey = (k: unknown): k is SettingKey => typeof k === 'string' && (settingKeys as readonly string[]).includes(k)
@@ -229,6 +241,14 @@ const checkers: { [K in SettingKey]: (v: unknown) => SiteSettings[K] } = {
       fetch: { ga4: f.ga4 !== false, searchConsole: f.searchConsole !== false, cloudflare: f.cloudflare !== false },
       backfillDays: intIn(o.backfillDays, 'Days to fetch the first time', 1, 480, d.backfillDays),
       retentionDays: intIn(o.retentionDays, 'Days of history to keep', 30, 3650, d.retentionDays),
+    }
+  },
+  enrolment: (v) => {
+    const o = obj(v, 'Enrolment')
+    const d = DEFAULT_SETTINGS.enrolment
+    return {
+      confirmHours: intIn(o.confirmHours, 'Hours to confirm an email address', 1, 168, d.confirmHours),
+      emailRetentionDays: intIn(o.emailRetentionDays, 'Days to keep sent emails', 1, 365, d.emailRetentionDays),
     }
   },
 }

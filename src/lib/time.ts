@@ -61,6 +61,37 @@ export function sydneyToUtc(local: string): string | null {
 /** The datetime-local value ("2026-10-18T09:00") for a UTC instant, in Sydney time. '' for null. */
 export const utcToSydneyInput = (iso: string | null | undefined): string => (iso ? sydneyDateTime(new Date(iso)).replace(' ', 'T') : '')
 
+const CLOCK = /^([01]\d|2[0-3]):([0-5]\d)$/
+
+/** "20:00" -> { h: 8, m: 0, pm: true }. Null for anything that isn't HH:MM. */
+function clockParts(hhmm: string | null | undefined) {
+  const m = hhmm ? CLOCK.exec(hhmm) : null
+  if (!m) return null
+  const h = Number(m[1])
+  return { h: h % 12 === 0 ? 12 : h % 12, m: Number(m[2]), pm: h >= 12 }
+}
+
+const clock = (p: { h: number; m: number }) => (p.m ? `${p.h}:${String(p.m).padStart(2, '0')}` : String(p.h))
+
+/** A Sydney wall-clock "HH:MM": "20:00" -> "8pm", "18:30" -> "6:30pm", "12:00" -> "12pm". '' for a missing or malformed time. */
+export function formatTime(hhmm: string | null | undefined): string {
+  const p = clockParts(hhmm)
+  return p ? `${clock(p)}${p.pm ? 'pm' : 'am'}` : ''
+}
+
+/**
+ * The one time-range format used everywhere (tables, form choices, emails): "18:00"–"20:00" -> "6–8pm" (one am/pm
+ * when both share it), "11:00"–"13:00" -> "11am–1pm", a start alone -> "6pm". '' when there's no start time.
+ */
+export function formatTimeRange(start: string | null | undefined, end: string | null | undefined): string {
+  const s = clockParts(start)
+  if (!s) return ''
+  const e = clockParts(end)
+  if (!e) return formatTime(start)
+  if (s.pm === e.pm) return `${clock(s)}–${clock(e)}${e.pm ? 'pm' : 'am'}`
+  return `${formatTime(start)}–${formatTime(end)}`
+}
+
 /** Formats integer cents as AUD, e.g. 12500 -> "$125.00". Store money as integer cents everywhere. */
 export function formatAud(cents: number): string {
   return new Intl.NumberFormat(LOCALE, { style: 'currency', currency: CURRENCY }).format(cents / 100)

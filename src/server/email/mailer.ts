@@ -1,8 +1,11 @@
 import { and, asc, eq, gt, inArray, lt, lte, ne, or, sql } from 'drizzle-orm'
+import type { BatchItem } from 'drizzle-orm/batch'
+import { canonicalMailbox } from '../../lib/enrolment/validate'
 import { sydneyDate } from '../../lib/time'
 import { hashInviteToken, inviteStatus } from '../auth/roles'
 import { runBatch, type AppDb } from '../db'
-import { adminInvites, emailDailyCount, emailOutbox, type EmailOutboxRow } from '../db/schema'
+import { adminInvites, emailDailyCount, emailOutbox, groups, registrations, type EmailOutboxRow } from '../db/schema'
+import { hashKey, hit } from '../ratelimit'
 import {
   AUTH_TEMPLATES,
   SENSITIVE_TEMPLATES,
@@ -27,6 +30,14 @@ import {
 // The daily cap is split in two pools, so a flood of sign-in requests can't use up the allowance for other mail
 // and other mail can't lock admins out: sign-in emails get AUTH_DAILY_CAP of DAILY_CAP, everything else the rest.
 // Sign-in emails are also limited per recipient (AUTH_PER_HOUR, AUTH_PER_DAY).
+//
+// Enrolment emails that an anonymous form can trigger (anything not sent with `priority`) are limited per mailbox
+// (ENROLMENT_PER_HOUR / _PER_DAY, keyed on canonicalMailbox so +tags and Gmail dots count as one), and may only use
+// the general pool up to PRIORITY_RESERVE short of its cap: the rest is kept for waitlist offers, admin emails and
+// emails after a confirmed address, so junk entries can't hold up a real offer (docs/admin.md §3.7).
+//
+// A waitlist offer's hold starts when its email actually goes: the payload's `hold` names the offer, and a send
+// extends offer_expires_at to sentAt + hours (the cron also never lapses an offer whose email is still queued).
 
 /** Resend's free plan allows 100 a day; keep a margin. */
 export const DAILY_CAP = 95
@@ -35,6 +46,11 @@ export const AUTH_DAILY_CAP = 40
 /** Sign-in emails to one address in any rolling hour / 24 hours. Requests over the limit are dropped silently. */
 export const AUTH_PER_HOUR = 5
 export const AUTH_PER_DAY = 10
+/** Of the general pool (DAILY_CAP − AUTH_DAILY_CAP), this many a day are kept for priority emails. */
+export const PRIORITY_RESERVE = 20
+/** Non-priority enrolment emails to one mailbox per hour (more are queued for later) and per day (more are dropped). */
+export const ENROLMENT_PER_HOUR = 5
+export const ENROLMENT_PER_DAY = 10
 /** Give up on an email after this many failed sends. */
 export const MAX_ATTEMPTS = 5
 /** Emails the cron sends per run; keeps one invocation well under the 50 D1 queries / 50 subrequests limits. */
@@ -59,6 +75,10 @@ export type MailerDeps = {
   dailyCap?: number
   /** How much of dailyCap is for sign-in emails (default AUTH_DAILY_CAP, at most dailyCap). */
   authDailyCap?: number
+  /** How much of the general pool is kept for priority emails (default PRIORITY_RESERVE). */
+  priorityReserve?: number
+  /** Salts the per-mailbox rate-limit keys (BETTER_AUTH_SECRET). Without it the enrolment per-mailbox limit is off. */
+  hashSalt?: string | undefined
 }
 
 export type SendOptions = {
@@ -67,9 +87,30 @@ export type SendOptions = {
    * For sign-in codes and links, which expire in minutes, so a late send is useless. Always on for AUTH_TEMPLATES.
    */
   immediateOnly?: boolean
+  /**
+   * Sent because of an admin action, the cron or an address the person has confirmed, not straight from an anonymous
+   * form: skips the per-mailbox enrolment limit and may use the reserved share of the pool. Waitlist offers and
+   * cancellations are always priority.
+   */
+  priority?: boolean
 }
 
-/** `limited`: a sign-in email over the per-recipient limit, dropped without being stored. */
+/** Templates that are always priority: nothing anonymous can trigger them. */
+export const PRIORITY_TEMPLATES: ReadonlySet<string> = new Set(['admin.invite', 'enrolment.offer', 'enrolment.cancelled'])
+
+const isEnrolmentTemplate = (t: string) => t.startsWith('enrolment.')
+
+/** What an offer email's payload carries so a send can start the hold (`hold`). */
+export type OfferHold = { type: 'registration' | 'group'; id: string; offeredAt: string; hours: number }
+
+const holdOf = (payload: Record<string, unknown>): OfferHold | null => {
+  const h = payload.hold as Partial<OfferHold> | undefined
+  return h && (h.type === 'registration' || h.type === 'group') && typeof h.id === 'string' && typeof h.offeredAt === 'string'
+    ? { type: h.type, id: h.id, offeredAt: h.offeredAt, hours: typeof h.hours === 'number' && h.hours > 0 ? h.hours : 48 }
+    : null
+}
+
+/** `limited`: over a per-recipient limit, dropped without being stored. */
 export type SendStatus = 'sent' | 'logged' | 'queued' | 'failed' | 'limited'
 export type SendResult = { id: string; status: SendStatus }
 
@@ -134,12 +175,16 @@ export function createMailer(deps: MailerDeps) {
   const cap = deps.dailyCap ?? DAILY_CAP
   const authCap = Math.min(deps.authDailyCap ?? AUTH_DAILY_CAP, cap)
   const poolCap: Record<Pool, number> = { auth: authCap, general: cap - authCap }
+  const reserve = Math.min(Math.max(0, deps.priorityReserve ?? PRIORITY_RESERVE), poolCap.general)
   const mode = emailMode(env)
 
-  /** Takes one slot of today's allowance for the pool. Returns no rows when it's used up. Atomic (one upsert). */
-  const reserveQuery = (at: Date, pool: Pool) => {
+  /**
+   * Takes one slot of today's allowance for the pool. Returns no rows when it's used up. Atomic (one upsert).
+   * Non-priority general mail stops PRIORITY_RESERVE short of the pool's cap.
+   */
+  const reserveQuery = (at: Date, pool: Pool, priority = false) => {
     const iso = at.toISOString()
-    const limit = poolCap[pool]
+    const limit = pool === 'general' && !priority ? poolCap.general - reserve : poolCap[pool]
     return db
       .insert(emailDailyCount)
       .values({ day: poolKey(at, pool), sent: limit > 0 ? 1 : 0, createdAt: iso, updatedAt: iso })
@@ -188,6 +233,61 @@ export function createMailer(deps: MailerDeps) {
       })
       .where(eq(emailOutbox.id, row.id))
 
+  /** Starts (extends) a waitlist offer's hold from the moment its email went: offer_expires_at = at + hours. */
+  const holdStatements = (hold: OfferHold, at: Date): BatchItem<'sqlite'>[] => {
+    const until = new Date(at.getTime() + hold.hours * 3_600_000).toISOString()
+    const live = (t: typeof registrations | typeof groups) =>
+      and(eq(t.status, 'offered'), eq(t.offeredAt, hold.offeredAt), lt(t.offerExpiresAt, until))
+    return hold.type === 'group'
+      ? [
+          db
+            .update(groups)
+            .set({ offerExpiresAt: until })
+            .where(and(eq(groups.id, hold.id), live(groups))),
+          db
+            .update(registrations)
+            .set({ offerExpiresAt: until })
+            .where(and(eq(registrations.groupId, hold.id), eq(registrations.freeAgent, false), live(registrations))),
+        ]
+      : [
+          db
+            .update(registrations)
+            .set({ offerExpiresAt: until })
+            .where(and(eq(registrations.id, hold.id), live(registrations))),
+        ]
+  }
+
+  /** The payload to render and the hold statements for an email being sent at `at`. */
+  const forSend = (template: string, payload: Record<string, unknown>, at: Date) => {
+    const hold = template === 'enrolment.offer' ? holdOf(payload) : null
+    if (!hold) return { payload, extra: [] as BatchItem<'sqlite'>[] }
+    const until = new Date(at.getTime() + hold.hours * 3_600_000).toISOString()
+    const shown = typeof payload.expiresAt === 'string' && payload.expiresAt > until ? payload.expiresAt : until
+    return { payload: { ...payload, expiresAt: shown }, extra: holdStatements(hold, at) }
+  }
+
+  /**
+   * The per-mailbox limit for non-priority enrolment emails: 'ok', 'later' (over the hour: queue it until the window
+   * ends) or 'drop' (over the day). One batch of two upserts.
+   */
+  async function enrolmentLimit(to: string, at: Date): Promise<{ verdict: 'ok' | 'later' | 'drop'; retryAfter: number }> {
+    if (!deps.hashSalt) return { verdict: 'ok', retryAfter: 0 }
+    const h = await hashKey(canonicalMailbox(to), deps.hashSalt)
+    const hour = `mail:enrol:${h}`
+    const day = `mail:enrol-day:${h}`
+    const r = await hit(
+      db,
+      [
+        { key: hour, max: ENROLMENT_PER_HOUR, windowMs: 60 * 60 * 1000 },
+        { key: day, max: ENROLMENT_PER_DAY, windowMs: 24 * 60 * 60 * 1000 },
+      ],
+      at,
+    )
+    if (r.exceeded.includes(day)) return { verdict: 'drop', retryAfter: r.retryAfter }
+    if (r.exceeded.includes(hour)) return { verdict: 'later', retryAfter: r.retryAfter }
+    return { verdict: 'ok', retryAfter: 0 }
+  }
+
   /** Sign-in emails to this address recently: { hour, day } in the rolling hour and 24 hours. */
   async function recentAuthEmails(to: string, at: Date) {
     const hourAgo = new Date(at.getTime() - 60 * 60 * 1000).toISOString()
@@ -219,8 +319,10 @@ export function createMailer(deps: MailerDeps) {
     const auth = isAuthTemplate(template)
     const immediateOnly = auth || !!opts.immediateOnly
     const pool = poolOf(template)
+    const priority = !!opts.priority || PRIORITY_TEMPLATES.has(template)
     // Sign-in addresses are case-insensitive; one spelling keeps the per-recipient count honest.
     const to = auth ? rawTo.trim().toLowerCase() : rawTo
+    let sendAfter = iso
 
     if (auth) {
       const recent = await recentAuthEmails(to, at)
@@ -229,12 +331,27 @@ export function createMailer(deps: MailerDeps) {
         return { id: '', status: 'limited' }
       }
     }
+    if (isEnrolmentTemplate(template) && !priority) {
+      const limit = await enrolmentLimit(to, at)
+      if (limit.verdict === 'drop') {
+        console.warn(`[email] ${template} not sent: per-mailbox limit for today reached`)
+        return { id: '', status: 'limited' }
+      }
+      if (limit.verdict === 'later') sendAfter = new Date(at.getTime() + limit.retryAfter * 1000).toISOString()
+    }
 
-    const email = renderEmail(template, data)
+    const prepared = forSend(template, data as Record<string, unknown>, at)
+    const email = renderEmail(template, prepared.payload as TemplateData[K])
     // An immediate-only email is sent from memory, so its payload is never stored.
     const payload = immediateOnly ? {} : (data as Record<string, unknown>)
     const row = { id: crypto.randomUUID(), to, template, payload, attempts: 0, createdAt: iso, updatedAt: iso }
-    const insert = db.insert(emailOutbox).values({ ...row, status: 'queued', sendAfter: iso })
+    const insert = db.insert(emailOutbox).values({ ...row, priority, status: 'queued', sendAfter })
+    if (sendAfter !== iso) {
+      // Over the hourly per-mailbox limit: the cron sends it once the window has passed.
+      await insert
+      if (mode === 'disabled') throw new EmailNotConfiguredError()
+      return { id: row.id, status: 'queued' }
+    }
 
     if (mode === 'disabled') {
       await (immediateOnly || isSensitiveTemplate(template)
@@ -244,12 +361,12 @@ export function createMailer(deps: MailerDeps) {
     }
 
     if (mode === 'console') {
-      await runBatch(db, [insert, sentUpdate(row, 'console', at)])
+      await runBatch(db, [insert, sentUpdate(row, 'console', at), ...prepared.extra])
       logEmail(to, template, email)
       return { id: row.id, status: 'logged' }
     }
 
-    const [, reserved] = await runBatch(db, [insert, reserveQuery(at, pool)])
+    const [, reserved] = await runBatch(db, [insert, reserveQuery(at, pool, priority)])
     if (!gotSlot(reserved)) {
       if (immediateOnly) {
         console.warn(`[email] ${template} not sent: today's ${pool} email limit is reached`)
@@ -260,7 +377,9 @@ export function createMailer(deps: MailerDeps) {
     }
     const result = await sendViaResend(doFetch, env.RESEND_API_KEY!, row.id, to, email)
     if (result.ok) {
-      await sentUpdate(row, result.id, now())
+      const sentAt = now()
+      const extra = forSend(template, data as Record<string, unknown>, sentAt).extra
+      await (extra.length > 0 ? runBatch(db, [sentUpdate(row, result.id, sentAt), ...extra]) : sentUpdate(row, result.id, sentAt))
       return { id: row.id, status: 'sent' }
     }
     console.warn(`[email] send failed for ${row.id} (${template}): ${result.error}`)
@@ -273,7 +392,13 @@ export function createMailer(deps: MailerDeps) {
    * An insert that queues an email, for a caller's own db.batch(), so the email is written in the same transaction
    * as the change it reports (the enrolment cron). drainOutbox() sends it. Not for sign-in emails.
    */
-  function queueStatement<K extends TemplateName>(to: string, template: K, data: TemplateData[K], at = now()) {
+  function queueStatement<K extends TemplateName>(
+    to: string,
+    template: K,
+    data: TemplateData[K],
+    at = now(),
+    opts: Pick<SendOptions, 'priority'> = {},
+  ) {
     if (isAuthTemplate(template)) throw new Error(`queueStatement: ${template} is send-now-or-never`)
     const iso = at.toISOString()
     return db.insert(emailOutbox).values({
@@ -281,6 +406,7 @@ export function createMailer(deps: MailerDeps) {
       to,
       template,
       payload: data as Record<string, unknown>,
+      priority: !!opts.priority || PRIORITY_TEMPLATES.has(template),
       status: 'queued',
       attempts: 0,
       sendAfter: iso,
@@ -317,6 +443,36 @@ export function createMailer(deps: MailerDeps) {
     }
   }
 
+  /** Which of the offer emails among `rows` still name a live offer (one query, only when there are any). */
+  async function liveOffersFor(rows: EmailOutboxRow[]) {
+    const holds = new Map<string, OfferHold>()
+    for (const row of rows) {
+      const hold = row.template === 'enrolment.offer' ? holdOf(row.payload) : null
+      if (hold) holds.set(row.id, hold)
+    }
+    if (holds.size === 0) return () => true
+    const regIds = [...holds.values()].filter((h) => h.type === 'registration').map((h) => h.id)
+    const groupIds = [...holds.values()].filter((h) => h.type === 'group').map((h) => h.id)
+    const live = await db
+      .select({ id: registrations.id, groupId: registrations.groupId, offeredAt: registrations.offeredAt })
+      .from(registrations)
+      .where(
+        and(
+          eq(registrations.status, 'offered'),
+          or(
+            regIds.length > 0 ? inArray(registrations.id, regIds) : undefined,
+            groupIds.length > 0 ? and(inArray(registrations.groupId, groupIds), eq(registrations.freeAgent, false)) : undefined,
+          ),
+        ),
+      )
+      .all()
+    const ok = new Set(live.flatMap((r) => [`registration:${r.id}:${r.offeredAt}`, `group:${r.groupId}:${r.offeredAt}`]))
+    return (rowId: string) => {
+      const h = holds.get(rowId)
+      return !h || ok.has(`${h.type}:${h.id}:${h.offeredAt}`)
+    }
+  }
+
   /** Cron: sends queued emails, oldest first, while today's cap allows. Returns counts for the log. */
   async function drainOutbox(limit = DRAIN_BATCH) {
     const at = now()
@@ -332,7 +488,8 @@ export function createMailer(deps: MailerDeps) {
       .orderBy(asc(emailOutbox.sendAfter))
       .limit(limit)
     const inviteOf = await invitesFor(rows)
-    const updates = []
+    const offerLive = await liveOffersFor(rows)
+    const updates: BatchItem<'sqlite'>[] = []
     for (const row of rows) {
       if (!isTemplateName(row.template)) {
         updates.push(failedUpdate(row, `Unknown template ${row.template}`, true, { attempted: false }))
@@ -345,9 +502,20 @@ export function createMailer(deps: MailerDeps) {
         counts.skipped++
         continue
       }
-      // A waitlist offer that lapsed before it could be sent would only confuse (the spot has moved on).
-      if (row.template === 'enrolment.offer' && typeof row.payload.expiresAt === 'string' && row.payload.expiresAt <= at.toISOString()) {
-        updates.push(failedUpdate(row, 'Offer lapsed before it was sent', true, { attempted: false }))
+      // A waitlist offer that was answered, cancelled or re-offered before it could be sent would only confuse.
+      // (One that's still open is held until its email goes: the send starts the hold.)
+      if (row.template === 'enrolment.offer' && !offerLive(row.id)) {
+        updates.push(failedUpdate(row, 'Offer no longer open', true, { attempted: false }))
+        counts.skipped++
+        continue
+      }
+      // A confirm link past its deadline is useless (the entry has expired).
+      if (
+        row.template === 'enrolment.confirm_email' &&
+        typeof row.payload.expiresAt === 'string' &&
+        row.payload.expiresAt <= at.toISOString()
+      ) {
+        updates.push(failedUpdate(row, 'Confirm link expired before it was sent', true, { attempted: false }))
         counts.skipped++
         continue
       }
@@ -360,21 +528,22 @@ export function createMailer(deps: MailerDeps) {
           continue
         }
       }
-      const email = renderEmail(row.template, row.payload as never)
+      const prepared = forSend(row.template, row.payload, at)
+      const email = renderEmail(row.template, prepared.payload as never)
       if (mode === 'console') {
         logEmail(row.to, row.template, email)
-        updates.push(sentUpdate(row, 'console', at))
+        updates.push(sentUpdate(row, 'console', at), ...prepared.extra)
         counts.sent++
         continue
       }
       const pool = poolOf(row.template)
-      if (!gotSlot(await reserveQuery(at, pool))) {
+      if (!gotSlot(await reserveQuery(at, pool, row.priority))) {
         counts.remaining = rows.length - counts.sent - counts.failed - counts.skipped
         break
       }
       const result = await sendViaResend(doFetch, env.RESEND_API_KEY!, row.id, row.to, email)
       if (result.ok) {
-        updates.push(sentUpdate(row, result.id, now()))
+        updates.push(sentUpdate(row, result.id, now()), ...prepared.extra)
         counts.sent++
       } else {
         const giveUp = !result.retry || row.attempts + 1 >= MAX_ATTEMPTS
@@ -416,7 +585,19 @@ export function createMailer(deps: MailerDeps) {
     return (finished as unknown[]).length + (stale as unknown[]).length
   }
 
-  return { mode, sendEmail, queueStatement, drainOutbox, scrubSensitivePayloads }
+  /**
+   * Cron: deletes sent and failed emails older than `days` (Settings → Enrolment, default 30), so addresses don't
+   * stay in the outbox for ever. Queued ones are kept. One statement for the cron's batch (status/send_after index).
+   */
+  function pruneStatement(days: number, at = now()) {
+    const cutoff = new Date(at.getTime() - days * 24 * 60 * 60 * 1000).toISOString()
+    return db
+      .delete(emailOutbox)
+      .where(and(inArray(emailOutbox.status, ['sent', 'failed']), lt(emailOutbox.sendAfter, cutoff)))
+      .returning({ id: emailOutbox.id })
+  }
+
+  return { mode, sendEmail, queueStatement, drainOutbox, scrubSensitivePayloads, pruneStatement }
 }
 
 export type Mailer = ReturnType<typeof createMailer>

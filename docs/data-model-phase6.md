@@ -74,6 +74,7 @@ and the timestamps.
 | `allow_team_entries`, `allow_free_agents`   | bool                        | true, true            | Leagues and events: whether teams can enter, and whether individuals can enter as free agents.                                                                     |
 | `waitlist_enabled`                          | bool                        | true                  | When full, new enrolments join a waitlist. Otherwise they're refused.                                                                                              |
 | `waitlist_offer_hours`                      | int                         | 48                    | How long a freed spot is held for the person offered it.                                                                                                           |
+| `enrolment_email_confirm` (0005)            | bool, nullable              | null                  | Public entries wait for an emailed confirm link before holding a spot. Null = automatic: on when the instance is capped.                                           |
 
 Indexes: `leagues_category_id_idx`, `leagues_kind_status_idx`, `leagues_image_id_idx`,
 `leagues_enrolment_form_id_idx`. Code and slug are still unique across all programmes.
@@ -143,6 +144,7 @@ The form used is the product's `form_id`, else the programme's `enrolment_form_i
 | `capacity_teams`                                                                      | Team cap: `groups` holding a spot. Null = the programme's `cap_teams`.                                                                                                                                                  |
 | `form_id` → enrolment_forms, SET NULL                                                 | Form override.                                                                                                                                                                                                          |
 | `waitlist_enabled`, `waitlist_offer_hours`, `allow_team_entries`, `allow_free_agents` | Nullable overrides of the programme's settings.                                                                                                                                                                         |
+| `email_confirm` (0005)                                                                | Nullable override of the programme's `enrolment_email_confirm`.                                                                                                                                                         |
 | `opens_at`, `closes_at`, `active` (existing)                                          | A product can only narrow the programme's window (`enrolmentOpen()`).                                                                                                                                                   |
 | `price_cents` (existing, NOT NULL)                                                    | Copy the programme's `price_cents` (or 0) when creating the product.                                                                                                                                                    |
 
@@ -151,17 +153,18 @@ The form used is the product's `form_id`, else the programme's `enrolment_form_i
 
 ### `registrations` (new columns): one player's enrolment
 
-| Column                                                         | Notes                                                                                                                                                          |
-| -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `status`                                                       | Gains `confirmed` (has a spot) and `offered` (a freed spot offered until `offer_expires_at`). The manual flow uses confirmed, waitlist, offered and cancelled. |
-| `free_agent`                                                   | bool. A league or event entry without a team; set `group_id` when Michael places them.                                                                         |
-| `waitlist_position`                                            | 1-based order while on the waitlist. Gaps are fine; order by position, then created_at.                                                                        |
-| `offered_at`, `offer_expires_at`                               | The offer. Index (status, offer_expires_at) is for the cron that passes lapsed offers on.                                                                      |
-| `amount_cents`                                                 | What they owe, copied at enrolment. Null = no fee.                                                                                                             |
-| `paid_at`, `paid_marked_by` (→ user, SET NULL), `payment_note` | Paid or unpaid, marked by hand. Audit `enrolment.mark_paid` / `enrolment.mark_unpaid`.                                                                         |
-| `form_id` (→ enrolment_forms, SET NULL), `form_version`        | The form version that was answered.                                                                                                                            |
-| `source`                                                       | `public` \| `admin` \| `import`.                                                                                                                               |
-| `cancelled_at`, `cancel_reason`                                |                                                                                                                                                                |
+| Column                                                         | Notes                                                                                                                                                                    |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `status`                                                       | Gains `confirmed` (has a spot) and `offered` (a freed spot offered until `offer_expires_at`). The manual flow uses confirmed, waitlist, offered and cancelled.           |
+| `status` (0005, code only)                                     | Gains `pending_email` (a public entry waiting for its confirm link; holds no spot). Its deadline is `hold_expires_at`; the cron expires it. Groups gain the same status. |
+| `free_agent`                                                   | bool. A league or event entry without a team; set `group_id` when Michael places them.                                                                                   |
+| `waitlist_position`                                            | 1-based order while on the waitlist. Gaps are fine; order by position, then created_at.                                                                                  |
+| `offered_at`, `offer_expires_at`                               | The offer. Index (status, offer_expires_at) is for the cron that passes lapsed offers on.                                                                                |
+| `amount_cents`                                                 | What they owe, copied at enrolment. Null = no fee.                                                                                                                       |
+| `paid_at`, `paid_marked_by` (→ user, SET NULL), `payment_note` | Paid or unpaid, marked by hand. Audit `enrolment.mark_paid` / `enrolment.mark_unpaid`.                                                                                   |
+| `form_id` (→ enrolment_forms, SET NULL), `form_version`        | The form version that was answered.                                                                                                                                      |
+| `source`                                                       | `public` \| `admin` \| `import`.                                                                                                                                         |
+| `cancelled_at`, `cancel_reason`                                |                                                                                                                                                                          |
 
 Uniqueness: `registrations_product_id_player_id_live_unique` on (product_id, player_id) WHERE status NOT IN
 ('cancelled', 'expired', 'refunded'). So one live entry per player per product, a double submit can't take two

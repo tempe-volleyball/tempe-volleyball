@@ -3,7 +3,8 @@ import EnrolmentForm from '../enrolment/EnrolmentForm'
 import type { EnrolmentFormProps } from '../../server/enrolment/public'
 
 // A programme page's enrol section (#enrol): the enrolment form island while something is open, else why not and
-// when next. The island hydrates only when it scrolls into view, so it costs nothing on first load.
+// when next. The island hydrates only when it scrolls into view, so it costs nothing on first load; until then its
+// fields are disabled with a "getting ready" line (EnrolmentForm), so nothing typed early is lost.
 type Props = { enrolment: EnrolmentFormProps | null; name: string; closedText: string }
 const { enrolment, name, closedText } = Astro.props
 ---

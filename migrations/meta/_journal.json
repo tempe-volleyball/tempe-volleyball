@@ -36,6 +36,13 @@
       "when": 1792269890953,
       "tag": "0004_enrolment_rate_limits",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1792294780088,
+      "tag": "0005_enrolment_email_confirm",
+      "breakpoints": true
     }
   ]
 }

@@ -9,8 +9,12 @@ import { rateLimits } from './db/schema'
 
 export type Limit = { key: string; max: number; windowMs: number }
 
-/** SHA-256 of salt + value, hex, first 32 characters: enough to tell keys apart without storing the IP or email. */
-export async function hashKey(value: string, salt = ''): Promise<string> {
+/**
+ * SHA-256 of salt + value, hex, first 32 characters: enough to tell keys apart without storing the IP or email.
+ * The salt (BETTER_AUTH_SECRET) is required: without it an IPv4 hash could be reversed.
+ */
+export async function hashKey(value: string, salt: string | undefined): Promise<string> {
+  if (!salt) throw new Error('hashKey: no salt (BETTER_AUTH_SECRET is not set)')
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`tempevb:ratelimit:${salt}:${value}`))
   return [...new Uint8Array(digest)]
     .slice(0, 16)
@@ -36,21 +40,31 @@ const hitQuery = (db: AppDb, limit: Limit, at: Date) => {
     .returning({ key: rateLimits.key, count: rateLimits.count, expiresAt: rateLimits.expiresAt })
 }
 
-export type HitResult = { ok: boolean; /** Seconds until the first exceeded window ends (for Retry-After). */ retryAfter: number }
+export type HitResult = {
+  ok: boolean
+  /** Seconds until the last exceeded window ends (for Retry-After). */
+  retryAfter: number
+  /** The keys now over their max. */
+  exceeded: string[]
+}
 
 /** Counts one request against every limit (one batch). Not ok if any limit is now over its max. */
 export async function hit(db: AppDb, limits: Limit[], at = new Date()): Promise<HitResult> {
-  if (limits.length === 0) return { ok: true, retryAfter: 0 }
+  if (limits.length === 0) return { ok: true, retryAfter: 0, exceeded: [] }
   const results = (await runBatch(
     db,
     limits.map((l) => hitQuery(db, l, at)),
   )) as { key: string; count: number; expiresAt: string }[][]
   let retryAfter = 0
+  const exceeded: string[] = []
   limits.forEach((l, i) => {
     const row = results[i]?.[0]
-    if (row && row.count > l.max) retryAfter = Math.max(retryAfter, Math.ceil((Date.parse(row.expiresAt) - at.getTime()) / 1000))
+    if (row && row.count > l.max) {
+      exceeded.push(l.key)
+      retryAfter = Math.max(retryAfter, Math.max(1, Math.ceil((Date.parse(row.expiresAt) - at.getTime()) / 1000)))
+    }
   })
-  return { ok: retryAfter === 0, retryAfter }
+  return { ok: exceeded.length === 0, retryAfter, exceeded }
 }
 
 /** Cron: deletes windows that have ended. */

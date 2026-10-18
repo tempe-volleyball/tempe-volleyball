@@ -53,10 +53,24 @@ export const getEnrolmentDeps = () => {
   return { db, mailer, secret: secrets.BETTER_AUTH_SECRET, siteUrl: env.SITE_URL }
 }
 
+/**
+ * The host Turnstile answers must name: the host this request came to (the form posts to its own origin, so that's
+ * where the widget was solved), or null with the test keys (their answers say example.com).
+ */
+export const getTurnstileHostname = (request: Request) => {
+  const keys = getTurnstileKeys()
+  return !keys || keys.test ? null : new URL(request.url).hostname
+}
+
 export const getServices = (): Services => {
   if (services) return services
   const db = getDb(env.DB)
-  const mailer = createMailer({ db, env: { SITE_ENV: env.SITE_ENV, RESEND_API_KEY: secrets.RESEND_API_KEY } })
+  const mailer = createMailer({
+    db,
+    env: { SITE_ENV: env.SITE_ENV, RESEND_API_KEY: secrets.RESEND_API_KEY },
+    // Salts the per-mailbox enrolment email limits (mailer.ts).
+    hashSalt: secrets.BETTER_AUTH_SECRET,
+  })
   const auth = createAuth({
     db,
     env: { SITE_ENV: env.SITE_ENV, SITE_URL: env.SITE_URL, BETTER_AUTH_SECRET: secrets.BETTER_AUTH_SECRET },

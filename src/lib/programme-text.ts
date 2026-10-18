@@ -1,6 +1,7 @@
 import type { ProgrammeLineSource } from './content/blocks'
 import { parseISO } from './fixtures/dates'
 import type { ProgrammeKind } from '../server/db/schema/enums'
+import { formatTimeRange } from './time'
 
 // The generated text for a programme wherever it's listed (docs/admin.md §3.1, §3.4): its day and times, venue,
 // "next starts" line and one-line summary. Pure and shared, so the admin preview, the public pages and the
@@ -18,36 +19,8 @@ export function formatDateLong(date: string): string {
   return `${WEEKDAYS[d.getUTCDay()]} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`
 }
 
-const TIME = /^([01]\d|2[0-3]):([0-5]\d)$/
-
-/** "20:00" -> { h: 8, m: 0, pm: true }. Null for anything that isn't HH:MM. */
-function parts(hhmm: string | null | undefined) {
-  const m = hhmm ? TIME.exec(hhmm) : null
-  if (!m) return null
-  const h = Number(m[1])
-  return { h: h % 12 === 0 ? 12 : h % 12, m: Number(m[2]), pm: h >= 12 }
-}
-
-const clock = (p: { h: number; m: number }) => (p.m ? `${p.h}:${String(p.m).padStart(2, '0')}` : String(p.h))
-
-/** "20:00" -> "8pm", "18:30" -> "6:30pm", "12:00" -> "12pm". '' for a missing or malformed time. */
-export function formatTime(hhmm: string | null | undefined): string {
-  const p = parts(hhmm)
-  return p ? `${clock(p)}${p.pm ? 'pm' : 'am'}` : ''
-}
-
-/**
- * "20:00"–"22:00" -> "8–10pm" (one am/pm when both share it), "11:00"–"13:00" -> "11am–1pm", a start alone -> "8pm".
- * '' when there's no start time.
- */
-export function formatTimeRange(start: string | null | undefined, end: string | null | undefined): string {
-  const s = parts(start)
-  if (!s) return ''
-  const e = parts(end)
-  if (!e) return formatTime(start)
-  if (s.pm === e.pm) return `${clock(s)}–${clock(e)}${e.pm ? 'pm' : 'am'}`
-  return `${formatTime(start)}–${formatTime(end)}`
-}
+// The clock formatters live in src/lib/time.ts (one format everywhere: "6–8pm", "11am–1pm").
+export { formatTime, formatTimeRange } from './time'
 
 /** The fields the generated text reads. A programme row (leagues) satisfies it. */
 export type ProgrammeTextInput = {

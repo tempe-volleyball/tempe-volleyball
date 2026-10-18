@@ -135,6 +135,9 @@ D1 (SQLite) through Drizzle. Conventions:
   `enrolment_forms`, `page_data_refs`, `analytics_daily`, `analytics_fetches` and `analytics_state`.
 - Enrolment reuses `products` (one per season, session, term or event, carrying that instance's caps and overrides),
   `registrations` (waitlist, offers, free agents, manual paid) and `groups` (team entries with status and waitlist).
+  Migration `0005_enrolment_email_confirm` adds the email-confirmation switch (`leagues.enrolment_email_confirm`,
+  `products.email_confirm`) and `email_outbox.priority` (docs/admin.md §3.7); pending entries use the existing
+  `registrations.hold_expires_at` for their deadline.
 - Fixtures parity: postponed and TBD matches, whole-night status and `original_date` on `match_days`, outcome
   overrides, withdrawn teams, and tie-break order and withdrawn policy in `seasons.settings`.
 - `menu_items` gains `category` items (automatic dropdowns), placement before or after the automatic links, and

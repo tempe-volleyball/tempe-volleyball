@@ -37,7 +37,9 @@ const turnstileNo = (async () => Response.json({ success: false, 'error-codes': 
 
 type Setup = Awaited<ReturnType<typeof setup>>
 
-async function setup(opts: { capPlayers?: number | null; capTeams?: number | null; waitlist?: boolean; open?: boolean } = {}) {
+async function setup(
+  opts: { capPlayers?: number | null; capTeams?: number | null; waitlist?: boolean; open?: boolean; emailConfirm?: boolean | null } = {},
+) {
   const { db, stats } = createTestDb()
   const logs: string[] = []
   const mailer = createMailer({ db, env: { SITE_ENV: 'development' }, now: () => NOW, log: (m) => logs.push(m) })
@@ -55,6 +57,8 @@ async function setup(opts: { capPlayers?: number | null; capTeams?: number | nul
       capPlayers: opts.capPlayers === undefined ? 3 : opts.capPlayers,
       waitlistEnabled: opts.waitlist ?? true,
       priceCents: 2000,
+      // Most tests are about caps, so they take entries straight away; the email-confirmation tests turn it on.
+      enrolmentEmailConfirm: opts.emailConfirm === undefined ? false : opts.emailConfirm,
     })
     .returning()
   const [session] = await db
@@ -76,6 +80,7 @@ async function setup(opts: { capPlayers?: number | null; capTeams?: number | nul
       enrolmentOpen: true,
       capTeams: opts.capTeams === undefined ? 2 : opts.capTeams,
       waitlistEnabled: opts.waitlist ?? true,
+      enrolmentEmailConfirm: opts.emailConfirm === undefined ? false : opts.emailConfirm,
     })
     .returning()
   const [season] = await db
@@ -117,6 +122,8 @@ const enrol = (s: Setup, input: PublicEnrolInput, o: { ip?: string; fetch?: type
       mailer: s.mailer,
       turnstileSecret: o.secret === undefined ? 'ts-secret' : o.secret,
       ip: o.ip ?? `198.51.100.${++seq % 250}`,
+      secret: SECRET,
+      siteUrl: SITE,
       fetch: o.fetch ?? turnstileOk,
       now: o.now ?? NOW,
     },
@@ -218,10 +225,12 @@ describe('public enrolment', () => {
   it('detects duplicates by email, name and target, but lets siblings share an email', async () => {
     const s = await setup()
     const p = person()
-    await enrolSession(s, p)
-    expect((await failure(enrolSession(s, { ...p, email: p.email.toUpperCase(), firstName: p.firstName.toLowerCase() }))).code).toBe(
-      'duplicate',
-    )
+    const first = await enrolSession(s, p)
+    // The page isn't told (that would reveal who is enrolled); the address on file gets its reference instead.
+    const again = await enrolSession(s, { ...p, email: p.email.toUpperCase(), firstName: p.firstName.toLowerCase() })
+    expect(again).toMatchObject({ status: 'emailed', reference: null })
+    expect(s.logs.at(-1)).toContain('template=enrolment.already')
+    expect(s.logs.at(-1)).toContain(first.reference!)
     const sibling = await enrolSession(s, { ...p, firstName: 'Alex' })
     expect(sibling.status).toBe('confirmed')
     // The same person can enrol in another session.
@@ -307,14 +316,21 @@ describe('public enrolment', () => {
   it('rate-limits per email and per IP in D1, and prunes old windows', async () => {
     const s = await setup({ capPlayers: null })
     const p = person()
-    // Duplicates still count as attempts.
-    for (let i = 0; i < ENROL_LIMITS.perEmailHour; i++) await enrolSession(s, p).catch(() => undefined)
-    const limited = await failure(enrolSession(s, p))
+    // Duplicates still count as attempts, and +tags and Gmail dots count as the same mailbox.
+    const gmail = { ...p, email: 'pat.lee@gmail.com' }
+    for (let i = 0; i < ENROL_LIMITS.perEmailHour; i++) await enrolSession(s, gmail).catch(() => undefined)
+    const limited = await failure(enrolSession(s, { ...gmail, email: 'p.a.t.lee+tvb@googlemail.com', firstName: 'Other' }))
     expect(limited.code).toBe('rate_limited')
     expect(limited.details!.retryAfter).toBeGreaterThan(0)
     // A new hour starts a new window.
     const later = new Date(NOW.getTime() + HOUR + 1000)
-    expect((await failure(enrolSession(s, p, { now: later }))).code).toBe('duplicate')
+    expect((await enrolSession(s, gmail, { now: later })).status).toBe('emailed')
+
+    // Without a solved Turnstile check only the IP is counted, so junk can't lock someone's email out.
+    const victim = person()
+    for (let i = 0; i < ENROL_LIMITS.perEmailDay + 2; i++)
+      await enrolSession(s, victim, { fetch: turnstileNo, ip: `203.0.113.${i}` }).catch(() => undefined)
+    expect((await enrolSession(s, victim)).status).toBe('confirmed')
 
     const ip = '192.0.2.77'
     for (let i = 0; i < ENROL_LIMITS.perIpHour; i++) await enrolSession(s, person(), { ip })
@@ -410,9 +426,9 @@ describe('waitlist and offers', () => {
   it('bounds offers per request and per cron run; an idle cron run is one query', async () => {
     const s = await setup({ capPlayers: 1 })
     await fill(s, 12)
-    const detail = await getTargetDetail(s.db, { kind: 'session', id: s.session.id }, s.actor.id, NOW)
+    const detail = await getTargetDetail(s.db, { kind: 'session', id: s.session.id }, NOW)
     s.stats.reset()
-    const res = await updateProduct(s.deps, s.actor, detail.product.id, { capacity: 12 })
+    const res = await updateProduct(s.deps, s.actor, detail.product!.id, { capacity: 12 })
     withinLimits(s.stats)
     expect(res.offered).toBe(OFFER_BATCH_MAX)
     // The cron offers the rest, a few an hour, well inside the shared budget.
@@ -430,8 +446,8 @@ describe('waitlist and offers', () => {
   it('in a busy cron hour, drains fewer emails and defers analytics', async () => {
     const s = await setup({ capPlayers: 1 })
     await fill(s, 2)
-    const detail = await getTargetDetail(s.db, { kind: 'session', id: s.session.id }, s.actor.id, NOW)
-    await s.db.update(schema.products).set({ capacity: 2 }).where(eq(schema.products.id, detail.product.id))
+    const detail = await getTargetDetail(s.db, { kind: 'session', id: s.session.id }, NOW)
+    await s.db.update(schema.products).set({ capacity: 2 }).where(eq(schema.products.id, detail.product!.id))
     const drained: (number | undefined)[] = []
     const mailer = {
       queueStatement: s.mailer.queueStatement,
@@ -451,8 +467,8 @@ describe('waitlist and offers', () => {
   it('raising the cap offers the new spots; a team entry offer covers its captain', async () => {
     const s = await setup({ capPlayers: 1 })
     await fill(s, 3)
-    const detail = await getTargetDetail(s.db, { kind: 'session', id: s.session.id }, s.actor.id, NOW)
-    const res = await updateProduct(s.deps, s.actor, detail.product.id, { capacity: 3 })
+    const detail = await getTargetDetail(s.db, { kind: 'session', id: s.session.id }, NOW)
+    const res = await updateProduct(s.deps, s.actor, detail.product!.id, { capacity: 3 })
     expect(res.offered).toBe(2)
     expect((await regsOf(s.db)).filter((r) => r.status === 'offered')).toHaveLength(2)
 
@@ -496,7 +512,7 @@ describe('admin', () => {
     expect(row.caps.players).toBe(2)
     expect(row.open).toBe(true)
 
-    const detail = await getTargetDetail(s.db, { kind: 'session', id: s.session.id }, s.actor.id, NOW)
+    const detail = await getTargetDetail(s.db, { kind: 'session', id: s.session.id }, NOW)
     const confirmed = detail.registrations.find((r) => r.status === 'confirmed')!
     await registrationAction(s.deps, s.actor, confirmed.id, { action: 'mark_paid', method: 'payid', note: '12/10' })
     let reg = (await regsOf(s.db)).find((r) => r.id === confirmed.id)!
@@ -508,7 +524,7 @@ describe('admin', () => {
     // Moving a confirmed player to another session frees their spot for the waitlist.
     await registrationAction(s.deps, s.actor, confirmed.id, { action: 'move', to: { kind: 'session', id: s.session2.id } })
     const regs = await regsOf(s.db)
-    expect(regs.find((r) => r.id === confirmed.id)!.productId).not.toBe(detail.product.id)
+    expect(regs.find((r) => r.id === confirmed.id)!.productId).not.toBe(detail.product!.id)
     expect(regs.filter((r) => r.status === 'offered')).toHaveLength(1)
 
     const audit = (await s.db.select().from(schema.auditLog).all()).map((a) => a.action)
@@ -554,18 +570,18 @@ describe('admin', () => {
       person: person(),
       answers: { skill_level: 'advanced', code_of_conduct: true },
     })
-    const detail = await getTargetDetail(s.db, { kind: 'season', id: s.season.id }, s.actor.id, NOW)
+    const detail = await getTargetDetail(s.db, { kind: 'season', id: s.season.id }, NOW)
     const fa = detail.registrations.find((r) => r.entryType === 'free_agent')!
     const team = detail.groups[0]!
     await registrationAction(s.deps, s.actor, fa.id, { action: 'place', groupId: team.id })
-    const after = await getTargetDetail(s.db, { kind: 'season', id: s.season.id }, s.actor.id, NOW)
+    const after = await getTargetDetail(s.db, { kind: 'season', id: s.season.id }, NOW)
     expect(after.registrations.find((r) => r.id === fa.id)).toMatchObject({ entryType: 'free_agent', teamName: 'Spikers' })
     // A team captain's registration can't be placed or cancelled on its own.
     const captain = after.registrations.find((r) => r.entryType === 'team')!
     expect((await failure(registrationAction(s.deps, s.actor, captain.id, { action: 'cancel' }))).code).toBe('conflict')
     // Cancelling the team unplaces its free agents.
     await groupAction(s.deps, s.actor, team.id, { action: 'cancel' })
-    const final = await getTargetDetail(s.db, { kind: 'season', id: s.season.id }, s.actor.id, NOW)
+    const final = await getTargetDetail(s.db, { kind: 'season', id: s.season.id }, NOW)
     expect(final.registrations.find((r) => r.id === fa.id)!.groupId).toBeNull()
     expect(final.registrations.find((r) => r.id === captain.id)!.status).toBe('cancelled')
   })

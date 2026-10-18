@@ -28,8 +28,13 @@ export type Calendar = {
 
 export const ICAL_CONTENT_TYPE = 'text/calendar; charset=utf-8'
 
-/** RFC 5545 TEXT escaping: backslash, semicolon, comma and newlines. */
-export const escapeText = (s: string) => s.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n')
+/** RFC 5545 TEXT escaping: backslash, semicolon, comma and line breaks (CRLF, LF, or a lone CR, which would end the line). */
+export const escapeText = (s: string) =>
+  s
+    .replace(/\\/g, '\\\\')
+    .replace(/;/g, '\\;')
+    .replace(/,/g, '\\,')
+    .replace(/\r\n|\r|\n/g, '\\n')
 
 /** "2026-10-22T09:00:00.000Z" -> "20261022T090000Z". */
 export function icalUtc(iso: string): string {

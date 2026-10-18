@@ -3,11 +3,13 @@ import type { BatchItem } from 'drizzle-orm/batch'
 import { entryTypesFor } from '../../lib/enrolment/defaults'
 import type { FormEntryType, FormField } from '../../lib/enrolment/forms'
 import { isTargetKind, sessionLabel, TARGET_FOR_PROGRAMME, type TargetKind, type TargetRef } from '../../lib/enrolment/targets'
+import { enrolmentsCsv } from '../../lib/enrolment/csv'
 import { isEmail, isPhone, normaliseEmail, validateEnrolment } from '../../lib/enrolment/validate'
 import { programmePath } from '../../lib/programmes'
 import { sydneyDate } from '../../lib/time'
 import { tags, type PurgeTargets } from '../cache'
 import { audit, auditEntry, isUniqueFailure, optionalText, type Editor } from '../content/common'
+import { getSettings } from '../content/settings'
 import { runBatch, type AppDb } from '../db'
 import {
   developmentTerms,
@@ -31,6 +33,8 @@ import {
   ensureProduct,
   invalid,
   isOpen,
+  joinTargetRows,
+  labelOfRow,
   loadProduct,
   loadTarget,
   notFound,
@@ -43,12 +47,15 @@ import {
   sendOfferEmails,
   sendQuietly,
   settleStatements,
+  targetLabelColumns,
+  waitlistRanks,
   type Effective,
   type NotifyDeps,
   type ProgrammeInfo,
   type Target,
 } from './core'
-import { createEntry, emailNewEntry, type EnrolStatus } from './submit'
+import { loadPendingEntry, settlePending } from './confirm'
+import { createEntry, emailConfirmLink, emailNewEntry, type EnrolStatus } from './submit'
 
 // The admin side of enrolment (docs/api/enrolment.md): every target with its counts, one target's entries, the
 // per-instance settings (its product), and the actions on an entry. Admin and owner only: this is personal data,
@@ -68,6 +75,9 @@ export type Counts = {
   offered: number
   teams: number
   teamsWaitlist: number
+  /** Public entries waiting for their email address to be confirmed (they hold no spot). */
+  pending: number
+  teamsPending: number
   /** Spot-holding entries with a fee that aren't marked paid. */
   unpaid: number
 }
@@ -85,7 +95,16 @@ export type TargetSummary = {
   open: boolean
 }
 
-const emptyCounts = (): Counts => ({ players: 0, waitlist: 0, offered: 0, teams: 0, teamsWaitlist: 0, unpaid: 0 })
+const emptyCounts = (): Counts => ({
+  players: 0,
+  waitlist: 0,
+  offered: 0,
+  teams: 0,
+  teamsWaitlist: 0,
+  pending: 0,
+  teamsPending: 0,
+  unpaid: 0,
+})
 
 const HOLDING = ['pending_payment', 'paid', 'confirmed', 'offered']
 
@@ -102,7 +121,9 @@ async function countsByProduct(db: AppDb, productIds?: string[]) {
         n: sql<number>`count(*)`,
       })
       .from(registrations)
-      .where(and(regFilter, sql`${registrations.status} in ('pending_payment', 'paid', 'confirmed', 'offered', 'waitlist')`))
+      .where(
+        and(regFilter, sql`${registrations.status} in ('pending_payment', 'paid', 'confirmed', 'offered', 'waitlist', 'pending_email')`),
+      )
       .groupBy(registrations.productId, registrations.status)
       .all(),
     db
@@ -122,6 +143,7 @@ async function countsByProduct(db: AppDb, productIds?: string[]) {
     const c = get(r.productId)
     const n = Number(r.n)
     if (r.status === 'waitlist') c.waitlist += n
+    else if (r.status === 'pending_email') c.pending += n
     else if (HOLDING.includes(r.status)) {
       c.players += n
       c.unpaid += Number(r.unpaid)
@@ -132,6 +154,7 @@ async function countsByProduct(db: AppDb, productIds?: string[]) {
     const c = get(g.productId)
     const n = Number(g.n)
     if (g.status === 'waitlist') c.teamsWaitlist += n
+    else if (g.status === 'pending_email') c.teamsPending += n
     else c.teams += n
   }
   return out
@@ -278,6 +301,10 @@ export type RegistrationRow = {
   groupId: string | null
   teamName: string | null
   waitlistPosition: number | null
+  /** 1-based place on the waitlist (positions keep gaps; this doesn't). */
+  waitlistRank: number | null
+  /** While pending_email: when the confirm link stops working (the cron then expires the entry). */
+  confirmBy: string | null
   offeredAt: string | null
   offerExpiresAt: string | null
   amountCents: number | null
@@ -310,6 +337,7 @@ export type GroupRow = {
   name: string
   status: string
   waitlistPosition: number | null
+  waitlistRank: number | null
   offeredAt: string | null
   offerExpiresAt: string | null
   captainPlayerId: string | null
@@ -321,7 +349,8 @@ export type GroupRow = {
 
 export type TargetDetail = {
   summary: TargetSummary
-  product: Product
+  /** Null until the target's settings are first saved (seasons get their product row then; a GET never writes). */
+  product: Product | null
   effective: Effective
   programme: ProgrammeInfo
   /** The form in use (retired questions included, for old answers). */
@@ -363,6 +392,8 @@ async function loadRegistrationRows(db: AppDb, productId: string): Promise<Regis
     .orderBy(asc(registrations.createdAt))
     .limit(2000)
     .all()
+  const individuals = rows.map((x) => x.r).filter((r) => !r.groupId || r.freeAgent)
+  const ranks = waitlistRanks(individuals)
   return rows.map(({ r, p, teamName, markedBy }) => ({
     id: r.id,
     reference: r.reference,
@@ -371,6 +402,8 @@ async function loadRegistrationRows(db: AppDb, productId: string): Promise<Regis
     groupId: r.groupId,
     teamName,
     waitlistPosition: r.waitlistPosition,
+    waitlistRank: ranks.get(r.id) ?? null,
+    confirmBy: r.status === 'pending_email' ? r.holdExpiresAt : null,
     offeredAt: r.offeredAt,
     offerExpiresAt: r.offerExpiresAt,
     amountCents: r.amountCents,
@@ -437,37 +470,42 @@ export const parseTargetRef = (kind: unknown, id: unknown): TargetRef => {
   return { kind, id }
 }
 
-/** One target with all its entries. Creates its product on first view (so its settings can be edited). */
-export async function getTargetDetail(db: AppDb, ref: TargetRef, actorId: string | null, now = new Date()): Promise<TargetDetail> {
+const NO_ROWS = Promise.resolve([])
+
+/** One target with all its entries. Read-only: a target without a product row yet shows the programme's defaults. */
+export async function getTargetDetail(db: AppDb, ref: TargetRef, now = new Date()): Promise<TargetDetail> {
   const today = sydneyDate(now)
   const target = await loadTarget(db, ref, today)
   if (!target) throw notFound('enrolment target')
-  const product = await ensureProduct(db, target, actorId)
+  const product = target.product
   const eff = effective(target.programme, product)
   const [regs, groupRows, form, moveTargets, counts] = await Promise.all([
-    loadRegistrationRows(db, product.id),
-    db
-      .select({
-        id: groups.id,
-        name: groups.name,
-        status: groups.status,
-        waitlistPosition: groups.waitlistPosition,
-        offeredAt: groups.offeredAt,
-        offerExpiresAt: groups.offerExpiresAt,
-        captainPlayerId: groups.captainPlayerId,
-        teamId: groups.teamId,
-        notes: groups.notes,
-        createdAt: groups.createdAt,
-        cancelledAt: groups.cancelledAt,
-      })
-      .from(groups)
-      .where(eq(groups.productId, product.id))
-      .orderBy(asc(groups.createdAt))
-      .all(),
+    product ? loadRegistrationRows(db, product.id) : NO_ROWS,
+    product
+      ? db
+          .select({
+            id: groups.id,
+            name: groups.name,
+            status: groups.status,
+            waitlistPosition: groups.waitlistPosition,
+            offeredAt: groups.offeredAt,
+            offerExpiresAt: groups.offerExpiresAt,
+            captainPlayerId: groups.captainPlayerId,
+            teamId: groups.teamId,
+            notes: groups.notes,
+            createdAt: groups.createdAt,
+            cancelledAt: groups.cancelledAt,
+          })
+          .from(groups)
+          .where(eq(groups.productId, product.id))
+          .orderBy(asc(groups.createdAt))
+          .all()
+      : NO_ROWS,
     resolveFormWithRetired(db, eff.formId, target.programme.kind),
     siblingTargets(db, target.programme, ref, today),
-    countsByProduct(db, [product.id]),
+    product ? countsByProduct(db, [product.id]) : Promise.resolve(new Map<string, Counts>()),
   ])
+  const groupRanks = waitlistRanks(groupRows)
   const p = target.programme
   return {
     summary: {
@@ -477,9 +515,9 @@ export async function getTargetDetail(db: AppDb, ref: TargetRef, actorId: string
       endsOn: target.endsOn,
       status: target.closedReason ?? 'open',
       programme: { id: p.id, name: p.name, code: p.code, kind: p.kind, status: p.status },
-      productId: product.id,
+      productId: product?.id ?? null,
       caps: { players: eff.capPlayers, teams: eff.capTeams },
-      counts: counts.get(product.id) ?? emptyCounts(),
+      counts: (product && counts.get(product.id)) ?? emptyCounts(),
       open: isOpen(target, now.toISOString()),
     },
     product,
@@ -488,9 +526,32 @@ export async function getTargetDetail(db: AppDb, ref: TargetRef, actorId: string
     form,
     entryTypes: entryTypesFor(p.kind, eff),
     registrations: regs,
-    groups: groupRows,
+    groups: groupRows.map((g) => ({ ...g, waitlistRank: groupRanks.get(g.id) ?? null })),
     moveTargets,
   }
+}
+
+/**
+ * The CSV of a target's entries (`all` includes cancelled and expired ones), audited as enrolment.export with how
+ * many rows went out: it's everyone's personal details, juniors' included.
+ */
+export async function exportEnrolments(db: AppDb, actor: Editor, ref: TargetRef, all: boolean, now = new Date()) {
+  const detail = await getTargetDetail(db, ref, now)
+  const rows = detail.registrations.filter((r) => all || !['cancelled', 'expired', 'refunded'].includes(r.status))
+  await audit(
+    db,
+    actor,
+    'enrolment.export',
+    { type: 'product', id: detail.product?.id ?? `${ref.kind}:${ref.id}` },
+    null,
+    { target: `${ref.kind}:${ref.id}`, label: detail.summary.label, rows: rows.length, includeCancelled: all },
+    now.toISOString(),
+  )
+  const name = `${detail.summary.programme.code}-${detail.summary.label}`
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+  return { csv: enrolmentsCsv(detail.form.fields, rows), filename: `${name || 'enrolments'}-enrolments.csv` }
 }
 
 /** Like resolveForm, but keeps retired questions (so old answers keep their labels in the admin and CSV). */
@@ -539,6 +600,7 @@ export type ProductInput = Partial<
     | 'opensAt'
     | 'closesAt'
     | 'active'
+    | 'emailConfirm'
     | 'baseUpdatedAt',
     unknown
   >
@@ -550,8 +612,8 @@ export async function updateProduct(deps: EnrolmentDeps, actor: Editor, productI
   const now = deps.now ?? new Date()
   const loaded = await loadProduct(db, productId)
   if (!loaded) throw notFound('product')
-  const { product, programme } = loaded
-  if (typeof input.baseUpdatedAt === 'string' && input.baseUpdatedAt !== product.updatedAt)
+  const { product, programme, label } = loaded
+  if (typeof input.baseUpdatedAt === 'string' && input.baseUpdatedAt && input.baseUpdatedAt !== product.updatedAt)
     throw new HttpError(409, 'conflict', 'Someone else changed these settings since you loaded them. Reload and try again.')
   const set: Partial<Product> = {}
   if ('capacity' in input) set.capacity = int(input.capacity, 'The player cap', 0, 10_000)
@@ -564,6 +626,7 @@ export async function updateProduct(deps: EnrolmentDeps, actor: Editor, productI
   if ('opensAt' in input) set.opensAt = instant(input.opensAt, 'Opens')
   if ('closesAt' in input) set.closesAt = instant(input.closesAt, 'Closes')
   if ('active' in input) set.active = bool(input.active, 'Taking enrolments') ?? true
+  if ('emailConfirm' in input) set.emailConfirm = bool(input.emailConfirm, 'Email confirmation')
   if ('formId' in input) {
     if (input.formId === null || input.formId === '') set.formId = null
     else {
@@ -593,12 +656,21 @@ export async function updateProduct(deps: EnrolmentDeps, actor: Editor, productI
     audit(db, actor, 'product.update', { type: 'product', id: productId }, before, set, at),
   ])) as [Product[]]
   const offers = await offerNext(db, productId, now)
-  const offered = await sendOfferEmails(deps, offers, { programme: programme.name, target: product.name })
+  const offered = await sendOfferEmails(deps, offers, { programme: programme.name, target: label })
   return {
     product: updated![0]!,
     offered,
     purge: { tags: [tags.page('/enrol'), tags.page(programmePath(programme.kind, programme.slug))] } as PurgeTargets,
   }
+}
+
+/** Saves a target's settings, creating its product row first if it has none yet (PATCH targets/:kind/:id). */
+export async function updateTargetSettings(deps: EnrolmentDeps, actor: Editor, ref: TargetRef, input: ProductInput) {
+  const now = deps.now ?? new Date()
+  const target = await loadTarget(deps.db, ref, sydneyDate(now))
+  if (!target) throw notFound('enrolment target')
+  const product = await ensureProduct(deps.db, target, actor.id)
+  return updateProduct(deps, actor, product.id, input)
 }
 
 // ── Adding an entry (admin) ───────────────────────────────────────────────────
@@ -640,7 +712,15 @@ export async function addEntry(deps: EnrolmentDeps, actor: Editor, ref: TargetRe
       ),
     ],
   })
-  if (input.notify === true) await emailNewEntry(db, deps.mailer, check.person.email, check.person.firstName, result)
+  if (input.notify === true && result.status !== 'pending_email')
+    await emailNewEntry(
+      db,
+      deps.mailer,
+      check.person.email,
+      check.person.firstName,
+      { ...result, status: result.status },
+      { priority: true },
+    )
   return result
 }
 
@@ -721,6 +801,8 @@ export const registrationActions = [
   'place',
   'edit',
   'delete',
+  'verify',
+  'resend_confirm',
 ] as const
 export type RegistrationAction = (typeof registrationActions)[number]
 
@@ -728,24 +810,33 @@ const HOLDS = (s: string) => HOLDING.includes(s)
 const CLOSED = (s: string) => s === 'cancelled' || s === 'expired' || s === 'refunded'
 
 async function loadRegistration(db: AppDb, id: string) {
-  const row = await db
-    .select({
-      r: registrations,
-      player: players,
-      product: products,
-      programme: programmeColumns,
-      groupStatus: groups.status,
-      groupName: groups.name,
-    })
-    .from(registrations)
-    .innerJoin(players, eq(players.id, registrations.playerId))
-    .innerJoin(products, eq(products.id, registrations.productId))
-    .innerJoin(programmes, eq(programmes.id, products.programmeId))
-    .leftJoin(groups, eq(groups.id, registrations.groupId))
+  const row = await joinTargetRows(
+    db
+      .select({
+        r: registrations,
+        player: players,
+        product: products,
+        programme: programmeColumns,
+        groupStatus: sql<string | null>`${groups.status}`.as('group_status'),
+        groupName: sql<string | null>`${groups.name}`.as('group_name'),
+        ...targetLabelColumns,
+      })
+      .from(registrations)
+      .innerJoin(players, eq(players.id, registrations.playerId))
+      .innerJoin(products, eq(products.id, registrations.productId))
+      .innerJoin(programmes, eq(programmes.id, products.programmeId))
+      .leftJoin(groups, eq(groups.id, registrations.groupId))
+      .$dynamic(),
+  )
     .where(eq(registrations.id, id))
     .get()
   if (!row) throw notFound('enrolment')
-  return row
+  return { ...row, label: labelOfRow(row) }
+}
+
+/** The deadline a resent confirm link gets: now plus Settings → Enrolment's hours. */
+async function confirmDeadline(db: AppDb, now: Date) {
+  return new Date(now.getTime() + (await getSettings(db)).enrolment.confirmHours * 3_600_000).toISOString()
 }
 
 const text = (v: unknown, label: string, max: number, required = false) => {
@@ -767,7 +858,7 @@ export async function registrationAction(deps: EnrolmentDeps, actor: Editor, id:
   if (!(registrationActions as readonly string[]).includes(action)) throw invalid('Unknown action.')
   const row = await loadRegistration(db, id)
   const { r, player, product, programme } = row
-  const what = { programme: programme.name, target: product.name }
+  const what = { programme: programme.name, target: row.label }
   const isCaptain = !!r.groupId && !r.freeAgent
   const auditOf = (a: Parameters<typeof auditEntry>[1], before: unknown, after: unknown) =>
     audit(db, actor, a, { type: 'registration', id }, before, after, at)
@@ -856,12 +947,42 @@ export async function registrationAction(deps: EnrolmentDeps, actor: Editor, id:
       }
       break
     }
+    case 'verify':
+    case 'resend_confirm': {
+      if (isCaptain) throw conflict('This is part of a team entry. Use the team entry instead.')
+      if (r.status !== 'pending_email') throw wrongState(r.status)
+      if (action === 'resend_confirm') {
+        // A fresh deadline, so the person has the full time again from this email.
+        const until = await confirmDeadline(db, now)
+        await run([
+          db.update(registrations).set({ holdExpiresAt: until, updatedBy: actor.id }).where(same).returning({ id: registrations.id }),
+          auditOf('enrolment.update', { confirmBy: r.holdExpiresAt }, { confirmBy: until }),
+        ])
+        const sent = await emailConfirmLink(
+          deps,
+          player.email,
+          { firstName: player.firstName, ...what, teamName: null, registrationId: id, createdAt: r.createdAt, expiresAt: until },
+          { priority: true },
+        )
+        return { id, offers: 0, emailed: sent }
+      }
+      const entry = await loadPendingEntry(db, id)
+      if (!entry) throw notFound('enrolment')
+      const state = await settlePending(deps, entry, at, {
+        ignoreDeadline: true,
+        notify: input.notify !== false,
+        extra: [auditOf('enrolment.status', { status: r.status }, { status: 'email_confirmed' })],
+      })
+      if (!state) throw conflict('Someone else changed this enrolment just now. Reload and try again.')
+      return { id, offers: 0, state }
+    }
     case 'offer':
     case 'confirm':
     case 'resend_offer': {
       if (isCaptain) throw conflict('This is part of a team entry. Use the team entry instead.')
       if (action === 'offer' && r.status !== 'waitlist') throw wrongState(r.status)
-      if (action === 'confirm' && r.status !== 'waitlist' && r.status !== 'offered') throw wrongState(r.status)
+      if (action === 'confirm' && r.status !== 'waitlist' && r.status !== 'offered' && r.status !== 'pending_email')
+        throw wrongState(r.status)
       if (action === 'resend_offer') {
         if (r.status !== 'offered' || !r.offeredAt) throw wrongState(r.status)
         const sent = await sendOfferEmails(
@@ -877,6 +998,7 @@ export async function registrationAction(deps: EnrolmentDeps, actor: Editor, id:
               teamName: null,
               offeredAt: r.offeredAt,
               expiresAt: r.offerExpiresAt ?? at,
+              hours: effective(programme, product).offerHours,
             },
           ],
           what,
@@ -888,29 +1010,37 @@ export async function registrationAction(deps: EnrolmentDeps, actor: Editor, id:
       const set =
         action === 'offer'
           ? { status: 'offered' as const, offeredAt: at, offerExpiresAt: expires, waitlistPosition: null, updatedBy: actor.id }
-          : { status: 'confirmed' as const, offerExpiresAt: null, waitlistPosition: null, updatedBy: actor.id }
+          : { status: 'confirmed' as const, offerExpiresAt: null, holdExpiresAt: null, waitlistPosition: null, updatedBy: actor.id }
       await run([
         db.update(registrations).set(set).where(same).returning({ id: registrations.id }),
         auditOf(action === 'offer' ? 'enrolment.offer' : 'enrolment.status', { status: r.status }, { status: set.status }),
       ])
-      if (action === 'offer') offers += await sendOfferEmails(deps, await offersMadeAt(db, product.id, at), what)
+      if (action === 'offer') offers += await sendOfferEmails(deps, await offersMadeAt(db, product.id, at, eff.offerHours), what)
       else if (input.notify !== false)
-        await emailNewEntry(db, deps.mailer, player.email, player.firstName, {
-          ...base,
-          status: 'confirmed',
-          position: null,
-          registrationId: id,
-          groupId: null,
-          amountCents: r.amountCents,
-          message: null,
-          programme: what.programme,
-          target: what.target,
-        })
+        await emailNewEntry(
+          db,
+          deps.mailer,
+          player.email,
+          player.firstName,
+          {
+            ...base,
+            status: 'confirmed',
+            position: null,
+            registrationId: id,
+            groupId: null,
+            amountCents: r.amountCents,
+            message: null,
+            programme: what.programme,
+            target: what.target,
+          },
+          { priority: true },
+        )
       break
     }
     case 'move': {
       if (isCaptain) throw conflict('Team entries move as a whole; this one is a team captain.')
       if (CLOSED(r.status)) throw wrongState(r.status)
+      if (r.status === 'pending_email') throw conflict("This entry's email address isn't confirmed yet. Confirm it (or cancel it) first.")
       const to = input.to && typeof input.to === 'object' ? (input.to as Record<string, unknown>) : {}
       const ref = parseTargetRef(to.kind, to.id)
       const target = await loadTarget(db, ref, sydneyDate(now))
@@ -1021,7 +1151,19 @@ export async function registrationAction(deps: EnrolmentDeps, actor: Editor, id:
 
 // ── Actions on one team entry ─────────────────────────────────────────────────
 
-export const groupActions = ['cancel', 'reinstate', 'offer', 'confirm', 'resend_offer', 'rename', 'notes', 'link_team', 'delete'] as const
+export const groupActions = [
+  'cancel',
+  'reinstate',
+  'offer',
+  'confirm',
+  'resend_offer',
+  'rename',
+  'notes',
+  'link_team',
+  'delete',
+  'verify',
+  'resend_confirm',
+] as const
 export type GroupAction = (typeof groupActions)[number]
 
 export async function groupAction(
@@ -1035,16 +1177,19 @@ export async function groupAction(
   const at = now.toISOString()
   const action = input.action as GroupAction
   if (!(groupActions as readonly string[]).includes(action)) throw invalid('Unknown action.')
-  const row = await db
-    .select({ g: groups, product: products, programme: programmeColumns })
-    .from(groups)
-    .innerJoin(products, eq(products.id, groups.productId))
-    .innerJoin(programmes, eq(programmes.id, products.programmeId))
+  const row = await joinTargetRows(
+    db
+      .select({ g: groups, product: products, programme: programmeColumns, ...targetLabelColumns })
+      .from(groups)
+      .innerJoin(products, eq(products.id, groups.productId))
+      .innerJoin(programmes, eq(programmes.id, products.programmeId))
+      .$dynamic(),
+  )
     .where(eq(groups.id, id))
     .get()
   if (!row) throw notFound('team entry')
   const { g, product, programme } = row
-  const what = { programme: programme.name, target: product.name }
+  const what = { programme: programme.name, target: labelOfRow(row) }
   const captain = g.captainPlayerId
     ? await db
         .select({
@@ -1053,6 +1198,9 @@ export async function groupAction(
           email: players.email,
           firstName: players.firstName,
           amountCents: registrations.amountCents,
+          createdAt: registrations.createdAt,
+          holdExpiresAt: registrations.holdExpiresAt,
+          status: registrations.status,
         })
         .from(registrations)
         .innerJoin(players, eq(players.id, registrations.playerId))
@@ -1118,11 +1266,50 @@ export async function groupAction(
       ])
       break
     }
+    case 'verify':
+    case 'resend_confirm': {
+      if (g.status !== 'pending_email' || !captain) throw wrongState(g.status)
+      if (action === 'resend_confirm') {
+        const until = await confirmDeadline(db, now)
+        await run([
+          db.update(groups).set({ updatedBy: actor.id }).where(same).returning({ id: groups.id }),
+          db
+            .update(registrations)
+            .set({ holdExpiresAt: until, updatedBy: actor.id })
+            .where(and(eq(registrations.id, captain.id), eq(registrations.status, 'pending_email'))),
+          auditOf('enrolment.update', { confirmBy: captain.holdExpiresAt }, { confirmBy: until }),
+        ])
+        const sent = await emailConfirmLink(
+          deps,
+          captain.email,
+          {
+            firstName: captain.firstName,
+            ...what,
+            teamName: g.name,
+            registrationId: captain.id,
+            createdAt: captain.createdAt,
+            expiresAt: until,
+          },
+          { priority: true },
+        )
+        return { id, offers: 0, emailed: sent }
+      }
+      const entry = await loadPendingEntry(db, captain.id)
+      if (!entry) throw notFound('enrolment')
+      const state = await settlePending(deps, entry, at, {
+        ignoreDeadline: true,
+        notify: input.notify !== false,
+        extra: [auditOf('enrolment.status', { status: g.status }, { status: 'email_confirmed' })],
+      })
+      if (!state) throw conflict('Someone else changed this team entry just now. Reload and try again.')
+      return { id, offers: 0, state }
+    }
     case 'offer':
     case 'confirm':
     case 'resend_offer': {
       if (action === 'offer' && g.status !== 'waitlist') throw wrongState(g.status)
-      if (action === 'confirm' && g.status !== 'waitlist' && g.status !== 'offered') throw wrongState(g.status)
+      if (action === 'confirm' && g.status !== 'waitlist' && g.status !== 'offered' && g.status !== 'pending_email')
+        throw wrongState(g.status)
       if (action === 'resend_offer') {
         if (g.status !== 'offered' || !g.offeredAt || !captain) throw wrongState(g.status)
         const sent = await sendOfferEmails(
@@ -1138,6 +1325,7 @@ export async function groupAction(
               teamName: g.name,
               offeredAt: g.offeredAt,
               expiresAt: g.offerExpiresAt ?? at,
+              hours: effective(programme, product).offerHours,
             },
           ],
           what,
@@ -1157,22 +1345,29 @@ export async function groupAction(
           .set(
             action === 'offer'
               ? { status: 'offered', offeredAt: at, offerExpiresAt: expires }
-              : { status: 'confirmed', offerExpiresAt: null },
+              : { status: 'confirmed', offerExpiresAt: null, holdExpiresAt: null },
           )
-          .where(and(captainRows, sql`${registrations.status} in ('waitlist', 'offered')`)),
+          .where(and(captainRows, sql`${registrations.status} in ('waitlist', 'offered', 'pending_email')`)),
         auditOf(action === 'offer' ? 'enrolment.offer' : 'enrolment.status', { status: g.status }, { status: set.status }),
       ])
-      if (action === 'offer') offers += await sendOfferEmails(deps, await offersMadeAt(db, product.id, at), what)
+      if (action === 'offer') offers += await sendOfferEmails(deps, await offersMadeAt(db, product.id, at, eff.offerHours), what)
       else if (input.notify !== false && captain && base)
-        await emailNewEntry(db, deps.mailer, captain.email, captain.firstName, {
-          ...base,
-          status: 'confirmed',
-          position: null,
-          registrationId: captain.id,
-          groupId: id,
-          amountCents: captain.amountCents,
-          message: null,
-        })
+        await emailNewEntry(
+          db,
+          deps.mailer,
+          captain.email,
+          captain.firstName,
+          {
+            ...base,
+            status: 'confirmed',
+            position: null,
+            registrationId: captain.id,
+            groupId: id,
+            amountCents: captain.amountCents,
+            message: null,
+          },
+          { priority: true },
+        )
       break
     }
     case 'rename': {

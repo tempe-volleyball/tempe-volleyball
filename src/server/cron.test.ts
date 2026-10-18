@@ -43,6 +43,7 @@ describe('runJobs', () => {
       payloadsScrubbed: 1,
       enrolment: 'skipped',
       rateLimitsPruned: 0,
+      housekeeping: { pendingExpired: 0, emailsPruned: 0 },
     })
     expect((await db.select().from(adminInvites))[0]!.expiredAt).toBe('2026-10-18T00:00:00.000Z')
     expect(logs).toHaveLength(1)
@@ -61,6 +62,7 @@ describe('runJobs', () => {
       payloadsScrubbed: 0,
       enrolment: 'skipped',
       rateLimitsPruned: 0,
+      housekeeping: { pendingExpired: 0, emailsPruned: 0 },
     })
   })
 

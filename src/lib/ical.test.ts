@@ -4,6 +4,8 @@ import { buildCalendar, escapeText, foldLine, icalUtc, webcalUrl } from './ical'
 describe('ical text', () => {
   it('escapes TEXT values', () => {
     expect(escapeText('A, B; C\\D\nE')).toBe('A\\, B\\; C\\\\D\\nE')
+    // A lone CR would end the content line early; CRLF is one break, not two.
+    expect(escapeText('A\rB\r\nC')).toBe('A\\nB\\nC')
   })
   it('writes UTC instants', () => {
     expect(icalUtc('2026-10-22T09:00:00.000Z')).toBe('20261022T090000Z')
