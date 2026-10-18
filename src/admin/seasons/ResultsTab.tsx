@@ -25,11 +25,12 @@ import {
   type WeekResultsState,
 } from '../../lib/fixtures'
 import { formatWhen, type AdjustmentRow, type SeasonView } from '../api'
+import { sydneyDate } from '../../lib/time'
 import { Button, Card, Notice, errorMessage } from '../ui'
 import { ConfirmDialog } from './dialogs'
 import { formFromResult, resultFromForm, type ResultForm } from './results-form'
 import { Ladder } from './Ladder'
-import { inputClass } from './SetupTab'
+import { inputClass } from './styles'
 
 // Results, one match day at a time (ported from the demo's ResultsTab, now set by set): type the scores, Save the
 // day (a draft only the admin sees), then Publish it (the ladder and website change). A published day can be
@@ -42,6 +43,17 @@ export type DayEdit = {
   /** By game id: what's wrong with a half-typed score. */
   problems: Record<string, string>
 }
+
+/** Scrolls to a match day and focuses its first box, keeping the address in step (#results-<id>). */
+function jump(weekId: string) {
+  history.replaceState(history.state, '', `#results-${weekId}`)
+  const el = document.getElementById(`results-${weekId}`)
+  el?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+  el?.querySelector<HTMLElement>('input:not(:disabled), button')?.focus({ preventScroll: true })
+}
+
+/** What happened to a match day's last save, shown beside its buttons (and read out). */
+export type DayNote = { kind: 'saving' } | { kind: 'saved'; at: string } | { kind: 'offline' } | { kind: 'error'; text: string }
 
 export type GameStatus = 'played' | 'forfeit' | 'cancelled' | 'postponed' | 'tbd'
 
@@ -71,6 +83,7 @@ export type ResultsActions = {
 export function ResultsTab({
   view,
   edits,
+  notes,
   busyDay,
   canEnter,
   isAdmin,
@@ -79,6 +92,7 @@ export function ResultsTab({
 }: {
   view: SeasonView
   edits: Record<string, DayEdit>
+  notes: Record<string, DayNote>
   /** Bumped per match day (and `all` for every day) to reset the boxes to the results. */
   resets: Record<string, number> & { all: number }
   /** The match day being saved or published. */
@@ -96,16 +110,48 @@ export function ResultsTab({
   const status = (id: string) => view.matches[id]?.status ?? 'scheduled'
   const note = (id: string) => view.matches[id]?.statusNote ?? ''
   const canManage = isAdmin && canEnter
-  // Links from the match list land on a match day: /admin/seasons/<id>/results#results-<weekId>. After the page's
-  // own scroll-to-top.
+  const [today] = useState(() => sydneyDate(new Date()))
+  const focus = useMemo(() => focusDay(weeks, today, (id) => isOffStatus(status(id))), [weeks, today]) // oxlint-disable-line react-hooks/exhaustive-deps
+  // Links from the home page and the match list land on a match day: /admin/seasons/<id>/results#results-<weekId>.
+  // Without one, the page opens at tonight's match day (or the latest still to finish), so at the venue the right
+  // night is on screen straight away. After the page's own scroll-to-top.
   useEffect(() => {
-    const target = window.location.hash.startsWith('#results-') ? document.getElementById(window.location.hash.slice(1)) : null
+    const id = window.location.hash.startsWith('#results-')
+      ? window.location.hash.slice(1)
+      : focus && focus !== weeks.find((w) => w.kind !== 'skip')?.id
+        ? `results-${focus}`
+        : ''
+    const target = id ? document.getElementById(id) : null
     if (target) requestAnimationFrame(() => target.scrollIntoView({ block: 'start' }))
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- once, when the tab opens
   }, [])
+  const played = weeks.filter((w) => w.kind !== 'skip')
 
   return (
     <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_32rem]">
       <div className="min-w-0 space-y-4">
+        {played.length > 1 && (
+          <div className="bg-paper/95 sticky top-0 z-20 -mx-4 px-4 py-2 backdrop-blur sm:mx-0 sm:px-0">
+            <label className="flex items-center gap-2 text-sm font-semibold">
+              <span className="shrink-0">Go to</span>
+              <select
+                className="min-w-0 flex-1 rounded border border-black/20 bg-white px-2 py-2 font-normal"
+                value=""
+                onChange={(e) => e.target.value && jump(e.target.value)}
+              >
+                <option value="">Choose a match day…</option>
+                {played.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.id === focus ? '▶ ' : ''}Match day {w.matchDay}
+                    {STAGE[w.kind] ? ` (${STAGE[w.kind]})` : ''} · {formatShort(w.date)}
+                    {w.date === today ? ' · tonight' : ''}
+                    {edits[w.id] ? ' · unsaved' : w.resultsPublishedAt ? ' · published' : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        )}
         <p className="text-sm text-black/60">
           Enter each match day's set scores as results come in, Save, then Publish. The ladder and website only change when a match day is
           published, and a published day can be corrected and published again.
@@ -131,6 +177,7 @@ export function ResultsTab({
               saved={w}
               weeks={weeks}
               edit={edits[w.id]}
+              saveNote={notes[w.id]}
               settings={s}
               setsPerMatch={view.season.setsPerMatch}
               resolve={resolve}
@@ -176,6 +223,7 @@ function MatchDay({
   saved,
   weeks,
   edit,
+  saveNote,
   settings: s,
   setsPerMatch,
   resolve,
@@ -192,6 +240,7 @@ function MatchDay({
   /** The whole draw (saved), for games moved to or from other nights. */
   weeks: Week[]
   edit: DayEdit | undefined
+  saveNote: DayNote | undefined
   /** Changes when the typed-in boxes should start again from the results (after discard, undo or a reload). */
   resetKey: string
   settings: Settings
@@ -234,13 +283,13 @@ function MatchDay({
   return (
     <section
       id={`results-${w.id}`}
-      className={`rounded border-2 bg-white shadow-sm ${unsaved || state === 'changed' ? 'border-accent' : state === 'published' ? 'border-brand/40' : 'border-black/10'}`}
+      className={`scroll-mt-16 rounded border-2 bg-white shadow-sm ${unsaved || state === 'changed' ? 'border-accent' : state === 'published' ? 'border-brand/40' : 'border-black/10'}`}
     >
       <header className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-black/10 px-3 py-2.5 sm:px-4">
-        <h3 className="font-bold">
+        <h2 className="font-bold">
           Match day {w.matchDay}
           {STAGE[w.kind] && <span className="bg-accent ml-2 rounded px-1.5 py-0.5 text-xs">{STAGE[w.kind]}</span>}
-        </h3>
+        </h2>
         <span className="text-sm text-black/60">
           {formatLong(w.date)}
           {saved.originalDate && saved.originalDate !== saved.date && <> (moved from {formatLong(saved.originalDate)})</>}
@@ -316,8 +365,15 @@ function MatchDay({
         </ul>
       )}
 
-      <footer className="flex flex-wrap items-center gap-2 border-t border-black/10 px-3 py-2.5 sm:px-4">
+      <footer
+        className={`flex flex-wrap items-center gap-2 border-t border-black/10 bg-white px-3 py-2.5 sm:px-4 ${
+          editing
+            ? 'sticky bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-10 rounded-b shadow-[0_-2px_6px_rgba(0,0,0,0.06)] lg:bottom-0'
+            : ''
+        }`}
+      >
         {byes.length > 0 && <span className="text-xs text-black/60">Bye: {byes.map((t) => refName(s, { team: t })).join(', ')}</span>}
+        <SaveNote note={saveNote} unsaved={unsaved} />
         <span className="ml-auto flex flex-wrap items-center justify-end gap-2">
           {editing && problem && state !== 'empty' && <span className="text-xs text-black/70">{problem}</span>}
           {unsaved && (
@@ -463,7 +519,9 @@ function ResultRow({
         onValue(v)
         if (!wide && v.length === 2 && next) document.getElementById(next)?.focus()
       }}
-      className={`h-10 w-11 rounded border text-center text-base font-bold tabular-nums outline-none focus:border-brand focus:ring-2 focus:ring-accent/60 disabled:border-transparent disabled:bg-transparent disabled:text-ink sm:h-9 ${
+      enterKeyHint="next"
+      autoComplete="off"
+      className={`h-12 w-12 rounded border text-center text-lg font-bold tabular-nums outline-none focus:border-brand focus:ring-2 focus:ring-accent/60 disabled:border-transparent disabled:bg-transparent disabled:text-ink sm:h-9 sm:w-11 sm:text-base ${
         changed ? 'border-accent bg-accent/10' : 'border-black/20 bg-white'
       }`}
     />
@@ -963,4 +1021,44 @@ function PencilIcon() {
       <path d="M11.5 5.5l3 3" />
     </svg>
   )
+}
+
+/** "Draft saved 8:41 pm", "Saving…", or why it didn't save, beside the day's buttons. */
+function SaveNote({ note, unsaved }: { note: DayNote | undefined; unsaved: boolean }) {
+  const text = !note
+    ? null
+    : note.kind === 'saving'
+      ? 'Saving…'
+      : note.kind === 'saved'
+        ? unsaved
+          ? null
+          : `Draft saved ${new Intl.DateTimeFormat('en-AU', { timeZone: 'Australia/Sydney', timeStyle: 'short' }).format(new Date(note.at))}`
+        : note.kind === 'offline'
+          ? 'No connection: your scores are kept on this screen and save as soon as you’re back online.'
+          : note.text
+  return (
+    <span
+      aria-live="polite"
+      className={`text-xs ${note?.kind === 'offline' || note?.kind === 'error' ? 'font-semibold text-red-800' : 'text-black/60'}`}
+    >
+      {text}
+    </span>
+  )
+}
+
+/** "Thu 22 Oct". */
+const formatShort = (d: string) =>
+  new Intl.DateTimeFormat('en-AU', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short' }).format(new Date(`${d}T00:00:00Z`))
+
+/**
+ * The match day to open the Results tab at: tonight's, else the latest played night that isn't fully published,
+ * else the next one to come, else the last.
+ */
+export function focusDay(weeks: Week[], today: string, off: (gameId: string) => boolean): string | null {
+  const days = weeks.filter((w) => w.kind !== 'skip' && !w.status)
+  const tonight = days.find((w) => w.date === today)
+  if (tonight) return tonight.id
+  const unfinished = days.filter((w) => w.date < today && w.games.some((g) => !off(g.id) && !isComplete(g.publishedResult))).at(-1)
+  if (unfinished) return unfinished.id
+  return (days.find((w) => w.date > today) ?? days.at(-1))?.id ?? null
 }

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'wouter'
 import { formatDate, TARGET_LABELS } from '../../lib/enrolment/targets'
 import { api, type TargetSummary } from '../api'
-import { Card, Notice, Select, errorMessage } from '../ui'
+import { Skeleton, Card, Notice, Select, errorMessage } from '../ui'
 
 // Admin → Enrolments: every season, training session, development term and event that takes enrolments, with its
 // counts against its caps. Admin and owner only (personal data behind every row).
@@ -120,7 +120,7 @@ export function EnrolmentList() {
         </label>
       </Card>
 
-      {targets === null && !error && <p className="text-sm text-black/60">Loading…</p>}
+      {targets === null && !error && <Skeleton />}
       {targets && shown.length === 0 && (
         <Card>
           <p className="text-sm text-black/70">
@@ -154,7 +154,7 @@ export function EnrolmentList() {
                     <Link href={`/enrolments/${t.ref.kind}/${t.ref.id}`} className="text-brand font-semibold underline">
                       {t.label}
                     </Link>
-                    <span className="ml-2 text-xs text-black/50">{TARGET_LABELS[t.ref.kind]}</span>
+                    <span className="ml-2 text-xs text-black/60">{TARGET_LABELS[t.ref.kind]}</span>
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap">{t.startsOn ? formatDate(t.startsOn) : ''}</td>
                   <td className="px-3 py-2">

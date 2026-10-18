@@ -21,6 +21,7 @@ import { ConfirmDialog } from './dialogs'
 import type { Draft } from './draft'
 import { ImportCsvButton } from './ImportCsv'
 import { LadderRulesCard } from './LadderRules'
+import { inputClass } from './styles'
 
 // Season setup: name, dates, format, game night (sessions x courts), teams, weeks off and ladder points. Ported from
 // the demo's SetupTab. Changes stay in the working copy until Save. A published season keeps its draw, so only
@@ -28,8 +29,6 @@ import { LadderRulesCard } from './LadderRules'
 
 const LOCKED = 'Locked while the season is published.'
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
-export const inputClass =
-  'focus:border-brand focus:ring-brand/30 w-full rounded border border-black/20 bg-white px-3 py-2 text-sm outline-none focus:ring-2 disabled:bg-black/5'
 
 function Label({ label, hint, children }: { label: string; hint?: React.ReactNode; children: React.ReactNode }) {
   return (

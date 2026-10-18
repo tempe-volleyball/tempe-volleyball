@@ -626,7 +626,24 @@ Each the more robust or more configurable option:
 
 ## 4. Admin UI/UX
 
-To be written with Jeremy. The known items:
+The admin is built for a non-technical organiser who runs several league nights a week, often from a phone at the
+venue. This section records how it's laid out, the shared building blocks every screen uses, and the decisions behind
+them. The UX audit (2026-10-18) went through every screen at 1280 px and 390 px on a local build with the importer's
+data and the content map applied; before and after screenshots are kept outside the repo.
+
+### Layout and navigation
+
+| Area                 | Status   | What's there                                                                                                                                                                                                                                                                                                                                                                                                  |
+| -------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Grouped navigation   | **Done** | `src/admin/nav.ts`: Home, then **Competition** (Leagues, Matches, Teams, Venues), **Programmes & enrolment** (Training, Development, Events, Categories, Enrolments, Forms), **Content** (Pages, News, Menu, Media), **Site** (Stats, Settings), **People** (Admin users, Audit log, Security). Role-filtered.                                                                                                |
+| Current location     | **Done** | The sidebar and the phone bar highlight the item a screen belongs to (a season belongs to Leagues), and the tab title follows the screen. Season, programme, enrolment, form, page and post screens have breadcrumbs (Leagues › Thursday Night League › TNL Q4 2026).                                                                                                                                         |
+| Phone navigation     | **Done** | Below 1024 px a bottom bar in thumb reach: Home, Matches, Leagues, Enrolments (Pages for editors) and More, which opens every group as a bottom sheet. Safe-area insets are respected; the toast stack and sticky save bars sit above the bar.                                                                                                                                                                |
+| Home dashboard       | **Done** | `/admin` (GET /api/admin/dashboard, [api/dashboard.md](api/dashboard.md)): tonight's and this week's games, earlier nights with results to enter or publish, enrolment needing a look (offers out, waitlists, emails to confirm, caps), drafts to review (the content map's programmes, page revisions, draft pages and posts), setup still needed (Resend, Turnstile, analytics, PayID) and recent activity. |
+| Results at the venue | **Done** | The Results tab opens at tonight's match day (else the latest unfinished one), with a sticky "Go to" match day picker. 48 px score boxes with the numeric keypad, auto-advance after two digits, a sticky save/publish bar, and the draft-vs-published state on each day. Drafts save to the server on their own.                                                                                             |
+| Code-splitting       | **Done** | Each screen is its own chunk; the editor (TipTap) only loads with a page or post. The season screen keeps only the Results tab in its chunk (24.6 KB gzipped, down from 40 KB): Settings, Fixtures (dnd-kit), Publish and Website load when opened.                                                                                                                                                           |
+| Accessibility        | **Done** | Lighthouse accessibility 100 on Home, Matches, Results, Categories, Menu, Stats, Training, a league page, the page editor and Audit (mobile). A skip link, focus moved to each new screen, a visible focus ring, labelled dialogs that return focus, aria-live save status and toasts.                                                                                                                        |
+
+### Known items (from the Phase 6 build)
 
 | Item                                    | Status   | What's there                                                                                                                                                                                                                                                                                                                                                          |
 | --------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -641,7 +658,7 @@ To be written with Jeremy. The known items:
 
 ### 4.1 Decisions (each the more robust or more configurable option)
 
-API and protocol details: [api/security.md](api/security.md).
+API and protocol details: [api/security.md](api/security.md). The UX pass's decisions are in §4.3.
 
 - **Previews derive their auth origin from the request, but only for this Worker's preview hosts.** `authOrigin()`
   (`src/server/auth/auth.ts`) accepts `https://pr-<n>-<staging host>` and `https://<8 hex>-<staging host>`, only when
@@ -672,6 +689,59 @@ API and protocol details: [api/security.md](api/security.md).
 - **The slash menu** opens only on an empty paragraph, so typing "/" in text still types a slash.
 - **Menu drop targets are always laid out** (the "+ Add sub-item" row is the drop strip), so nothing jumps when a drag
   starts; the most specific target under the pointer wins (a sub-item over its dropdown's row).
+
+### 4.2 Building blocks (src/admin/ui.tsx and friends)
+
+New screens use these rather than one-off markup:
+
+- **Buttons:** one `primary` per screen area; `secondary` for the rest; `danger` (outlined) for a destructive action and
+  `dangerSolid` only as the confirm button of a destructive dialog; `link` for inline actions. A caller's own padding
+  or text size wins over the defaults (`px-2 py-1 text-xs` really is small).
+- **Confirmations:** `confirmAction({ title, body, confirmLabel, danger })` before anything destructive. The button
+  names the action ("Delete page", never "OK") and Cancel has the focus.
+- **Saves:** `toast('Saved.')` for a save that keeps you on the screen; errors stay until dismissed. Inline `Notice`s
+  are for state that stays true (a locked season, a conflict).
+- **Loading and errors:** `Skeleton` while loading, `LoadError` with **Try again** when a load fails. Network failures
+  read "Couldn't reach the server. Check your connection and try again." (`friendlyError`).
+- **Empty lists:** `EmptyState` says what the list is and what to do next.
+- **Unsaved changes:** `useUnsavedWarning(dirty)` (`src/admin/unsaved.tsx`) on every screen form: the browser asks on
+  reload or close, and in-app links and Back ask in the admin's own dialog. Several forms on one screen each register
+  their own blocker. `Dialog` guards itself: once anything in one of its forms is typed in, Escape and × ask
+  "Discard your changes?" (pass `dirty` to decide yourself).
+- **Dialogs:** native `<dialog>` via `Dialog`, labelled by its title, focus in on open and back to the opener on close.
+- **Reordering:** `MoveButtons` (▲/▼ with the row's name in the labels, 32 px, 44 px on touch screens).
+- **Phone tables:** a list table hides its secondary columns below 640 px (`hidden sm:table-cell`) and repeats them
+  as a small line under the first cell, rather than squeezing every column (Pages, News, Audit, Matches).
+- **Touch:** on coarse pointers buttons, inputs and selects are at least 44 px tall and checkboxes 20 px
+  (`.admin` rules in `src/styles/global.css`); inline link buttons at least 32 px.
+- **Contrast:** secondary text is `text-black/60` or darker (4.5:1 on white and on the grey page); `/50` failed.
+
+### 4.3 Decisions from the UX pass (2026-10-18)
+
+- **Results drafts autosave to the server**, 2.5 s after typing stops (15 s between retries while offline), never to
+  localStorage. Saves of one match day run one after another through a per-day queue that reads the latest token, so
+  an autosave in flight can't make the next Publish fail with a conflict. A save that can't reach the server keeps the
+  scores on screen with "No connection: your scores are kept on this screen and save as soon as you're back online",
+  and the `online` event saves straight away. Days with problems (a half-typed score) wait instead of saving.
+- **The Results tab opens at tonight**, else the latest played night still to publish, else the next one (`focusDay`,
+  tested). A `#results-<id>` link (from Home or Matches) still wins.
+- **The dashboard is one batch of grouped reads** plus the enrolment list and audit reads it already had helpers for
+  (about 15 D1 queries, no writes). Played nights stay listed up to 120 days back until every game has a published
+  result and no saved draft differs. "Pages to review" are imported pages no admin has edited that have a newer saved
+  revision (the content map's proposals). Setup items are only shown to admins and owners, only when missing, and
+  link to the card that fixes them (`/settings#settings-payid`).
+- **Bottom bar, not a hamburger:** the four most-used screens are one tap away on a phone; More lists everything.
+  Editors see Pages instead of Enrolments (which they can't open).
+- **Dialogs detect edits themselves** rather than every caller passing `dirty`: a form dialog that was typed in asks
+  before it's thrown away. Filters and pickers in a dialog that aren't inside a `<form>` don't count.
+- **Table scrollers are positioned** (`.admin .overflow-x-auto { position: relative }`): `sr-only` text inside a wide
+  table was escaping the scroller and making the whole Matches page scroll sideways on phones.
+- **Matches on phones:** the filters fold behind a "Filters (n on)" button (the date range and quick days stay), and
+  league, court and duty move under the game.
+- **Settings has a section list** at the top (Banner, Contact, … Analytics), each card has an anchor, and saves toast
+  "PayID: saved." instead of a notice inside the card.
+- **The season screen's other tabs are lazy**: Results is what's opened on a phone at the venue. `inputClass` moved to
+  `src/admin/seasons/styles.ts` so dialogs don't drag SetupTab back into the Results chunk.
 
 ## 5. Later or optional
 

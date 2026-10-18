@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link } from 'wouter'
 import { ENTRY_TYPE_LABELS } from '../../lib/enrolment/defaults'
 import type { FormField } from '../../lib/enrolment/forms'
 import { formatDate, TARGET_LABELS, type TargetKind } from '../../lib/enrolment/targets'
 import { answerText, isDisplayOnly, isMapped } from '../../lib/enrolment/validate'
 import { formatAud } from '../../lib/time'
+import { useUnsavedWarning } from '../unsaved'
 import { api, formatWhen, type FormsList, type GroupRow, type RegistrationRow, type TargetDetail } from '../api'
-import { Button, Card, Dialog, Field, Notice, Select, TextArea, errorMessage, purgeNote } from '../ui'
+import { Breadcrumbs, Skeleton, Button, Card, Dialog, Field, Notice, Select, TextArea, errorMessage, purgeNote } from '../ui'
 import { Fill, OpenBadge } from './EnrolmentList'
 
 // One season, session, term or event: its entries, its settings (the product row) and every action on an entry.
@@ -101,7 +101,7 @@ export function TargetPage({ kind, id }: { kind: string; id: string }) {
   const fieldsByKey = useMemo(() => new Map((detail?.form.fields ?? []).map((f) => [f.key, f])), [detail])
 
   if (error && !detail) return <Notice kind="error">{error}</Notice>
-  if (!detail) return <p className="text-sm text-black/60">Loading…</p>
+  if (!detail) return <Skeleton />
 
   const { summary, registrations, groups } = detail
   const teamsKind = summary.programme.kind === 'league' || summary.programme.kind === 'event'
@@ -141,12 +141,7 @@ export function TargetPage({ kind, id }: { kind: string; id: string }) {
   return (
     <div className="space-y-6">
       <div>
-        <p className="text-sm">
-          <Link href="/enrolments" className="text-brand underline">
-            Enrolments
-          </Link>{' '}
-          › {summary.programme.name}
-        </p>
+        <Breadcrumbs items={[{ label: 'Enrolments', href: '/enrolments' }, { label: summary.programme.name }]} />
         <div className="mt-1 flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-bold">{summary.label}</h1>
           <OpenBadge open={summary.open} status={summary.status} />
@@ -178,7 +173,7 @@ export function TargetPage({ kind, id }: { kind: string; id: string }) {
         )}
       </div>
 
-      <Settings detail={detail} onSaved={(msg) => (setFlash(msg), void load())} />
+      <Settings key={JSON.stringify(detail.product)} detail={detail} onSaved={(msg) => (setFlash(msg), void load())} />
 
       {teamsKind && (
         <Card
@@ -518,7 +513,7 @@ function RegRow({
   const actions = regActions(r)
   return (
     <>
-      <tr className={LIVE(r.status) ? '' : 'text-black/50'}>
+      <tr className={LIVE(r.status) ? '' : 'text-black/60'}>
         <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">{r.reference}</td>
         <td className="px-3 py-2">
           <button type="button" className="text-brand text-left font-semibold underline" aria-expanded={expanded} onClick={onToggle}>
@@ -554,7 +549,7 @@ function RegRow({
               <span className="font-bold text-red-800">Unpaid</span> {formatAud(r.amountCents)}
             </span>
           ) : (
-            <span className="text-black/50">No fee</span>
+            <span className="text-black/60">No fee</span>
           )}
         </td>
         <td className="px-3 py-2 text-xs whitespace-nowrap">{formatWhen(r.createdAt)}</td>
@@ -694,6 +689,8 @@ function Settings({ detail, onSaved }: { detail: Detail; onSaved: (msg: string) 
     closesAt: toLocalInput(product?.closesAt ?? null),
     active: product?.active ?? true,
   }))
+  const [initial] = useState(v)
+  useUnsavedWarning(JSON.stringify(v) !== JSON.stringify(initial))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {

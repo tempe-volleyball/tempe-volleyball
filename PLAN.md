@@ -311,7 +311,9 @@ When it's picked up, the original scope still applies:
   into the new structure.
 - **Analytics:** keep GA4 and Search Console, add Cloudflare Web Analytics, drop Jetpack, and build an admin Stats page fed
   by a daily cron.
-- **Admin UI/UX** improvements, still being written.
+- **Admin UI/UX:** grouped navigation with a phone bottom bar, a home dashboard of what needs attention, results entry
+  built for a phone at the venue (autosaved drafts, offline-tolerant), and shared confirmations, toasts, skeletons,
+  empty states and unsaved-changes guards (docs/admin.md §4).
 - **Done when:** every "must have" row in docs/admin.md is Done, and Michael can run a night without SportsPress.
 
 ### Phase 7: Public site UI/UX and SEO

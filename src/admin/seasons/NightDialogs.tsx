@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { formatLong, nightNote, pushBack, pushBackProblem, type Settings, type Team, type Week } from '../../lib/fixtures'
 import { sydneyDate } from '../../lib/time'
 import { Button, Dialog, Notice } from '../ui'
-import { inputClass } from './SetupTab'
+import { inputClass } from './styles'
 
 // Dialogs for running a published season: a whole night postponed or cancelled (optionally pushing the rest of the
 // season back a week, previewed with the same lib code the server runs), one game's status with a public note, and

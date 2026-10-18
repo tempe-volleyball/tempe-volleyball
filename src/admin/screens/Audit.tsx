@@ -4,7 +4,7 @@ import { Button, Card, Notice, errorMessage } from '../ui'
 
 // The audit log, newest first, 50 at a time.
 
-const ACTIONS: Record<string, string> = {
+export const ACTIONS: Record<string, string> = {
   'role.grant': 'Promoted',
   'role.revoke': 'Demoted',
   'invite.create': 'Invited',
@@ -47,12 +47,14 @@ const ACTIONS: Record<string, string> = {
   'fixtures.import': 'Imported fixtures (CSV)',
 }
 
-const describe = (row: AuditRow) => {
+const who = (r: AuditRow) => r.actorEmail ?? (r.actorUserId ? 'Removed user' : 'System')
+
+export const describe = (row: AuditRow) => {
   const before = (row.before ?? {}) as Record<string, unknown>
   const after = (row.after ?? {}) as Record<string, unknown>
   const email = (after.email ?? before.email ?? '') as string
   if (row.action === 'role.grant' || row.action === 'role.revoke')
-    return `${email}: ${String(before.role ?? '?')} → ${String(after.role ?? '?')}`
+    return before.role ? `${email}: ${String(before.role)} → ${String(after.role ?? 'none')}` : `${email} made ${String(after.role ?? '?')}`
   if (row.action.startsWith('invite.')) return `${email}${after.role || before.role ? ` as ${String(after.role ?? before.role)}` : ''}`
   if (row.action === 'user.remove') return `${email} (${String(before.role ?? '')})`
   if (row.action.startsWith('page.')) return `${String(after.title ?? before.title ?? '')} (${String(after.path ?? before.path ?? '')})`
@@ -132,21 +134,29 @@ export function Audit({ me }: { me: Me }) {
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="text-xs text-black/60 uppercase">
-                  <th className="pr-3 pb-2 font-semibold">When</th>
-                  <th className="pr-3 pb-2 font-semibold">Who</th>
+                  <th className="hidden pr-3 pb-2 font-semibold sm:table-cell">When</th>
+                  <th className="hidden pr-3 pb-2 font-semibold sm:table-cell">Who</th>
                   <th className="pr-3 pb-2 font-semibold">What</th>
-                  <th className="pb-2 font-semibold">Details</th>
+                  <th className="hidden pb-2 font-semibold sm:table-cell">Details</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.id} className="border-t border-black/10 align-top">
-                    <td className="py-2 pr-3 whitespace-nowrap">{formatWhen(r.at)}</td>
-                    <td className="py-2 pr-3 break-all">{r.actorEmail ?? (r.actorUserId ? 'Removed user' : 'System')}</td>
-                    <td className="py-2 pr-3 whitespace-nowrap">{ACTIONS[r.action] ?? r.action}</td>
-                    <td className="py-2 break-all">
+                    <td className="hidden py-2 pr-3 whitespace-nowrap sm:table-cell">{formatWhen(r.at)}</td>
+                    <td className="hidden py-2 pr-3 break-all sm:table-cell">{who(r)}</td>
+                    <td className="py-2 pr-3 sm:whitespace-nowrap">
+                      <span className="font-semibold sm:font-normal">{ACTIONS[r.action] ?? r.action}</span>
+                      {/* Phones: one stacked entry (what, details, then when and who) instead of four narrow columns. */}
+                      <span className="block break-words sm:hidden">{describe(r)}</span>
+                      <span className="block text-xs text-black/60 sm:hidden">
+                        {formatWhen(r.at)} · {who(r)}
+                        {r.ip && ` · ${r.ip}`}
+                      </span>
+                    </td>
+                    <td className="hidden py-2 break-all sm:table-cell">
                       {describe(r)}
-                      {r.ip && <span className="ml-2 text-xs text-black/50">{r.ip}</span>}
+                      {r.ip && <span className="ml-2 text-xs text-black/60">{r.ip}</span>}
                     </td>
                   </tr>
                 ))}

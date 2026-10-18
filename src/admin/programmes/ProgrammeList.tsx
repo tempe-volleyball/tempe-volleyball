@@ -3,7 +3,7 @@ import { Link, useLocation } from 'wouter'
 import { slugify } from '../../lib/content/paths'
 import { programmePath } from '../../lib/programmes'
 import { api, type Me, type ProgrammeChoices, type ProgrammeKind, type ProgrammeListItem, type ProgrammeView } from '../api'
-import { Button, Card, Dialog, Field, Notice, Select, StatusBadge, errorMessage } from '../ui'
+import { Skeleton, Button, Card, Dialog, Field, Notice, Select, StatusBadge, errorMessage } from '../ui'
 import { KINDS, WEEKDAY_NAMES } from './kinds'
 
 // The list screen for Training, Development and Events (Leagues use the season-centred list in
@@ -35,7 +35,7 @@ export function ProgrammeList({ me, kind }: { me: Me; kind: ProgrammeKind }) {
         {isAdmin && <Button onClick={() => setCreating(true)}>New {cfg.noun}</Button>}
       </div>
       {error && <Notice kind="error">{error}</Notice>}
-      {rows === null && !error && <p className="text-sm text-black/60">Loading…</p>}
+      {rows === null && !error && <Skeleton />}
       {rows && rows.length === 0 && (
         <Card>
           <p className="text-sm text-black/60">
@@ -85,7 +85,7 @@ function ProgrammeTable({ rows, kind }: { rows: ProgrammeListItem[]; kind: Progr
                     {p.name}
                   </Link>
                   <span className="ml-2 text-xs text-black/60">{p.code}</span>
-                  <div className="font-mono text-xs text-black/50">{p.path}</div>
+                  <div className="font-mono text-xs text-black/60">{p.path}</div>
                 </td>
                 <td className="py-2 pr-3">{p.category?.name ?? <span className="text-red-700">None</span>}</td>
                 <td className="py-2 pr-3">

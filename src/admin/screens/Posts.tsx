@@ -4,8 +4,21 @@ import { checkSlug, slugify } from '../../lib/content/paths'
 import { api, formatWhen, statusLabel, type PostRow, type PostSummary, type PurgeResult } from '../api'
 import { RichText } from '../editor/LazyRichText'
 import { ImageField } from '../media/MediaLibrary'
-import { Button, Card, Field, Notice, StatusBadge, TextArea, errorMessage, purgeNote } from '../ui'
-import { useUnsavedWarning } from './Pages'
+import {
+  EmptyState,
+  Breadcrumbs,
+  Skeleton,
+  confirmAction,
+  Button,
+  Card,
+  Field,
+  Notice,
+  StatusBadge,
+  TextArea,
+  errorMessage,
+  purgeNote,
+} from '../ui'
+import { skipLeaveGuard, useUnsavedWarning } from '../unsaved'
 
 // News posts: list and editor. Posts live at /news/<slug>.
 
@@ -38,9 +51,13 @@ export function PostList() {
           <Field label="Search" type="search" placeholder="Title or slug" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
         {posts === null ? (
-          <p className="text-sm text-black/60">Loading…</p>
+          <Skeleton />
         ) : posts.length === 0 ? (
-          <p className="text-sm text-black/60">{q ? 'No posts match.' : 'No posts yet.'}</p>
+          q ? (
+            <EmptyState title="No posts match">Try a word from the title.</EmptyState>
+          ) : (
+            <EmptyState title="No news yet">Use “New post” to write one. It stays a draft until you publish it.</EmptyState>
+          )
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
@@ -48,7 +65,7 @@ export function PostList() {
                 <tr className="text-xs text-black/60 uppercase">
                   <th className="pr-3 pb-2 font-semibold">Title</th>
                   <th className="pr-3 pb-2 font-semibold">Status</th>
-                  <th className="pb-2 font-semibold">Published</th>
+                  <th className="hidden pb-2 font-semibold sm:table-cell">Published</th>
                 </tr>
               </thead>
               <tbody>
@@ -59,11 +76,12 @@ export function PostList() {
                         {p.title}
                       </Link>
                       {p.category && <span className="ml-2 text-xs text-black/60">{p.category}</span>}
+                      {p.publishedAt && <span className="block text-xs text-black/60 sm:hidden">{formatWhen(p.publishedAt)}</span>}
                     </td>
                     <td className="py-2 pr-3">
                       <StatusBadge status={p.status} />
                     </td>
-                    <td className="py-2 whitespace-nowrap">{p.publishedAt ? formatWhen(p.publishedAt) : '—'}</td>
+                    <td className="hidden py-2 whitespace-nowrap sm:table-cell">{p.publishedAt ? formatWhen(p.publishedAt) : '—'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -154,6 +172,7 @@ export function PostEditor({ id }: { id: string | null }) {
       if (!id) {
         const r = await api<{ post: PostRow }>('/api/admin/posts', { body: { ...payload(), blocks: blocks.current ?? [] } })
         setDirty(false)
+        skipLeaveGuard()
         navigate(`/news/${r.post.id}`, { replace: true })
         return true
       }
@@ -190,11 +209,17 @@ export function PostEditor({ id }: { id: string | null }) {
   }
 
   const remove = async () => {
-    if (!id || !post || !window.confirm(`Delete “${post.title}”? This can't be undone.`)) return
+    if (
+      !id ||
+      !post ||
+      !(await confirmAction({ title: `Delete “${post.title}”?`, body: 'This can’t be undone.', confirmLabel: 'Delete post', danger: true }))
+    )
+      return
     setBusy('delete')
     try {
       await api(`/api/admin/posts/${id}`, { method: 'DELETE' })
       setDirty(false)
+      skipLeaveGuard()
       navigate('/news')
     } catch (e) {
       setError(errorMessage(e))
@@ -202,15 +227,13 @@ export function PostEditor({ id }: { id: string | null }) {
     }
   }
 
-  if (id && !post && !error) return <p className="text-sm text-black/60">Loading…</p>
+  if (id && !post && !error) return <Skeleton />
 
   return (
     <form className="space-y-6" onSubmit={(e) => void submit(e)}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <Link href="/news" className="text-brand text-sm underline">
-            ← News
-          </Link>
+          <Breadcrumbs items={[{ label: 'News', href: '/news' }, { label: id ? 'Post' : 'New post' }]} />
           <h1 className="text-2xl font-bold">{id ? form.title || 'Untitled post' : 'New post'}</h1>
         </div>
         <div className="flex items-center gap-2">

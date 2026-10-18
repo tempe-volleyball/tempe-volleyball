@@ -17,7 +17,7 @@ import {
   type VitalKey,
 } from '../../lib/analytics/view'
 import { api, formatWhen, type Me, type StatsResponse } from '../api'
-import { Button, Card, Field, Notice, Select, errorMessage } from '../ui'
+import { Skeleton, Button, Card, Field, Notice, Select, errorMessage } from '../ui'
 
 // Admin → Stats (docs/admin.md §2): traffic from GA4 and Cloudflare Web Analytics, Google search from Search
 // Console, Core Web Vitals and enrolment counts. Everything comes from D1 (GET /api/admin/stats), which the
@@ -249,7 +249,7 @@ function SourceCard({ s, canFetch, onFetched }: { s: StatsResponse['sources'][nu
   return (
     <div className="space-y-2 rounded border border-black/10 bg-white p-4 text-sm shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="font-bold">{s.label}</h3>
+        <h2 className="font-bold">{s.label}</h2>
         <span className={`rounded px-2 py-0.5 text-xs font-bold ${tone}`}>{state}</span>
       </div>
       {!s.configured ? (
@@ -372,7 +372,7 @@ export default function Stats({ me }: { me: Me }) {
 
       {error && <Notice kind="error">{error}</Notice>}
       {!data ? (
-        <p className="text-sm text-black/60">Loading…</p>
+        <Skeleton />
       ) : (
         <div className={`space-y-6 ${loading ? 'opacity-60' : ''}`}>
           <section aria-label="Data sources" className="grid gap-4 md:grid-cols-3">

@@ -5,8 +5,22 @@ import { entryTypesFor } from '../../lib/enrolment/defaults'
 import { FORM_LIMITS, formEntryTypes, type FormEntryType, type FormField, type FormFieldType } from '../../lib/enrolment/forms'
 import { checkFormFields, hasOptions, isDisplayOnly, suggestKey } from '../../lib/enrolment/validate'
 import { api, formatWhen, isConflict, type EnrolmentForm as FormRow, type FormsList } from '../api'
-import { useUnsavedWarning } from '../screens/Pages'
-import { Button, Card, Dialog, Field, Notice, Select, TextArea, errorMessage, purgeNote } from '../ui'
+import { skipLeaveGuard, useUnsavedWarning } from '../unsaved'
+import {
+  EmptyState,
+  Breadcrumbs,
+  Skeleton,
+  confirmAction,
+  Button,
+  Card,
+  Dialog,
+  Field,
+  Notice,
+  Select,
+  TextArea,
+  errorMessage,
+  purgeNote,
+} from '../ui'
 
 // Admin → Enrolments → Forms: the questions each programme asks when people enrol. A form is reusable; a programme
 // names its default form and one season, session, term or event can use another. The builder shows a live preview
@@ -75,11 +89,13 @@ export function FormList() {
           a template to change them.
         </Notice>
       )}
-      {data === null && !error && <p className="text-sm text-black/60">Loading…</p>}
+      {data === null && !error && <Skeleton />}
       {data && (
         <Card>
           {forms.length === 0 ? (
-            <p className="text-sm text-black/60">No forms yet.</p>
+            <EmptyState title="No forms yet">
+              Programmes use the built-in form until you make one here and pick it on their Enrolment tab.
+            </EmptyState>
           ) : (
             <ul className="divide-y divide-black/10">
               {forms.map((f) => (
@@ -125,6 +141,7 @@ function CreateFormDialog({ onCancel }: { onCancel: () => void }) {
     try {
       const r = await api<{ form: FormRow }>('/api/admin/forms', { body: { name, ...(template ? { template } : { fields: [] }) } })
       onCancel()
+      skipLeaveGuard()
       navigate(`/forms/${r.form.id}`)
     } catch (e) {
       setError(errorMessage(e))
@@ -230,7 +247,7 @@ export function FormEditor({ id }: { id: string }) {
   const check = useMemo(() => (draft ? checkFormFields(draft.fields, form?.fields ?? []) : null), [draft, form])
 
   if (error && !form) return <Notice kind="error">{error}</Notice>
-  if (!form || !draft || !list) return <p className="text-sm text-black/60">Loading…</p>
+  if (!form || !draft || !list) return <Skeleton />
 
   const setField = (i: number, f: FormField) => setDraft((d) => d && { ...d, fields: d.fields.map((x, j) => (j === i ? f : x)) })
   const move = (i: number, by: number) =>
@@ -300,9 +317,13 @@ export function FormEditor({ id }: { id: string }) {
     }
   }
   const del = async () => {
-    if (!window.confirm(`Delete “${form.name}”? This can't be undone.`)) return
+    if (
+      !(await confirmAction({ title: `Delete “${form.name}”?`, body: 'This can’t be undone.', confirmLabel: 'Delete form', danger: true }))
+    )
+      return
     try {
       await api(`/api/admin/forms/${id}`, { method: 'DELETE' })
+      skipLeaveGuard()
       navigate('/forms')
     } catch (e) {
       setError(errorMessage(e))
@@ -317,12 +338,7 @@ export function FormEditor({ id }: { id: string }) {
   return (
     <div className="space-y-6">
       <div>
-        <p className="text-sm">
-          <Link href="/forms" className="text-brand underline">
-            Forms
-          </Link>{' '}
-          › {form.name}
-        </p>
+        <Breadcrumbs items={[{ label: 'Forms', href: '/forms' }, { label: form.name }]} />
         <div className="mt-1 flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-bold">{draft.name || 'Untitled form'}</h1>
           <span className="text-sm text-black/60">
@@ -644,7 +660,7 @@ function FieldEditor({
               )}
             </div>
           )}
-          <p className="text-xs text-black/50">
+          <p className="text-xs text-black/60">
             Answer key: {f.key}
             {saved ? ' (fixed once saved)' : ''}
           </p>
@@ -775,8 +791,8 @@ function Programmes({
                   onChange={(e) => setChosen((c) => (e.target.checked ? [...c, p.id] : c.filter((x) => x !== p.id)))}
                 />
                 <span>
-                  {p.name} <span className="text-black/50">({KIND_LABELS[p.kind]})</span>
-                  {others(p) && !chosen.includes(p.id) && <span className="block text-xs text-black/50">now: {others(p)}</span>}
+                  {p.name} <span className="text-black/60">({KIND_LABELS[p.kind]})</span>
+                  {others(p) && !chosen.includes(p.id) && <span className="block text-xs text-black/60">now: {others(p)}</span>}
                 </span>
               </label>
             </li>

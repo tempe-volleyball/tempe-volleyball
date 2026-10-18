@@ -3,7 +3,21 @@ import { checkSlug, slugify } from '../../lib/content/paths'
 import { api, type CategoryListItem, type Me, type ProgrammeStatus, type PurgeResult } from '../api'
 import { RichText } from '../editor/LazyRichText'
 import { ImageField } from '../media/MediaLibrary'
-import { Button, Card, Dialog, Field, Notice, Select, StatusBadge, TextArea, errorMessage, purgeNote } from '../ui'
+import {
+  MoveButtons,
+  Skeleton,
+  confirmAction,
+  Button,
+  Card,
+  Dialog,
+  Field,
+  Notice,
+  Select,
+  StatusBadge,
+  TextArea,
+  errorMessage,
+  purgeNote,
+} from '../ui'
 import { statusLabel } from './kinds'
 
 // Programme categories (docs/admin.md §3.2): each has a landing page at /<slug> listing its programmes, and the
@@ -65,32 +79,19 @@ export function Categories({ me }: { me: Me }) {
       {message && <Notice kind="success">{message}</Notice>}
       <Card>
         {rows === null ? (
-          <p className="text-sm text-black/60">Loading…</p>
+          <Skeleton />
         ) : (
           <ul className="divide-y divide-black/10">
             {rows.map((c, i) => (
               <li key={c.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-3 text-sm">
                 {isAdmin && (
-                  <span className="flex flex-col">
-                    <button
-                      type="button"
-                      className="px-1 leading-none text-black/50 hover:text-black disabled:opacity-20"
-                      aria-label={`Move ${c.name} up`}
-                      disabled={busy || i === 0}
-                      onClick={() => void move(i, -1)}
-                    >
-                      ▲
-                    </button>
-                    <button
-                      type="button"
-                      className="px-1 leading-none text-black/50 hover:text-black disabled:opacity-20"
-                      aria-label={`Move ${c.name} down`}
-                      disabled={busy || i === rows.length - 1}
-                      onClick={() => void move(i, 1)}
-                    >
-                      ▼
-                    </button>
-                  </span>
+                  <MoveButtons
+                    name={c.name}
+                    first={i === 0}
+                    last={i === rows.length - 1}
+                    disabled={busy}
+                    onMove={(by) => void move(i, by)}
+                  />
                 )}
                 <span className="min-w-48">
                   {isAdmin ? (
@@ -100,7 +101,7 @@ export function Categories({ me }: { me: Me }) {
                   ) : (
                     <span className="font-semibold">{c.name}</span>
                   )}
-                  <span className="block font-mono text-xs text-black/50">{c.path}</span>
+                  <span className="block font-mono text-xs text-black/60">{c.path}</span>
                 </span>
                 <StatusBadge status={c.status} />
                 <span className="ml-auto text-xs text-black/60">
@@ -147,6 +148,15 @@ function CategoryDialog({
   const intro = useRef<unknown[] | undefined>(undefined)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [introEdited, setIntroEdited] = useState(false)
+  const dirty =
+    introEdited ||
+    name !== (category?.name ?? '') ||
+    slug !== (category?.slug ?? '') ||
+    status !== (category?.status ?? 'draft') ||
+    seoTitle !== (category?.seoTitle ?? '') ||
+    seoDescription !== (category?.seoDescription ?? '') ||
+    ogImageId !== (category?.ogImageId ?? null)
   const effectiveSlug = slug || slugify(name)
   const check = effectiveSlug ? checkSlug(effectiveSlug) : null
   const empty = !category || category.programmes.active + category.programmes.draft + category.programmes.retired === 0
@@ -177,7 +187,11 @@ function CategoryDialog({
     }
   }
   const remove = async () => {
-    if (!category || !window.confirm(`Delete the category ${category.name}?`)) return
+    if (
+      !category ||
+      !(await confirmAction({ title: `Delete the category ${category.name}?`, confirmLabel: 'Delete category', danger: true }))
+    )
+      return
     setBusy('delete')
     try {
       const r = await api<{ cache: PurgeResult }>(`/api/admin/categories/${category.id}`, { method: 'DELETE' })
@@ -189,7 +203,7 @@ function CategoryDialog({
   }
 
   return (
-    <Dialog title={category ? category.name : 'New category'} onCancel={onCancel} wide>
+    <Dialog title={category ? category.name : 'New category'} onCancel={onCancel} wide dirty={dirty && !busy}>
       <form
         className="space-y-4"
         onSubmit={(e) => {
@@ -231,6 +245,7 @@ function CategoryDialog({
           initial={category?.intro ?? { blocks: [], html: '' }}
           onChange={(b) => {
             intro.current = b
+            setIntroEdited(true)
           }}
         />
         <p className="-mt-2 text-xs text-black/60">Shown above the list of programmes on the category page.</p>

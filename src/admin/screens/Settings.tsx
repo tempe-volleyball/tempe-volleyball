@@ -2,7 +2,8 @@ import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { MAX_TRUST_DEVICE_DAYS, type SettingKey, type SiteSettings } from '../../lib/content/settings'
 import { atLeast, type UserRole } from '../../lib/roles'
 import { api, type Me, type PurgeResult } from '../api'
-import { Button, Card, Field, Notice, Select, TextArea, errorMessage, purgeNote } from '../ui'
+import { useUnsavedWarning } from '../unsaved'
+import { LoadError, Skeleton, toast, Button, Card, Field, Notice, Select, TextArea, errorMessage, purgeNote } from '../ui'
 
 // Site settings: contact details, announcement banner, social links, PayID, the Revolutionise link, enrolment and
 // email housekeeping, and analytics. Each card saves its own key; PayID, Revolutionise, enrolment and analytics are
@@ -30,20 +31,19 @@ function Section<K extends SettingKey>({
   const [value, setValue] = useState<SiteSettings[K]>(data.settings[k])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [message, setMessage] = useState<string | null>(null)
   const allowed = atLeast(me.user.role, data.minRole[k])
   const dirty = JSON.stringify(value) !== JSON.stringify(data.settings[k])
+  useUnsavedWarning(dirty)
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     setBusy(true)
     setError(null)
-    setMessage(null)
     try {
       const r = await api<Data & { cache: PurgeResult }>('/api/admin/settings', { method: 'PUT', body: { [k]: value } })
       setValue(r.settings[k])
       onSaved(r)
-      setMessage(`Saved.${purgeNote(r.cache)}`)
+      toast(`${title}: saved.${purgeNote(r.cache)}`)
     } catch (err) {
       setError(errorMessage(err))
     } finally {
@@ -52,12 +52,11 @@ function Section<K extends SettingKey>({
   }
 
   return (
-    <Card title={title}>
+    <Card title={title} id={`settings-${k}`}>
       <form className="space-y-4" onSubmit={(e) => void submit(e)}>
         {intro && <p className="text-sm text-black/70">{intro}</p>}
         {!allowed && <Notice kind="info">Only {data.minRole[k]}s and owners can change this.</Notice>}
         {error && <Notice kind="error">{error}</Notice>}
-        {message && <Notice kind="success">{message}</Notice>}
         <fieldset disabled={!allowed} className="space-y-4">
           {children(value, setValue, !allowed)}
         </fieldset>
@@ -70,6 +69,17 @@ function Section<K extends SettingKey>({
     </Card>
   )
 }
+
+const SECTIONS: [SettingKey, string][] = [
+  ['announcement', 'Banner'],
+  ['contact', 'Contact'],
+  ['social', 'Social links'],
+  ['payid', 'PayID'],
+  ['revolutioniseUrl', 'Membership'],
+  ['enrolment', 'Enrolment and email'],
+  ['security', 'Sign-in security'],
+  ['analytics', 'Analytics'],
+]
 
 const pad = (n: number) => String(n).padStart(2, '0')
 
@@ -88,12 +98,27 @@ export function Settings({ me }: { me: Me }) {
       .then(setData)
       .catch((e) => setError(errorMessage(e)))
   }, [])
-  if (!data) return error ? <Notice kind="error">{error}</Notice> : <p className="text-sm text-black/60">Loading…</p>
+  // Links such as /settings#settings-payid (from the home page) land on that card once it's there.
+  const loaded = !!data
+  useEffect(() => {
+    if (loaded && location.hash.startsWith('#settings-')) document.getElementById(location.hash.slice(1))?.scrollIntoView()
+  }, [loaded])
+  if (!data) return error ? <LoadError message={error} onRetry={() => location.reload()} /> : <Skeleton />
   const common = { me, data, onSaved: setData }
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Site settings</h1>
+      <div>
+        <h1 className="text-2xl font-bold">Site settings</h1>
+        {/* A long page on a phone: jump straight to a card (also the targets of the home page's setup links). */}
+        <nav aria-label="Settings sections" className="mt-2 flex flex-wrap gap-x-1 gap-y-1 text-sm">
+          {SECTIONS.map(([k, label]) => (
+            <a key={k} href={`#settings-${k}`} className="text-brand rounded px-2 py-1.5 underline underline-offset-2 hover:bg-black/5">
+              {label}
+            </a>
+          ))}
+        </nav>
+      </div>
       <div className="grid gap-6 lg:grid-cols-2">
         <Section
           {...common}

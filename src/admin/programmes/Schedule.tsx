@@ -18,7 +18,22 @@ import {
   type VenueRow,
 } from '../api'
 import { CreateSeasonDialog } from '../seasons/SeasonList'
-import { Button, Card, Checkbox, Dialog, Field, Notice, Select, StatusBadge, TextArea, errorMessage, purgeNote } from '../ui'
+import {
+  EmptyState,
+  Skeleton,
+  confirmAction,
+  Button,
+  Card,
+  Checkbox,
+  Dialog,
+  Field,
+  Notice,
+  Select,
+  StatusBadge,
+  TextArea,
+  errorMessage,
+  purgeNote,
+} from '../ui'
 import { WEEKDAY_NAMES, intOrNull } from './kinds'
 
 // The instances tab of a programme: a league's seasons, a training programme's sessions, a development programme's
@@ -79,7 +94,7 @@ function SeasonsPanel({ me, view }: { me: Me; view: ProgrammeView }) {
       }
     >
       {error && <Notice kind="error">{error}</Notice>}
-      {!league && !error && <p className="text-sm text-black/60">Loading…</p>}
+      {!league && !error && <Skeleton />}
       {league && seasons.length === 0 && <p className="text-sm text-black/60">No seasons yet.</p>}
       {seasons.length > 0 && (
         <ul className="divide-y divide-black/10">
@@ -158,8 +173,12 @@ function SessionsPanel({
     >
       {error && <Notice kind="error">{error}</Notice>}
       {message && <Notice kind="success">{message}</Notice>}
-      {rows === null && !error && <p className="text-sm text-black/60">Loading…</p>}
-      {rows?.length === 0 && <p className="text-sm text-black/60">No sessions yet.</p>}
+      {rows === null && !error && <Skeleton />}
+      {rows?.length === 0 && (
+        <EmptyState title="No sessions yet">
+          Use “Add sessions” for one date or every week between two dates. Each session can take enrolments.
+        </EmptyState>
+      )}
       {past > 0 && (
         <Button variant="link" className="mb-2 text-xs" onClick={() => setShowPast((v) => !v)}>
           {showPast ? 'Hide' : 'Show'} {past} past session{past > 1 ? 's' : ''}
@@ -486,7 +505,10 @@ function SessionDialog({
     }
   }
   const remove = async () => {
-    if (!window.confirm(`Delete the session on ${formatLong(session.date)}?`)) return
+    if (
+      !(await confirmAction({ title: `Delete the session on ${formatLong(session.date)}?`, confirmLabel: 'Delete session', danger: true }))
+    )
+      return
     setBusy('delete')
     try {
       const r = await api<{ cache: PurgeResult }>(`/api/admin/sessions/${session.id}`, { method: 'DELETE' })
@@ -603,8 +625,12 @@ function TermsPanel({ me, view, onChanged }: { me: Me; view: ProgrammeView; onCh
       >
         {error && <Notice kind="error">{error}</Notice>}
         {message && <Notice kind="success">{message}</Notice>}
-        {rows === null && !error && <p className="text-sm text-black/60">Loading…</p>}
-        {rows?.length === 0 && <p className="text-sm text-black/60">No terms yet.</p>}
+        {rows === null && !error && <Skeleton />}
+        {rows?.length === 0 && (
+          <EmptyState title="No terms yet">
+            Use “New term” to add one with its dates; its weekly sessions can be added at the same time.
+          </EmptyState>
+        )}
         {rows && rows.length > 0 && (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
@@ -629,7 +655,7 @@ function TermsPanel({ me, view, onChanged }: { me: Me; view: ProgrammeView; onCh
                       ) : (
                         t.name
                       )}
-                      <div className="font-mono text-xs text-black/50">{t.path}</div>
+                      <div className="font-mono text-xs text-black/60">{t.path}</div>
                     </td>
                     <td className="py-2 pr-3 whitespace-nowrap">
                       {formatLong(t.startDate)}
@@ -746,7 +772,11 @@ function TermDialog({
     }
   }
   const remove = async () => {
-    if (!term || !window.confirm(`Delete ${term.name} and its ${term.sessions} sessions?`)) return
+    if (
+      !term ||
+      !(await confirmAction({ title: `Delete ${term.name} and its ${term.sessions} sessions?`, confirmLabel: 'Delete term', danger: true }))
+    )
+      return
     setBusy('delete')
     try {
       const r = await api<{ cache: PurgeResult }>(`/api/admin/terms/${term.id}`, { method: 'DELETE' })
@@ -874,8 +904,8 @@ function EventsPanel({ me, view, onChanged }: { me: Me; view: ProgrammeView; onC
     >
       {error && <Notice kind="error">{error}</Notice>}
       {message && <Notice kind="success">{message}</Notice>}
-      {rows === null && !error && <p className="text-sm text-black/60">Loading…</p>}
-      {rows?.length === 0 && <p className="text-sm text-black/60">No dates yet.</p>}
+      {rows === null && !error && <Skeleton />}
+      {rows?.length === 0 && <EmptyState title="No dates yet">Use “Add a date” for each time the event runs.</EmptyState>}
       {rows && rows.length > 0 && (
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
@@ -900,7 +930,7 @@ function EventsPanel({ me, view, onChanged }: { me: Me; view: ProgrammeView; onC
                     ) : (
                       ev.name
                     )}
-                    <div className="font-mono text-xs text-black/50">{ev.path}</div>
+                    <div className="font-mono text-xs text-black/60">{ev.path}</div>
                   </td>
                   <td className="py-2 pr-3 whitespace-nowrap">
                     {formatLong(ev.startDate)}
@@ -997,7 +1027,7 @@ function EventDialog({
     }
   }
   const remove = async () => {
-    if (!event || !window.confirm(`Delete ${event.name}?`)) return
+    if (!event || !(await confirmAction({ title: `Delete ${event.name}?`, confirmLabel: 'Delete event', danger: true }))) return
     setBusy('delete')
     try {
       const r = await api<{ cache: PurgeResult }>(`/api/admin/events/${event.id}`, { method: 'DELETE' })
