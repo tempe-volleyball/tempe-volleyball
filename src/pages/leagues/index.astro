@@ -5,10 +5,9 @@ import { documentTitle } from '../../lib/content'
 import { FIXTURE_LIST_ROUTE } from '../../lib/fixture-lists'
 import { leagueFixturesRoute, leagueLadderRoute } from '../../lib/wp-import/routes'
 import { cachePublic, tags } from '../../server/cache'
-import { publicDb } from '../../server/public'
-import { loadSite } from '../../server/site'
+import { publicDb, publicSite } from '../../server/public'
 
-const site = await loadSite(publicDb())
+const site = await publicSite(publicDb())
 cachePublic(Astro.cache, tags.page('/leagues'))
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const venueName = (id: string | null) => site.venues.find((v) => v.id === id)?.name

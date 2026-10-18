@@ -55,7 +55,14 @@ const details = (i: ProgrammeInstance) =>
   <BaseLayout title={documentTitle(seo.title)} description={seo.description} site={site} canonicalPath={page.path}>
     <Breadcrumbs items={crumbs} />
     <h1 class="page-title">{p.name}</h1>
-    <ProgrammeIntro programme={p} venue={venue} nextStarts={nextStarts} enrolmentOpen={enrolmentOpen} noun={noun} />
+    <ProgrammeIntro
+      programme={p}
+      venue={venue}
+      nextStarts={nextStarts}
+      enrolmentOpen={enrolmentOpen}
+      noun={noun}
+      hasHistory={page.past.length > 0}
+    />
 
     {[
       { list: p.status === 'retired' ? [] : page.upcoming, heading: HEADINGS[instanceKind], id: 'dates', upcoming: true },

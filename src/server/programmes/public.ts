@@ -397,8 +397,10 @@ export function programmeSeo(
   p: Pick<Programme, 'kind' | 'name' | 'seoTitle' | 'seoDescription' | 'description'>,
   summary: string,
   nextStarts: string,
+  /** Leagues: whether any season is public (current or archived). Without one there's no ladder to promise. */
+  { hasSeasons = true }: { hasSeasons?: boolean } = {},
 ) {
-  const title = p.seoTitle?.trim() || (p.kind === 'league' ? `${p.name} Ladder, Fixtures and Results` : p.name)
+  const title = p.seoTitle?.trim() || (p.kind === 'league' && hasSeasons ? `${p.name} Ladder, Fixtures and Results` : p.name)
   const generated = [summary, nextStarts].filter(Boolean).join('. ')
   return {
     title,

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_FIXTURES_ATTRS, DEFAULT_LADDER_ATTRS, DEFAULT_PROGRAMME_LIST_ATTRS, type ProgrammeListAttrs } from './blocks'
+import {
+  DEFAULT_FIXTURES_ATTRS,
+  DEFAULT_LADDER_ATTRS,
+  DEFAULT_PROGRAMME_LIST_ATTRS,
+  DEFAULT_VENUES_ATTRS,
+  type ProgrammeListAttrs,
+} from './blocks'
 import {
   dataBlockRefs,
   fillTemplate,
@@ -7,10 +13,12 @@ import {
   parseFixturesAttrs,
   parseLadderAttrs,
   parseProgrammeListAttrs,
+  parseVenuesAttrs,
   programmeLines,
   renderFixtures,
   renderLadder,
   renderProgrammeList,
+  renderVenues,
   selectFixtureRows,
   type BlockProgramme,
   type FixtureRowLike,
@@ -75,13 +83,19 @@ describe('programmeLines', () => {
     prog({ id: 'scrim', code: 'SCT', kind: 'training', name: 'Scrim Training', slug: 'scrim', categoryId: 'adult', enrolmentOpen: true }),
   ]
 
-  it('lists active programmes in category then programme order, generated from the template', () => {
+  it('lists active programmes in category then programme order, with the generated summary line', () => {
     const lines = programmeLines(attrs(), data(programmes))
     expect(lines.map((l) => l.id)).toEqual(['tnl', 'fnl', 'scrim'])
+    // The same text as category pages, /enrol and the admin (generatedSummaryLine), not a block-only wording.
     expect(lines[0]).toMatchObject({
+      source: 'generated',
+      text: 'TNL League @ Robyn Webster Sports Centre, Tempe, Thursdays 8–10pm',
+      href: '/leagues/tnl',
+    })
+    // A template, when the block has one, replaces the generated line.
+    expect(programmeLines(attrs({ template: 'Next {name} ({code}) @ {venue} ({times})' }), data(programmes))[0]).toMatchObject({
       source: 'template',
       text: 'Next TNL League (TNL) @ Robyn Webster Sports Centre, Tempe (Thursdays 8–10pm)',
-      href: '/leagues/tnl',
     })
     expect(lines[2]!.href).toBe('/training/scrim')
   })
@@ -105,7 +119,7 @@ describe('programmeLines', () => {
     ])
   })
 
-  it('picks the text: page override, then the programme summary line, then the template', () => {
+  it('picks the text: page override, then the programme summary line, then the template, then the generated line', () => {
     const withSummary = programmes.map((p) => (p.id === 'fnl' ? { ...p, summaryLine: 'Friday nights at Tempe' } : p))
     const tnl = programmeLines(attrs(), data(withSummary))[0]!
     const source = tnl.current
@@ -124,6 +138,11 @@ describe('programmeLines', () => {
       'TNL',
       'FNL',
       'SCT',
+    ])
+    // …or, without a template, the generated line even where a summary line exists.
+    expect(programmeLines(attrs({ useSummaryLines: false }), data(withSummary)).map((l) => [l.source, l.text])[1]).toEqual([
+      'generated',
+      'FNL League @ Robyn Webster Sports Centre, Tempe, Fridays 8–10pm',
     ])
   })
 
@@ -150,7 +169,7 @@ describe('programmeLines', () => {
     const html = renderProgrammeList(attrs({ title: 'Our <leagues>' }), data(evil))
     expect(html).not.toContain('<script>')
     expect(html).toContain('<h2>Our &lt;leagues&gt;</h2>')
-    expect(html).toContain('<li><a href="/leagues/x">Next &lt;script&gt;')
+    expect(html).toContain('<li><a href="/leagues/x">&lt;script&gt;alert(1)&lt;/script&gt; (X) @')
     const withLink = renderProgrammeList(attrs({ template: '{name} {link}' }), data([programmes[1]!]))
     expect(withLink).toBe(
       '<div class="data-block programme-list"><ul><li>TNL League <a href="/leagues/tnl">More info<span class="sr-only"> about TNL League</span></a></li></ul></div>',
@@ -310,5 +329,80 @@ describe('ladder and fixtures blocks', () => {
     expect(noCourt).not.toContain('Court')
     expect(noCourt).not.toContain('Duty')
     expect(renderFixtures({ ...DEFAULT_FIXTURES_ATTRS, leagueId: 'l1' }, league, '2027-01-01')).toContain('No games coming up.')
+  })
+})
+
+describe('Venues block', () => {
+  const venues = [
+    {
+      id: 'rw',
+      name: 'Robyn Webster Sports Centre',
+      slug: 'tempe',
+      address: 'Holbeach Ave, Tempe NSW 2044',
+      mapUrl: null,
+      directions: 'By train: Wolli Creek.\nWalk 10 minutes.\n\nBy car: free parking.',
+    },
+    {
+      id: 'mlc',
+      name: 'MLC School',
+      slug: 'mlc',
+      address: 'Rowley St, Burwood NSW 2134',
+      mapUrl: 'https://maps.example/mlc',
+      directions: null,
+    },
+    { id: 'fd', name: 'Five <Dock>', slug: 'five-dock', address: null, mapUrl: 'javascript:alert(1)', directions: null },
+  ]
+  const programmes = [
+    prog({ id: 'tnl', code: 'TNL', sort: 1 }),
+    prog({ id: 'fnl', code: 'FNL', sort: 2 }),
+    prog({ id: 'old', code: 'MNL', status: 'retired' }),
+    prog({ id: 'scrim', code: 'SCT', kind: 'training', name: 'Scrim Training', slug: 'scrim', defaultVenueId: 'mlc' }),
+  ]
+
+  it('parses attrs with defaults and normalises them through a page body', () => {
+    expect(parseVenuesAttrs({})).toEqual(DEFAULT_VENUES_ATTRS)
+    expect(parseVenuesAttrs({ venueIds: ['rw', 'bad id', 'rw'], showMap: false, junk: 1 })).toEqual({
+      ...DEFAULT_VENUES_ATTRS,
+      venueIds: ['rw'],
+      showMap: false,
+    })
+    const blocks = [{ type: 'venues', attrs: { title: '  Where   we play ' } }]
+    expect(hasDataBlocks(blocks)).toBe(true)
+    expect(normaliseDataBlocks(blocks)[0]!.attrs).toMatchObject({ title: 'Where we play', venueIds: [] })
+    expect(dataBlockRefs(blocks)).toEqual([])
+  })
+
+  it('renders every venue with its address, map link, directions and who plays there, escaped', () => {
+    const html = renderVenues(DEFAULT_VENUES_ATTRS, { venues, programmes })
+    expect(html).toContain('<div class="venue" id="venue-tempe"><h2>Robyn Webster Sports Centre</h2>')
+    expect(html).toContain('<p class="venue-address">Holbeach Ave, Tempe NSW 2044</p>')
+    // No map link typed: a Google Maps search for the name and address.
+    expect(html).toContain(
+      `href="https://www.google.com/maps/search/?api=1&amp;query=${encodeURIComponent('Robyn Webster Sports Centre, Holbeach Ave, Tempe NSW 2044')}"`,
+    )
+    expect(html).toContain('<p>By train: Wolli Creek.<br>Walk 10 minutes.</p><p>By car: free parking.</p>')
+    expect(html).toContain(
+      '<strong>Who plays here:</strong> <a href="/leagues/tnl">TNL League</a>, <a href="/leagues/fnl">FNL League</a></p>',
+    )
+    expect(html).not.toContain('MNL')
+    expect(html).toContain('href="https://maps.example/mlc"')
+    expect(html).toContain('<a href="/training/scrim">Scrim Training</a>')
+    // An unsafe map link and no address: no link at all.
+    expect(html).toContain('<h2>Five &lt;Dock&gt;</h2>')
+    expect(html).not.toContain('javascript:')
+  })
+
+  it('shows the chosen venues in the chosen order, with options off and a heading', () => {
+    const html = renderVenues(
+      { ...DEFAULT_VENUES_ATTRS, venueIds: ['mlc', 'gone', 'rw'], title: 'Our venues', showDirections: false, showProgrammes: false },
+      { venues, programmes },
+    )
+    expect(html.indexOf('MLC School')).toBeLessThan(html.indexOf('Robyn Webster'))
+    expect(html).toContain('<h2>Our venues</h2>')
+    expect(html).toContain('<h3>MLC School</h3>')
+    expect(html).not.toContain('Five')
+    expect(html).not.toContain('Who plays here')
+    expect(html).not.toContain('Wolli Creek')
+    expect(renderVenues(DEFAULT_VENUES_ATTRS, { venues: [], programmes })).toBe('')
   })
 })

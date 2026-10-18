@@ -211,6 +211,15 @@ h3 {
 .data-block-link {
   @apply text-sm;
 }
+.prose .venues-block .venue + .venue {
+  @apply mt-10;
+}
+.prose .venues-block .venue > * + * {
+  @apply mt-2;
+}
+.venue-address {
+  @apply font-semibold;
+}
 .prose blockquote {
   @apply border-accent border-l-4 pl-4 italic;
 }

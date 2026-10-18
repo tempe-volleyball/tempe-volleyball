@@ -17,6 +17,7 @@ import {
   teamCalendarPath,
   weekRange,
 } from '../../lib/fixture-lists'
+import { trackingQuery, withTracking } from '../../lib/canonical-query'
 import { documentTitle } from '../../lib/content'
 import { formatDateLong } from '../../lib/programme-text'
 import { webcalUrl } from '../../lib/ical'
@@ -24,20 +25,32 @@ import { sydneyDate } from '../../lib/time'
 import { leagueRoute } from '../../lib/wp-import/routes'
 import { cachePublic, tags } from '../../server/cache'
 import { fixtureRows, type FixtureRow } from '../../server/competition/adapter'
-import { publicDb } from '../../server/public'
-import { loadSite, type LeagueSeason } from '../../server/site'
+import { publicDb, publicSite } from '../../server/public'
+import { renamedLeagueSlug, type LeagueSeason } from '../../server/site'
 
-const site = await loadSite(publicDb())
+const db = publicDb()
+const site = await publicSite(db)
 const today = sydneyDate(new Date())
 const asked = parseFixtureQuery(Astro.url.searchParams)
 const seasons = site.current.filter((c) => c.summary.status === 'published')
-const leagueView = seasons.find((c) => c.league.slug === asked.league)
+let leagueView = seasons.find((c) => c.league.slug === asked.league)
+// A league whose URL changed: follow the 301 its old page left (?league=tnl -> ?league=thursday).
+if (asked.league && !leagueView) {
+  const renamed = await renamedLeagueSlug(db, asked.league)
+  if (renamed) leagueView = seasons.find((c) => c.league.slug === renamed)
+}
 const inScope = leagueView ? [leagueView] : seasons
 const teamHit = asked.team
   ? inScope.flatMap((c) => c.data.teams.filter((t) => t.slug === asked.team).map((t) => ({ team: t, view: c })))[0]
   : undefined
-// Only what matched counts: an unknown league or team falls back to everything rather than an empty page.
-const q = { view: asked.view, league: leagueView ? asked.league : '', team: teamHit ? asked.team : '' }
+// Only what matched counts: an unknown league or team falls back to everything rather than an empty page, and the
+// URL is redirected to what's shown, so each view has one URL (and junk values can't bypass the edge cache).
+const q = { view: asked.view, league: leagueView?.league.slug ?? '', team: teamHit ? asked.team : '' }
+const canonical = `${FIXTURE_LIST_ROUTE}${withTracking(fixtureQueryString(q), trackingQuery(Astro.url.searchParams))}`
+if (canonical !== `${Astro.url.pathname}${Astro.url.search}`) {
+  cachePublic(Astro.cache, tags.page(FIXTURE_LIST_ROUTE), ...seasons.map((c) => tags.league(c.league.slug)))
+  return Astro.redirect(canonical, 301)
+}
 const range = q.view === 'week' ? weekRange(today) : { from: today, to: null }
 
 type Block = { view: LeagueSeason; rows: FixtureRow[] }

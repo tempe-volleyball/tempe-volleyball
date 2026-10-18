@@ -2,12 +2,18 @@ import type { AstroGlobal } from 'astro'
 import { env } from 'cloudflare:workers'
 import { getDb } from './db'
 import { cachePublic, tags } from './cache'
-import { countRedirectHit, findRedirect } from './site'
+import { countRedirectHit, createSiteMemo, findRedirect, type Site } from './site'
 
 // Helpers for public routes (they read bindings, so only routes import this). Public pages use a plain Drizzle client
 // rather than getServices(), which would also build Better Auth (~1 ms of CPU) for nothing.
 
 export const publicDb = () => getDb(env.DB)
+
+/** This isolate's copy of loadSite() (src/server/site.ts createSiteMemo; the middleware clears it on admin writes). */
+export const siteMemo = createSiteMemo()
+
+/** What every public page shows around its content: memoised per isolate and checked against the site version. */
+export const publicSite = (db: ReturnType<typeof publicDb>): Promise<Site> => siteMemo.load(db)
 
 type Ctx = Pick<AstroGlobal, 'locals' | 'redirect' | 'cache'>
 

@@ -25,6 +25,7 @@ import {
   type SeasonSettings,
 } from '../db/schema'
 import { HttpError } from '../http'
+import { renamedLeagueSlug } from '../site'
 import { createCategory, deleteCategory, listCategories, reorderCategories, updateCategory } from './categories'
 import {
   createProgramme,
@@ -269,7 +270,12 @@ describe('programmes', () => {
       { id: 's2', leagueId: id, name: 'TNL Q4 2026', slug: 'tnl-q4-2026', year: 2026, quarter: 4, startDate: '2026-10-01', settings },
     ])
     // An old WordPress redirect that led to the league page gets repointed (no chains).
-    await db.insert(redirects).values({ fromPath: '/tnl-ladder', toPath: '/leagues/tnl', source: 'wp-import' })
+    await db.insert(redirects).values([
+      { fromPath: '/tnl-ladder', toPath: '/leagues/tnl', source: 'wp-import' },
+      // …including ones that open a tab, and not a league whose slug merely starts the same.
+      { fromPath: '/results', toPath: '/leagues/tnl#fixtures', source: 'wp-import' },
+      { fromPath: '/tnl2', toPath: '/leagues/tnl2', source: 'wp-import' },
+    ])
     stats.reset()
     const r = await updateProgramme(db, admin, id, { baseUpdatedAt: result.programme.updatedAt, slug: 'thursday' }, later(1))
     expect(stats.queries).toBeLessThan(50)
@@ -280,8 +286,14 @@ describe('programmes', () => {
       { from: '/leagues/tnl', to: '/leagues/thursday' },
       { from: '/leagues/tnl/tnl-q3-2026', to: '/leagues/thursday/tnl-q3-2026' },
       { from: '/leagues/tnl/tnl-q4-2026', to: '/leagues/thursday/tnl-q4-2026' },
+      { from: '/results', to: '/leagues/thursday#fixtures' },
       { from: '/tnl-ladder', to: '/leagues/thursday' },
+      { from: '/tnl2', to: '/leagues/tnl2' },
     ])
+    // The calendar feeds and ?league= follow the old slug through that 301.
+    expect(await renamedLeagueSlug(db, 'tnl')).toBe('thursday')
+    expect(await renamedLeagueSlug(db, 'thursday')).toBeNull()
+    expect(await renamedLeagueSlug(db, '../x')).toBeNull()
     // Moving back drops the redirects from the restored URL and repoints the rest.
     await updateProgramme(db, admin, id, { baseUpdatedAt: r.result.programme.updatedAt, slug: 'tnl' }, later(2))
     const back = await db.select({ from: redirects.fromPath, to: redirects.toPath }).from(redirects).orderBy(redirects.fromPath).all()
@@ -360,6 +372,9 @@ describe('categories', () => {
     await rejects(createCategory(db, admin, { name: 'Again', slug: 'beach-volleyball' }, NOW), 409)
     await rejects(createCategory(db, admin, { name: 'Admin', slug: 'admin' }, NOW), 400)
     await rejects(createCategory(db, admin, { name: 'Events', slug: 'events' }, NOW), 400)
+    // /training and /enrol are routes whose intro page may live at that path, but a category can't take them.
+    await rejects(createCategory(db, admin, { name: 'Training', slug: 'training' }, NOW), 400)
+    await rejects(createCategory(db, admin, { name: 'Enrol', slug: 'enrol' }, NOW), 400)
     await db.insert(pages).values({ path: '/socials', title: 'Socials', body: { blocks: [], html: '' } })
     await rejects(createCategory(db, admin, { name: 'Socials' }, NOW), 409, /Socials/)
   })

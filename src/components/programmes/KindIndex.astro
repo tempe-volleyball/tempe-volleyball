@@ -1,0 +1,62 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro'
+import { metaDescription, documentTitle } from '../../lib/content'
+import { KIND_INDEX, type KindIndexRoute } from '../../server/programmes/route'
+import PageBody from '../PageBody.astro'
+import ProgrammeCards from './ProgrammeCards.astro'
+
+// /training, /programs and /events (docs/admin.md §3.13): the active programmes of one kind, grouped by category,
+// each card linking to its page and enrol section. Generated from the programmes; the title and intro come from a
+// page published at the same path when there is one (like /enrol), else the defaults in KIND_INDEX.
+type Props = KindIndexRoute
+const { site, kind, path, groups, intro, titles } = Astro.props
+const words = KIND_INDEX[kind]
+const title = intro?.title ?? words.title
+const names = groups.flatMap((g) => g.cards.map((c) => c.name))
+const generated = names.length > 0 ? `${words.description} ${names.join(', ')}.` : words.description
+const linkClass = 'text-link decoration-accent font-semibold underline decoration-2 underline-offset-2'
+---
+
+<BaseLayout
+  title={documentTitle(title)}
+  description={metaDescription(intro?.metaDescription ?? generated, { bodyHtml: intro?.bodyHtml ?? '', fallback: words.description })}
+  site={site}
+  canonicalPath={path}
+>
+  <PageBody title={title} html={intro?.html ?? ''} titles={titles}>
+    {!intro && <p class="mb-8 max-w-3xl">{words.intro}</p>}
+    {groups.length > 0 ? (
+      groups.map((g) =>
+        groups.length === 1 && !g.category ? (
+          <ProgrammeCards cards={g.cards} />
+        ) : (
+          <section aria-labelledby={`kind-${g.category?.slug ?? 'other'}`} class="mb-12">
+            <h2 id={`kind-${g.category?.slug ?? 'other'}`} class="mb-4 text-2xl font-bold sm:text-3xl">
+              {g.category ? (
+                <a class="hover:underline" href={`/${g.category.slug}`}>
+                  {g.category.name}
+                </a>
+              ) : (
+                'More'
+              )}
+            </h2>
+            <ProgrammeCards cards={g.cards} headingLevel={3} showTargets />
+          </section>
+        ),
+      )
+    ) : (
+      <>
+        <p class="mb-2 text-lg font-semibold">{words.empty}</p>
+        <p class="mb-8">
+          <a class={linkClass} href="/enrol">
+            See what’s open for enrolment
+          </a>
+          {' · '}
+          <a class={linkClass} href="/leagues">
+            Our leagues
+          </a>
+        </p>
+      </>
+    )}
+  </PageBody>
+</BaseLayout>

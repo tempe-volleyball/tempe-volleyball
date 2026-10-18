@@ -1,14 +1,22 @@
 import { programmeKinds, type PageDataRefKind, type ProgrammeKind, type ProgrammeStatus } from '../../server/db/schema/enums'
 import { formatAU } from '../fixtures/dates'
-import { WEEKDAYS, nextStartsLine, programmeLineSource, summaryLine, venueSuburb, type ProgrammeTextInput } from '../programme-text'
+import {
+  WEEKDAYS,
+  generatedSummaryLine,
+  nextStartsLine,
+  programmeLineSource,
+  summaryLine,
+  venueSuburb,
+  type ProgrammeTextInput,
+} from '../programme-text'
 import { enrolmentOpen, isListedStatus, programmePath } from '../programmes'
 import { leagueFixturesRoute, leagueLadderRoute } from '../wp-import/routes'
 import {
   DATA_BLOCK_REF_KIND,
   DEFAULT_FIXTURES_ATTRS,
   DEFAULT_LADDER_ATTRS,
-  DEFAULT_PROGRAMME_LINE_TEMPLATE,
   DEFAULT_PROGRAMME_LIST_ATTRS,
+  DEFAULT_VENUES_ATTRS,
   PROGRAMME_LINE_SOURCE_KEYS,
   PROGRAMME_TEMPLATE_PLACEHOLDERS,
   blockDisplays,
@@ -22,8 +30,9 @@ import {
   type ProgrammeLineOverride,
   type ProgrammeLineSource,
   type ProgrammeListAttrs,
+  type VenuesAttrs,
 } from './blocks'
-import { escapeHtml, isDataBlock, type JsonNode } from './render'
+import { escapeHtml, isDataBlock, safeHref, type JsonNode } from './render'
 
 // The data blocks in the page editor (docs/admin.md §3.4), the pure half: normalising their attrs, working out a
 // Programme list's lines (which text wins, what changed since an override), choosing a Fixtures block's rows, and
@@ -128,8 +137,24 @@ export function parseFixturesAttrs(raw: unknown): FixturesAttrs {
   }
 }
 
+export function parseVenuesAttrs(raw: unknown): VenuesAttrs {
+  const a = record(raw)
+  const d = DEFAULT_VENUES_ATTRS
+  return {
+    venueIds: ids(a.venueIds),
+    title: text(a.title, BLOCK_LIMITS.title),
+    showAddress: bool(a.showAddress, d.showAddress),
+    showMap: bool(a.showMap, d.showMap),
+    showDirections: bool(a.showDirections, d.showDirections),
+    showProgrammes: bool(a.showProgrammes, d.showProgrammes),
+  }
+}
+
 export type ParsedDataBlock =
-  { type: 'programmeList'; attrs: ProgrammeListAttrs } | { type: 'ladder'; attrs: LadderAttrs } | { type: 'fixtures'; attrs: FixturesAttrs }
+  | { type: 'programmeList'; attrs: ProgrammeListAttrs }
+  | { type: 'ladder'; attrs: LadderAttrs }
+  | { type: 'fixtures'; attrs: FixturesAttrs }
+  | { type: 'venues'; attrs: VenuesAttrs }
 
 export function parseDataBlock(node: JsonNode): ParsedDataBlock | null {
   switch (node.type) {
@@ -139,6 +164,8 @@ export function parseDataBlock(node: JsonNode): ParsedDataBlock | null {
       return { type: 'ladder', attrs: parseLadderAttrs(node.attrs) }
     case 'fixtures':
       return { type: 'fixtures', attrs: parseFixturesAttrs(node.attrs) }
+    case 'venues':
+      return { type: 'venues', attrs: parseVenuesAttrs(node.attrs) }
     default:
       return null
   }
@@ -181,13 +208,14 @@ export function normaliseDataBlocks(blocks: JsonNode[]): JsonNode[] {
   return blocks.map(fix)
 }
 
-/** page_data_refs rows for a body: programme_list with ref '', ladder/fixtures with the league id. Unique. */
+/** page_data_refs rows for a body: programme_list with ref '', ladder/fixtures with the league id (venues: none). Unique. */
 export function dataBlockRefs(blocks: readonly JsonNode[]): { kind: PageDataRefKind; refId: string }[] {
   const seen = new Map<string, { kind: PageDataRefKind; refId: string }>()
   for (const b of dataBlocksIn(blocks)) {
-    const refId = b.type === 'programmeList' ? '' : b.attrs.leagueId
-    if (b.type !== 'programmeList' && !refId) continue
     const kind = DATA_BLOCK_REF_KIND[b.type]
+    if (!kind) continue
+    const refId = b.type === 'ladder' || b.type === 'fixtures' ? b.attrs.leagueId : ''
+    if (kind !== 'programme_list' && !refId) continue
     seen.set(`${kind}:${refId}`, { kind, refId })
   }
   return [...seen.values()]
@@ -222,8 +250,12 @@ export type ProgrammeListData = {
   nowIso: string
 }
 
-/** Where a line's text came from (docs/admin.md §3.4: page override → programme summary line → template). */
-export type LineSourceKind = 'override' | 'summary' | 'template'
+/**
+ * Where a line's text came from (docs/admin.md §3.4): page override → the programme's own summary line → this
+ * block's template (only when it has one) → the generated summary line, the same text category pages, /enrol and
+ * the admin show, so a programme reads the same everywhere unless Michael asks otherwise.
+ */
+export type LineSourceKind = 'override' | 'summary' | 'template' | 'generated'
 
 export type ProgrammeLine = {
   id: string
@@ -242,7 +274,7 @@ export type ProgrammeLine = {
   changed: (keyof ProgrammeLineSource)[]
   /** The programme's details now: the snapshot to store when Michael overrides the line. */
   current: ProgrammeLineSource
-  /** What the line says without the override (the summary line or the template). */
+  /** What the line says without the override (the summary line, the template or the generated line). */
   automatic: string
   enrolmentOpen: boolean
 }
@@ -315,7 +347,6 @@ export function programmeLines(
       a.name.localeCompare(b.name),
   )
 
-  const template = attrs.template ?? DEFAULT_PROGRAMME_LINE_TEMPLATE
   return ordered.map((p): ProgrammeLine => {
     const venue = p.defaultVenueId ? venues.get(p.defaultVenueId) : undefined
     const next = data.nextInstance.get(p.id) ?? null
@@ -334,8 +365,9 @@ export function programmeLines(
       price: price(p.priceCents),
     }
     const own = p.summaryLine?.trim()
-    const automaticSource: LineSourceKind = own && attrs.useSummaryLines ? 'summary' : 'template'
-    const automaticRaw = automaticSource === 'summary' ? own! : fillTemplate(template, values)
+    const automaticSource: LineSourceKind = own && attrs.useSummaryLines ? 'summary' : attrs.template ? 'template' : 'generated'
+    const automaticRaw =
+      automaticSource === 'summary' ? own! : attrs.template ? fillTemplate(attrs.template, values) : generatedSummaryLine(p, venue)
     const override = attrs.overrides[p.id] ?? null
     const raw = override ? fillTemplate(override.text, values) : automaticRaw
     const hasLink = raw.includes(LINK)
@@ -555,6 +587,85 @@ export function renderFixtures(attrs: FixturesAttrs, data: LeagueBlockData | und
     `<div class="table-scroll" tabindex="0" role="region" aria-label="${escapeHtml(`${data.seasonName} ${attrs.range === 'results' ? 'results' : 'fixtures'}`)}">`,
     `<table class="data-table${full ? '' : ' compact'}"><thead><tr>${head.join('')}</tr></thead><tbody>${body}</tbody></table></div>`,
     attrs.showLink ? link(leagueFixturesRoute(data.league.slug), `All ${escapeHtml(data.league.code)} fixtures and results`) : '',
+    `</section>`,
+  ].join('')
+}
+
+// ── Venues ────────────────────────────────────────────────────────────────────
+
+/** A venue as the Venues block reads it (a venues row satisfies it). */
+export type VenueBlockVenue = {
+  id: string
+  name: string
+  slug: string
+  address: string | null
+  mapUrl: string | null
+  directions: string | null
+}
+
+/** A programme as the Venues block's "who plays here" reads it. */
+export type VenueBlockProgramme = Pick<BlockProgramme, 'id' | 'kind' | 'name' | 'slug' | 'status' | 'sort' | 'defaultVenueId'>
+
+export type VenuesBlockData = { venues: readonly VenueBlockVenue[]; programmes: readonly VenueBlockProgramme[] }
+
+/** The venues a block shows: the chosen ones in the chosen order (unknown ids skipped), or every venue. */
+export function selectVenues(attrs: Pick<VenuesAttrs, 'venueIds'>, venues: readonly VenueBlockVenue[]): VenueBlockVenue[] {
+  if (!attrs.venueIds.length) return [...venues]
+  const byId = new Map(venues.map((v) => [v.id, v]))
+  return attrs.venueIds.flatMap((id) => byId.get(id) ?? [])
+}
+
+/** The venue's own map link when it's a safe http(s) URL, else a Google Maps search for its name and address. */
+export function venueMapHref(v: Pick<VenueBlockVenue, 'name' | 'address' | 'mapUrl'>): string | null {
+  const own = v.mapUrl ? safeHref(v.mapUrl) : null
+  if (own && /^https?:\/\//i.test(own)) return own
+  if (!v.address) return null
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${v.name}, ${v.address}`)}`
+}
+
+/** Directions as typed (Admin → Venues): blank lines split paragraphs, single line breaks stay. Escaped. */
+const directionsHtml = (text: string) =>
+  text
+    .split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map((p) => `<p>${p.split('\n').map(escapeHtml).join('<br>')}</p>`)
+    .join('')
+
+/**
+ * A Venues block: each venue's name (with an id to link to, #venue-<slug>), address, map link, directions and the active
+ * programmes that usually play there. '' when there are no venues to show.
+ */
+export function renderVenues(attrs: VenuesAttrs, data: VenuesBlockData): string {
+  const list = selectVenues(attrs, data.venues)
+  if (list.length === 0) return ''
+  const h = attrs.title ? 'h3' : 'h2'
+  const programmes = data.programmes
+    .filter((p) => isListedStatus(p.status))
+    .toSorted((a, b) => a.sort - b.sort || a.name.localeCompare(b.name))
+  const venues = list.map((v) => {
+    const map = attrs.showMap ? venueMapHref(v) : null
+    const here = attrs.showProgrammes ? programmes.filter((p) => p.defaultVenueId === v.id) : []
+    return [
+      `<div class="venue" id="venue-${escapeHtml(v.slug)}">`,
+      `<${h}>${escapeHtml(v.name)}</${h}>`,
+      attrs.showAddress && v.address ? `<p class="venue-address">${escapeHtml(v.address)}</p>` : '',
+      map
+        ? `<p class="data-block-link"><a href="${escapeHtml(map)}" target="_blank" rel="noopener">Map and directions<span class="sr-only"> to ${escapeHtml(v.name)}</span></a></p>`
+        : '',
+      attrs.showDirections && v.directions ? `<div class="venue-directions">${directionsHtml(v.directions)}</div>` : '',
+      here.length
+        ? `<p class="venue-programmes"><strong>Who plays here:</strong> ${here
+            .map((p) => `<a href="${escapeHtml(programmePath(p.kind, p.slug))}">${escapeHtml(p.name)}</a>`)
+            .join(', ')}</p>`
+        : '',
+      `</div>`,
+    ].join('')
+  })
+  return [
+    `<section class="data-block venues-block">`,
+    attrs.title ? `<h2>${escapeHtml(attrs.title)}</h2>` : '',
+    venues.join(''),
     `</section>`,
   ].join('')
 }

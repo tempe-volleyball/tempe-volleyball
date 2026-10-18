@@ -340,6 +340,11 @@ The public website only; the admin is Phase 6.
   registrar, attach `www.tempevb.com` and the apex to the production Worker, redirect apex to www, add the Web Analytics
   beacon, verify Search Console by TXT, and submit the sitemap. Check edge caching and tag purge on the real domain. Keep
   WordPress read-only for 30 days as a fallback.
+- **Close the uncached back door:** set `workers_dev: false` on the production environment in `wrangler.jsonc` at the
+  cutover, once www.tempevb.com serves it. The production Worker is reachable on `*.workers.dev` today, where Cloudflare
+  never caches Worker responses, so every request there renders from D1. (Staging keeps workers.dev.)
+- **Rate-limit the Worker** with the free WAF rate-limiting rule (Cloudflare setup item 8 below) once the zone is on
+  Cloudflare.
 
 ---
 
@@ -396,6 +401,11 @@ I haven't created or guessed any of these. Everything below is free unless noted
 7. For the admin Stats page (built in Phase 6, waiting for these): a **Web Analytics** site (manual snippet) for
    `www.tempevb.com`, giving the beacon token and site tag (at the cutover, Phase 8), and an API token with **Account →
    Account Analytics → Read** (secret `CF_ANALYTICS_TOKEN`). Steps in docs/admin.md §2.3.
+8. **At the cutover (Phase 8), once tempevb.com is a Cloudflare zone:** one free **WAF rate-limiting rule**
+   (Security → WAF → Rate limiting rules; the Free plan allows one). Suggested: requests whose path doesn't start with
+   `/_astro/`, `/fonts/` or `/media/`, counted per IP, more than 60 in 10 seconds → Block for 10 seconds. It caps
+   anyone hammering uncached URLs, which would otherwise eat the Worker's 100k requests and D1's 5M rows a day
+   (docs/admin.md §3.14). Also set `workers_dev: false` on production then (Phase 8).
 
 ### Google (Phase 6 Stats page)
 

@@ -1,6 +1,12 @@
 import { Node, type Extensions } from '@tiptap/core'
 import { ReactNodeViewRenderer } from '@tiptap/react'
-import { DEFAULT_FIXTURES_ATTRS, DEFAULT_LADDER_ATTRS, DEFAULT_PROGRAMME_LIST_ATTRS, type DataBlock } from '../../lib/content/blocks'
+import {
+  DEFAULT_FIXTURES_ATTRS,
+  DEFAULT_LADDER_ATTRS,
+  DEFAULT_PROGRAMME_LIST_ATTRS,
+  DEFAULT_VENUES_ATTRS,
+  type DataBlock,
+} from '../../lib/content/blocks'
 import { DataBlockView } from './DataBlockView'
 
 // The page editor's data blocks (docs/admin.md §3.4) as TipTap atom nodes. Their attrs are the block's settings
@@ -13,12 +19,14 @@ export const DATA_BLOCK_LABELS: Record<DataBlockType, string> = {
   programmeList: 'Programme list',
   ladder: 'Ladder',
   fixtures: 'Fixtures',
+  venues: 'Venues',
 }
 
 const DEFAULTS: Record<DataBlockType, Record<string, unknown>> = {
   programmeList: DEFAULT_PROGRAMME_LIST_ATTRS,
   ladder: { leagueId: '', ...DEFAULT_LADDER_ATTRS },
   fixtures: { leagueId: '', ...DEFAULT_FIXTURES_ATTRS },
+  venues: DEFAULT_VENUES_ATTRS,
 }
 
 const dataBlock = (name: DataBlockType) =>
@@ -55,4 +63,9 @@ const dataBlock = (name: DataBlockType) =>
     },
   })
 
-export const dataBlockExtensions = (): Extensions => [dataBlock('programmeList'), dataBlock('ladder'), dataBlock('fixtures')]
+export const dataBlockExtensions = (): Extensions => [
+  dataBlock('programmeList'),
+  dataBlock('ladder'),
+  dataBlock('fixtures'),
+  dataBlock('venues'),
+]

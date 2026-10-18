@@ -63,7 +63,10 @@ export type ProgrammeLineOverride = {
 
 export type ProgrammeListAttrs = {
   filter: ProgrammeListFilter
-  /** Line template with {placeholders} (PROGRAMME_TEMPLATE_PLACEHOLDERS). Null = DEFAULT_PROGRAMME_LINE_TEMPLATE. */
+  /**
+   * This block's own line template with {placeholders} (PROGRAMME_TEMPLATE_PLACEHOLDERS), an optional override. Null =
+   * each programme's generated summary line, as on category pages and /enrol (docs/admin.md §3.4).
+   */
   template: string | null
   /**
    * leagues.id in the order Michael dragged them. Programmes not listed (new ones) follow, in category sort then
@@ -80,7 +83,8 @@ export type ProgrammeListAttrs = {
   linkLines: boolean
   /**
    * A programme's own summary line wins over this block's template (docs/admin.md §3.4: override → summary line →
-   * template). False = always use the template here, e.g. an enrolment list that wants "{name}: {nextStarts}".
+   * template → generated line). False = always use the template (or, without one, the generated line) here, e.g. an
+   * enrolment list that wants "{name}: {nextStarts}".
    */
   useSummaryLines: boolean
   /** What to show when nothing matches ("Enrolments open soon"). Null = render nothing. */
@@ -109,7 +113,8 @@ export const PROGRAMME_TEMPLATE_PLACEHOLDERS = [
 ] as const
 export type ProgrammeTemplatePlaceholder = (typeof PROGRAMME_TEMPLATE_PLACEHOLDERS)[number]
 
-export const DEFAULT_PROGRAMME_LINE_TEMPLATE = 'Next {name} ({code}) @ {venue} ({times})'
+/** A starting point offered in the editor when Michael wants a template (the old site's wording). Not a default. */
+export const SUGGESTED_PROGRAMME_LINE_TEMPLATE = 'Next {name} ({code}) @ {venue} ({times})'
 
 export const DEFAULT_PROGRAMME_LIST_ATTRS: ProgrammeListAttrs = {
   filter: {},
@@ -194,13 +199,48 @@ export const DEFAULT_FIXTURES_ATTRS: Omit<FixturesAttrs, 'leagueId'> = {
   showLink: true,
 }
 
-export type DataBlock = ProgrammeListBlock | LadderBlock | FixturesBlock
+// ── Venues ────────────────────────────────────────────────────────────────────
+
+/**
+ * The places, from Admin → Venues (docs/admin.md §3.12): name, address, a map link and the directions, plus which
+ * programmes play there. Lets "Where we play" be generated, so an address typed once shows everywhere.
+ */
+export type VenuesAttrs = {
+  /** venues.id to show, in this order; empty = every venue, in venue order (new ones join on their own). */
+  venueIds: string[]
+  /** Optional heading above the venues (each venue is then an H3; without it each is an H2). */
+  title: string | null
+  showAddress: boolean
+  /** "Map and directions" link: the venue's map link, else a Google Maps search for its name and address. */
+  showMap: boolean
+  showDirections: boolean
+  /** "Who plays here": active programmes whose usual venue this is, linked. */
+  showProgrammes: boolean
+}
+
+export type VenuesBlock = { type: 'venues'; attrs: VenuesAttrs }
+
+export const DEFAULT_VENUES_ATTRS: VenuesAttrs = {
+  venueIds: [],
+  title: null,
+  showAddress: true,
+  showMap: true,
+  showDirections: true,
+  showProgrammes: true,
+}
+
+export type DataBlock = ProgrammeListBlock | LadderBlock | FixturesBlock | VenuesBlock
 
 /** TipTap node names of the data blocks, for the editor, the renderer's allowlist and page_data_refs. */
-export const DATA_BLOCK_TYPES = ['programmeList', 'ladder', 'fixtures'] as const satisfies readonly DataBlock['type'][]
+export const DATA_BLOCK_TYPES = ['programmeList', 'ladder', 'fixtures', 'venues'] as const satisfies readonly DataBlock['type'][]
 
-/** The page_data_refs.kind each block type writes. */
-export const DATA_BLOCK_REF_KIND = { programmeList: 'programme_list', ladder: 'ladder', fixtures: 'fixtures' } as const satisfies Record<
-  DataBlock['type'],
-  PageDataRefKind
->
+/**
+ * The page_data_refs.kind each block type writes; null = none. A Venues block needs no ref: venue edits purge
+ * tags.venues, which the block's page carries.
+ */
+export const DATA_BLOCK_REF_KIND = {
+  programmeList: 'programme_list',
+  ladder: 'ladder',
+  fixtures: 'fixtures',
+  venues: null,
+} as const satisfies Record<DataBlock['type'], PageDataRefKind | null>

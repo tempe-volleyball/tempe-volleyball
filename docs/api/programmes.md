@@ -51,8 +51,10 @@ Rules:
   draft only while it has no history. `retiredAt` is set on retire and cleared on reactivate; `active` mirrors
   `status === 'active'`.
 - **URL change:** on a programme that isn't a draft, the old URL and every page under it (its season, term or event
-  pages) get 301s to the new ones, redirects that pointed at the old URLs are repointed (no chains), and redirects
-  _from_ the new URLs are dropped (`moveTreeStatements` in `common.ts`), all in the save's batch.
+  pages) get 301s to the new ones, redirects that pointed at the old URLs (or at one of their `#tabs`) are repointed
+  (no chains), and redirects _from_ the new URLs are dropped (`moveTreeStatements` in `common.ts`), all in the save's
+  batch. A league's calendar feeds (`/leagues/<old>/calendar.ics`, `/leagues/<old>/teams/<team>.ics`) and
+  `/leagues/fixtures?league=<old>` follow that 301 too (`renamedLeagueSlug` in `src/server/site.ts`).
 - **Delete** only while it has no seasons, sessions, terms, events or products, no menu item links to it and no
   page's Ladder/Fixtures block uses it (`ProgrammeView.history` says which, `canDelete` sums it up). Otherwise `409`:
   retire it.
