@@ -31,6 +31,10 @@ const ACTIONS: Record<string, string> = {
   'season.delete': 'Deleted season',
   'results.publish': 'Published results',
   'match.status': 'Changed game status',
+  'match.update': 'Changed game referee',
+  'match.move': 'Moved game to another night',
+  'match.move_undo': 'Moved game back',
+  'team.merge': 'Merged teams',
   'ladder.adjust': 'Adjusted ladder',
   'team.create': 'Created team',
   'team.rename': 'Renamed team',
@@ -78,6 +82,11 @@ const describe = (row: AuditRow) => {
     return `${String(after.season ?? '')} match day ${String(after.matchDay ?? '')} (${String(after.date ?? '')})`
   if (row.action === 'match.status')
     return `${String(after.season ?? '')} ${String(after.date ?? '')}: ${String(before.status ?? '?')} → ${String(after.status ?? '?')}`
+  if (row.action === 'match.update')
+    return `${String(after.season ?? '')} ${String(after.date ?? '')}: referee ${String(before.referee ?? 'none')} → ${String(after.referee ?? 'none')}`
+  if (row.action === 'match.move' || row.action === 'match.move_undo')
+    return `${String(after.season ?? '')} ${String(after.game ?? '')}: ${String(before.date ?? '?')} → ${String(after.date ?? '?')}`
+  if (row.action === 'team.merge') return `${String(before.name ?? '?')} merged into ${String(after.name ?? '?')}`
   if (row.action === 'team.create') return String(after.name ?? '')
   if (row.action === 'team.rename') return `${String(before.name ?? '?')} → ${String(after.name ?? '?')}`
   return row.targetType ? `${row.targetType} ${row.targetId ?? ''}` : ''

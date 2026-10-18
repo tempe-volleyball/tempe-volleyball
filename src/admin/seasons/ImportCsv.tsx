@@ -15,6 +15,8 @@ const EXAMPLE = `Date,Time,Court,Home,Away,Duty,Stage
 2027-01-14,,,,,,No games: Australia Day
 2027-03-04,20:00,Court 1,(2ND),(3RD),(4TH),Semi Final 1`
 
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
+
 export function ImportCsvButton({
   view,
   draft,
@@ -74,6 +76,7 @@ function ImportCsvDialog({
     ...drawIssues.filter((i) => i.level === 'error').map((i) => i.message),
     ...(settings && result?.weeks.length ? settingsErrors(settings) : []),
   ]
+  const weeksOff = result?.weeks.filter((w) => w.kind === 'skip').length ?? 0
   const warnings = [
     ...(result?.issues.filter((i) => i.level === 'warning').map((i) => i.message) ?? []),
     ...drawIssues.filter((i) => i.level === 'warning').map((i) => i.message),
@@ -136,11 +139,9 @@ function ImportCsvDialog({
               </Notice>
             ) : (
               <Notice kind="success">
-                {result.games} games over {result.weeks.filter((w) => w.kind !== 'skip').length} nights
-                {result.weeks.some((w) => w.kind === 'skip')
-                  ? `, with ${result.weeks.filter((w) => w.kind === 'skip').length} weeks off`
-                  : ''}
-                . Sessions {result.settings.sessions.join(', ')}; courts {result.settings.courts.join(', ')}.
+                {plural(result.games, 'game')} over {plural(result.weeks.filter((w) => w.kind !== 'skip').length, 'night')}
+                {weeksOff > 0 ? `, with ${weeksOff} week${weeksOff === 1 ? '' : 's'} off` : ''}. Sessions{' '}
+                {result.settings.sessions.join(', ')}; courts {result.settings.courts.join(', ')}.
               </Notice>
             )}
             {warnings.length > 0 && (

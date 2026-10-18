@@ -44,7 +44,9 @@ export function setCourt(weeks: Week[], s: Settings, weekId: string, session: nu
 /** Record a game's result as entered (all blank clears it). It isn't on the ladder until published. */
 export function setResult(weeks: Week[], weekId: string, gameId: string, result: Result): Week[] {
   const blank =
-    [result.home, result.away, result.homePoints, result.awayPoints].every((v) => v === null || v === undefined) && !result.sets?.length
+    [result.home, result.away, result.homePoints, result.awayPoints].every((v) => v === null || v === undefined) &&
+    !result.sets?.length &&
+    !result.outcome
   return weeks.map((w) =>
     w.id !== weekId ? w : { ...w, games: w.games.map((g) => (g.id !== gameId ? g : { ...g, result: blank ? undefined : result })) },
   )

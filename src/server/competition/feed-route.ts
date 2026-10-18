@@ -6,7 +6,7 @@ import { leagueCalendarPath, teamCalendarPath } from '../../lib/fixture-lists'
 import { leagueRoute } from '../../lib/wp-import/routes'
 import { cachePublic, tags } from '../cache'
 import { teams } from '../db/schema'
-import { publicDb, publicSite } from '../public'
+import { publicDb, publicSite, redirectFor } from '../public'
 import { renamedLeagueSlug } from '../site'
 import { seasonCalendarEvents } from './calendar'
 
@@ -36,7 +36,8 @@ export async function calendarFeed(context: APIContext, leagueSlug: string, team
   if (teamSlug && !team) {
     // Not in the current season: an empty feed if the team exists (it may play again next season), else a 404.
     team = await db.select({ id: teams.id, name: teams.name, slug: teams.slug }).from(teams).where(eq(teams.slug, teamSlug)).get()
-    if (!team) return notFound()
+    // A team merged into another leaves a 301 to the other team's feed (teams.ts mergeTeams).
+    if (!team) return (await redirectFor(context, db, context.url.pathname)) ?? notFound()
   }
   const venue = league.defaultVenueId ? site.venues.find((v) => v.id === league.defaultVenueId) : undefined
   const pageUrl = new URL(leagueRoute(league.slug), context.site ?? context.url).toString()

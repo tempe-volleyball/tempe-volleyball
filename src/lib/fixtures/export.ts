@@ -55,7 +55,7 @@ export function publicRows(s: Settings, weeks: Week[]): PublicRow[] {
         kind: 'game',
       })
     }
-    for (const t of byesForWeek(s, w)) {
+    for (const t of byesForWeek(s, w, weeks)) {
       const last = s.sessions[s.sessions.length - 1] ?? ''
       rows.push({
         date: w.date,
@@ -101,7 +101,7 @@ export function fullCsv(s: Settings, weeks: Week[]): string {
         score(g),
         pointsScore(g),
       ])
-    for (const t of byesForWeek(s, w)) rows.push([w.date, w.matchDay, '', '', 'Bye', refName(s, { team: t }), '', '', '', ''])
+    for (const t of byesForWeek(s, w, weeks)) rows.push([w.date, w.matchDay, '', '', 'Bye', refName(s, { team: t }), '', '', '', ''])
   }
   return toCsv(rows)
 }

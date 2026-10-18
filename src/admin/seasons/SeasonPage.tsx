@@ -10,6 +10,7 @@ import {
   undoWeekResultChanges,
   weekdayName,
   type Issue,
+  type Result,
   type Tab,
   type Team,
   type Week,
@@ -34,6 +35,7 @@ import { ConfirmDialog, LeaveDialog } from './dialogs'
 import { GameStatusDialog, NightDialog, WithdrawDialog, type NightChoice } from './NightDialogs'
 import { isEmptyPlan, planSave, type Draft } from './draft'
 import { FixturesTab, IssueList } from './FixturesTab'
+import { ForfeitDialog, MoveGameDialog } from './GameDialogs'
 import { PublishTab, WebsiteTab } from './PublishTab'
 import { changedResults } from './results-form'
 import { ResultsTab, type DayEdit, type GameStatus, type ResultsActions } from './ResultsTab'
@@ -91,6 +93,9 @@ export function SeasonPage({ me, id, tab: requested }: { me: Me; id: string; tab
   /** A question to ask before going ahead. */
   const [pending, setPending] = useState<
     | { kind: 'status'; weekId: string; gameId: string; status: 'cancelled' | 'postponed' | 'tbd' }
+    | { kind: 'forfeit'; weekId: string; gameId: string }
+    | { kind: 'move'; weekId: string; gameId: string }
+    | { kind: 'undoMove'; gameId: string }
     | { kind: 'regenerate' }
     | { kind: 'night'; weekId: string }
     | { kind: 'restore'; weekId: string }
@@ -333,7 +338,28 @@ export function SeasonPage({ me, id, tab: requested }: { me: Me; id: string; tab
     onStatus: (weekId, gameId, status: GameStatus) =>
       status === 'cancelled' || status === 'postponed' || status === 'tbd'
         ? setPending({ kind: 'status', weekId, gameId, status })
-        : setGameStatus(weekId, gameId, status),
+        : status === 'forfeit'
+          ? setPending({ kind: 'forfeit', weekId, gameId })
+          : setGameStatus(weekId, gameId, status),
+    onReferee: async (weekId, gameId, referee) => {
+      start()
+      try {
+        const r = await api<{ matchDay: MatchDayState; match: { id: string; referee: string | null }; cache: PurgeResult }>(
+          `/api/admin/seasons/${id}/match-days/${weekId}/matches/${gameId}`,
+          { method: 'PATCH', body: { baseUpdatedAt: view!.matchDays[weekId]!.updatedAt, referee } },
+        )
+        const setRef = (w: Week) =>
+          w.id !== weekId ? w : { ...w, games: w.games.map((g) => (g.id !== gameId ? g : { ...g, referee: r.match.referee ?? undefined })) }
+        applyDay(weekId, r.matchDay, (weeks) => weeks.map(setRef))
+        setEdits((all) => (all[weekId] ? { ...all, [weekId]: { ...all[weekId], week: setRef(all[weekId].week) } } : all))
+        if (r.cache === 'failed') setMessage(`Referee saved.${purgeNote(r.cache)}`)
+      } catch (e) {
+        fail(e)
+        throw e
+      }
+    },
+    onMove: (weekId, gameId) => (blockedByEdits() ? undefined : setPending({ kind: 'move', weekId, gameId })),
+    onUndoMove: (gameId) => (blockedByEdits() ? undefined : setPending({ kind: 'undoMove', gameId })),
     onNight: (weekId) => (blockedByEdits() ? undefined : setPending({ kind: 'night', weekId })),
     onRestoreNight: (weekId) => (blockedByEdits() ? undefined : setPending({ kind: 'restore', weekId })),
     onWithdraw: () => (blockedByEdits() ? undefined : setPending({ kind: 'withdraw' })),
@@ -352,18 +378,28 @@ export function SeasonPage({ me, id, tab: requested }: { me: Me; id: string; tab
     },
   }
 
-  /** Marks a game played, forfeit, cancelled, postponed or TBD, with an optional public note (cancelling clears its result). */
-  function setGameStatus(weekId: string, gameId: string, status: GameStatus, note?: string) {
+  /**
+   * Marks a game played, forfeit, cancelled, postponed or TBD, with an optional public note (cancelling clears its
+   * result). A forfeit with `forfeitedBy` gets the season's forfeit score as its draft result.
+   */
+  function setGameStatus(weekId: string, gameId: string, status: GameStatus, note?: string, forfeitedBy?: 'home' | 'away') {
     void dayAction(weekId, async () => {
       const r = await api<{
         matchDay: MatchDayState
         match: { id: string; status: SeasonView['matches'][string]['status']; statusNote: string | null }
+        result?: Result
         cache: PurgeResult
       }>(`/api/admin/seasons/${id}/match-days/${weekId}/matches/${gameId}/status`, {
-        body: { baseUpdatedAt: view!.matchDays[weekId]!.updatedAt, status, ...(note !== undefined ? { note } : {}) },
+        body: {
+          baseUpdatedAt: view!.matchDays[weekId]!.updatedAt,
+          status,
+          ...(note !== undefined ? { note } : {}),
+          ...(forfeitedBy ? { forfeitedBy } : {}),
+        },
       })
       const { status: stored, statusNote } = r.match
       const off = isOffStatus(stored)
+      const score = r.result
       const patch = (w: Week, clearResult: boolean) =>
         w.id !== weekId
           ? w
@@ -375,6 +411,7 @@ export function SeasonPage({ me, id, tab: requested }: { me: Me; id: string; tab
                   : {
                       ...g,
                       ...(clearResult ? { result: undefined } : {}),
+                      ...(score ? { result: score } : {}),
                       status: stored === 'scheduled' ? undefined : stored,
                       statusNote: statusNote ?? undefined,
                     },
@@ -382,6 +419,17 @@ export function SeasonPage({ me, id, tab: requested }: { me: Me; id: string; tab
             }
       applyDay(weekId, r.matchDay, (weeks) => weeks.map((w) => patch(w, stored === 'cancelled')))
       setView((v) => (v ? { ...v, matches: { ...v.matches, [gameId]: { ...v.matches[gameId]!, status: stored, statusNote } } } : v))
+      if (score) {
+        // The forfeit score replaces whatever was typed for that game.
+        setEdits((all) => {
+          const e = all[weekId]
+          if (!e) return all
+          const problems = { ...e.problems }
+          delete problems[gameId]
+          return { ...all, [weekId]: { week: patch(e.week, false), problems } }
+        })
+        resetDay(weekId)
+      }
       if (off) {
         // Unsaved typing for a game that's now off can't be saved: drop it.
         setEdits((all) => {
@@ -401,7 +449,9 @@ export function SeasonPage({ me, id, tab: requested }: { me: Me; id: string; tab
             : stored === 'tbd'
               ? 'Marked TBD. It needs no result to publish the match day.'
               : stored === 'forfeit'
-                ? 'Marked as a forfeit. Enter the score it counts as.'
+                ? score
+                  ? 'Marked as a forfeit, with the season’s forfeit score entered. Publish the match day when it’s ready.'
+                  : 'Marked as a forfeit. Enter the score it counts as.'
                 : 'Marked played.',
       )
     })
@@ -568,7 +618,8 @@ export function SeasonPage({ me, id, tab: requested }: { me: Me; id: string; tab
           ? nearest
           : landingTab(working.competition)
     if (!tabs.some((t) => t.id === tab)) tab = tabs[0]!.id
-    if (!hasDraw && isAdmin) tab = 'setup'
+    // No draw yet: Setup, or the Fixtures tab's generate / import-from-CSV choice on a draft.
+    if (!hasDraw && isAdmin && !(tab === 'fixtures' && status === 'draft')) tab = 'setup'
   }
   useEffect(() => {
     if (tab && tab !== requested) navigate(`/seasons/${id}/${tab}`, { replace: true })
@@ -667,7 +718,7 @@ export function SeasonPage({ me, id, tab: requested }: { me: Me; id: string; tab
         </div>
         <nav className="mt-4 flex overflow-x-auto border-b border-black/10 sm:gap-1" aria-label="Season">
           {tabs.map((t) => {
-            const disabled = t.id !== 'setup' && !hasDraw
+            const disabled = t.id !== 'setup' && !hasDraw && !(t.id === 'fixtures' && status === 'draft')
             return disabled ? (
               <span
                 key={t.id}
@@ -790,6 +841,52 @@ export function SeasonPage({ me, id, tab: requested }: { me: Me; id: string; tab
           }}
           onCancel={() => setPending(null)}
         />
+      )}
+      {pending?.kind === 'forfeit' && view.competition.weeks?.find((w) => w.id === pending.weekId) && (
+        <ForfeitDialog
+          view={view}
+          game={view.competition.weeks.find((w) => w.id === pending.weekId)!.games.find((g) => g.id === pending.gameId)!}
+          current={view.matches[pending.gameId]?.statusNote ?? ''}
+          onConfirm={(c) => {
+            const { weekId, gameId } = pending
+            setPending(null)
+            setGameStatus(weekId, gameId, 'forfeit', c.note, c.forfeitedBy)
+          }}
+          onCancel={() => setPending(null)}
+        />
+      )}
+      {pending?.kind === 'move' && (
+        <MoveGameDialog
+          view={view}
+          weekId={pending.weekId}
+          gameId={pending.gameId}
+          busy={busy === 'status'}
+          onConfirm={(c) =>
+            void seasonAction<SeasonView & { warnings: string[]; created: boolean; cache?: PurgeResult }>(
+              `matches/${pending.gameId}/move`,
+              c,
+              (r) =>
+                `Moved${r.created ? ' to a new catch-up night' : ''}. The website shows it on its new night.${
+                  r.warnings.length ? ` Check: ${r.warnings.join(' ')}` : ''
+                }`,
+            )
+          }
+          onCancel={() => setPending(null)}
+        />
+      )}
+      {pending?.kind === 'undoMove' && (
+        <ConfirmDialog
+          title="Move this game back?"
+          confirmLabel="Move it back"
+          busy={busy === 'status'}
+          onConfirm={() => void seasonAction(`matches/${pending.gameId}/move`, { action: 'undo' }, () => 'Moved back to its old night.')}
+          onCancel={() => setPending(null)}
+        >
+          <p>
+            The game goes back to the night, time and court it had before its last move, with its old status. A catch-up night made for it
+            is removed once it’s empty.
+          </p>
+        </ConfirmDialog>
       )}
       {pending?.kind === 'night' && view.competition.weeks?.find((w) => w.id === pending.weekId) && (
         <NightDialog

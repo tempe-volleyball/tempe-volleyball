@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { demoCompetition, setResult, withGenerated } from '../../lib/fixtures'
 import { changedResults, formFromResult, resultFromForm, type ResultForm } from './results-form'
 
-const sets = (...rows: [string, string][]): ResultForm => ({ mode: 'sets', sets: rows, totals: ['', '', '', ''] })
+const sets = (...rows: [string, string][]): ResultForm => ({ mode: 'sets', sets: rows, totals: ['', '', '', ''], outcome: '', note: '' })
 
 describe('formFromResult', () => {
   it('has one row per set the season plays', () => {
@@ -65,7 +65,10 @@ describe('resultFromForm', () => {
 
   it('is blank when nothing is typed', () => {
     expect(resultFromForm(sets(['', ''], ['', '']))).toEqual({ result: undefined, problem: null })
-    expect(resultFromForm({ mode: 'totals', sets: [], totals: ['', '', '', ''] })).toEqual({ result: undefined, problem: null })
+    expect(resultFromForm({ mode: 'totals', sets: [], totals: ['', '', '', ''], outcome: '', note: '' })).toEqual({
+      result: undefined,
+      problem: null,
+    })
   })
 
   it('flags half-typed and out-of-order sets', () => {
@@ -75,7 +78,7 @@ describe('resultFromForm', () => {
   })
 
   it('reads totals', () => {
-    expect(resultFromForm({ mode: 'totals', sets: [], totals: ['2', '0', '50', ''] })).toEqual({
+    expect(resultFromForm({ mode: 'totals', sets: [], totals: ['2', '0', '50', ''], outcome: '', note: '' })).toEqual({
       result: { home: 2, away: 0, homePoints: 50, awayPoints: null },
       problem: null,
     })
@@ -91,5 +94,20 @@ describe('changedResults', () => {
     edited = setResult([edited], w.id, b!.id, { home: 1, away: 1, homePoints: 45, awayPoints: 45 })[0]!
     expect(changedResults(saved, edited)).toEqual({ [a!.id]: null, [b!.id]: { home: 1, away: 1, homePoints: 45, awayPoints: 45 } })
     expect(changedResults(saved, saved)).toEqual({})
+  })
+})
+
+describe('deciding the outcome by hand', () => {
+  it('adds the outcome and its reason, and needs the reason', () => {
+    const f = { ...sets(['25', '20'], ['25', '20']), outcome: 'away' as const, note: '' }
+    expect(resultFromForm(f).problem).toMatch(/Say why/)
+    expect(resultFromForm({ ...f, note: ' Walkover ' }).result).toMatchObject({ home: 2, away: 0, outcome: 'away', note: 'Walkover' })
+  })
+
+  it('works with no scores, and comes back as an outcome-only form', () => {
+    const r = resultFromForm({ ...sets(['', ''], ['', '']), outcome: 'draw', note: 'Both short' })
+    expect(r).toEqual({ result: { home: null, away: null, outcome: 'draw', note: 'Both short' }, problem: null })
+    const f = formFromResult(r.result, 2)
+    expect(f).toMatchObject({ mode: 'sets', outcome: 'draw', note: 'Both short' })
   })
 })

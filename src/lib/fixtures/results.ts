@@ -6,6 +6,8 @@ import {
   MAX_SETS,
   isTeam,
   withdrawnPolicy,
+  type ForfeitRule,
+  type LevelSetsRule,
   type Points,
   type Ref,
   type Result,
@@ -39,10 +41,15 @@ export function effectiveResult(r: Result | undefined): Result | undefined {
   return { ...r, home, away, homePoints, awayPoints }
 }
 
-/** Sets and points for both teams, or null if anything's missing. */
+/**
+ * Sets and points for both teams, or null if anything's missing. A result decided by hand (`outcome`) is complete
+ * on its own: missing sets and points count as 0.
+ */
 export function completeResult(r: Result | undefined): CompleteResult | null {
   const e = effectiveResult(r)
-  if (!e || !filled(e.home) || !filled(e.away) || !filled(e.homePoints) || !filled(e.awayPoints)) return null
+  if (!e) return null
+  if (e.outcome) return { home: e.home ?? 0, away: e.away ?? 0, homePoints: e.homePoints ?? 0, awayPoints: e.awayPoints ?? 0 }
+  if (!filled(e.home) || !filled(e.away) || !filled(e.homePoints) || !filled(e.awayPoints)) return null
   return { home: e.home, away: e.away, homePoints: e.homePoints, awayPoints: e.awayPoints }
 }
 
@@ -50,13 +57,31 @@ export function completeResult(r: Result | undefined): CompleteResult | null {
 export const isComplete = (r: Result | undefined): boolean => completeResult(r) !== null
 
 /** Anything typed in at all. */
-export const hasEntry = (r: Result | undefined) => !!r && ([r.home, r.away, r.homePoints, r.awayPoints].some(filled) || hasSets(r))
+export const hasEntry = (r: Result | undefined) =>
+  !!r && ([r.home, r.away, r.homePoints, r.awayPoints].some(filled) || hasSets(r) || !!r.outcome)
 
-/** Who won on sets. */
-export function outcome(r: Result | undefined): 'home' | 'away' | 'draw' | null {
+/**
+ * Who won. A result decided by hand (`outcome`) says so whatever the scores; otherwise it's on sets. Level on sets
+ * is a draw, or with the season's `levelSets: 'points'` rule (SportsPress's) the team with more rally points wins,
+ * and only level on points too is a draw.
+ */
+export function outcome(r: Result | undefined, levelSets: LevelSetsRule = 'draw'): 'home' | 'away' | 'draw' | null {
+  if (r?.outcome) return r.outcome
   const e = effectiveResult(r)
   if (!e || !filled(e.home) || !filled(e.away)) return null
-  return e.home > e.away ? 'home' : e.away > e.home ? 'away' : 'draw'
+  if (e.home !== e.away) return e.home > e.away ? 'home' : 'away'
+  if (levelSets === 'points' && filled(e.homePoints) && filled(e.awayPoints) && e.homePoints !== e.awayPoints)
+    return e.homePoints > e.awayPoints ? 'home' : 'away'
+  return 'draw'
+}
+
+/** The season's 1–1 rule (Settings.levelSets); missing is a draw. */
+export const levelSetsRule = (s: Pick<Settings, 'levelSets'>): LevelSetsRule => (s.levelSets === 'points' ? 'points' : 'draw')
+
+/** How the 1–1 rule reads in the admin. */
+export const LEVEL_SETS_LABEL: Record<LevelSetsRule, string> = {
+  draw: 'A draw (the default)',
+  points: 'Decided on total points (as SportsPress did)',
 }
 
 const setsKey = (r: Result | undefined) => JSON.stringify(r?.sets ?? [])
@@ -66,7 +91,65 @@ export const sameResult = (a: Result | undefined, b: Result | undefined) =>
   (a?.away ?? null) === (b?.away ?? null) &&
   (a?.homePoints ?? null) === (b?.homePoints ?? null) &&
   (a?.awayPoints ?? null) === (b?.awayPoints ?? null) &&
-  setsKey(a) === setsKey(b)
+  setsKey(a) === setsKey(b) &&
+  (a?.outcome ?? null) === (b?.outcome ?? null) &&
+  (a?.note ?? '') === (b?.note ?? '')
+
+// ---------------------------------------------------------------------------
+// Forfeits (docs/admin.md §3.11): a game marked forfeit gets the season's forfeit score as its draft result, which
+// can still be changed before publishing. The default is what SportsPress recorded on tempevb.com: the winner takes
+// every set it needs 25–0 (2–0 in social leagues, 3–0 in a best of 5), and the forfeiting team keeps its loss point.
+
+/** Sets the winner needs: all of them when an even number is played (social: 2), else a majority (best of 5: 3). */
+export const setsToWin = (setsPerMatch: number) => (setsPerMatch % 2 === 0 ? setsPerMatch : Math.ceil(setsPerMatch / 2))
+
+/** The season's forfeit rule, with SportsPress's defaults for anything missing. */
+export function forfeitRule(s: Pick<Settings, 'forfeit'>, setsPerMatch: number): ForfeitRule {
+  return { winnerSets: setsToWin(setsPerMatch), loserSets: 0, winnerSetPoints: 25, loserSetPoints: 0, lossPoints: true, ...s.forfeit }
+}
+
+/** Why a forfeit rule can't be used with this many sets per match, or null. */
+export function forfeitRuleProblem(f: ForfeitRule, setsPerMatch: number): string | null {
+  if (![f.winnerSets, f.loserSets, f.winnerSetPoints, f.loserSetPoints].every((n) => Number.isInteger(n) && n >= 0))
+    return 'Forfeit sets and points must be whole numbers, 0 or more.'
+  if (f.winnerSets < 1 || f.winnerSets <= f.loserSets) return 'A forfeit must give the winner more sets than the forfeiting team.'
+  if (f.winnerSets + f.loserSets > setsPerMatch) return `A forfeit can’t have more than ${setsPerMatch} sets (the season’s sets per match).`
+  if (f.winnerSetPoints > 99 || f.loserSetPoints > 99) return 'A forfeit’s set score can’t be over 99.'
+  if (f.winnerSetPoints < f.loserSetPoints) return 'In a forfeit, the winner’s set points can’t be fewer than the forfeiting team’s.'
+  return null
+}
+
+/**
+ * The result a forfeit is recorded as, the winner being the side that didn't forfeit. Always decided by hand
+ * (`outcome`, note "Forfeit"), so it counts for the winner even when the sets are left blank.
+ */
+export function forfeitResult(f: ForfeitRule, forfeited: 'home' | 'away'): Result {
+  const winner = forfeited === 'home' ? 'away' : 'home'
+  const won: SetScore = winner === 'home' ? [f.winnerSetPoints, f.loserSetPoints] : [f.loserSetPoints, f.winnerSetPoints]
+  const lost: SetScore = [won[1], won[0]]
+  const withScores = f.winnerSetPoints > 0 || f.loserSetPoints > 0
+  const sets = [...Array.from({ length: f.winnerSets }, () => won), ...Array.from({ length: f.loserSets }, () => lost)]
+  const base: Result = withScores
+    ? effectiveResult({ home: null, away: null, sets })!
+    : {
+        home: winner === 'home' ? f.winnerSets : f.loserSets,
+        away: winner === 'home' ? f.loserSets : f.winnerSets,
+        homePoints: 0,
+        awayPoints: 0,
+      }
+  return { ...base, outcome: winner, note: 'Forfeit' }
+}
+
+/** "2–0 (25–0, 25–0)" or "2–0 in sets, no set scores": a forfeit rule's score from the winner's side. */
+export function forfeitScoreText(f: ForfeitRule): string {
+  const sets = `${f.winnerSets}–${f.loserSets}`
+  if (f.winnerSetPoints === 0 && f.loserSetPoints === 0) return `${sets} in sets, no set scores`
+  const each = [
+    ...Array.from({ length: f.winnerSets }, () => `${f.winnerSetPoints}–${f.loserSetPoints}`),
+    ...Array.from({ length: f.loserSets }, () => `${f.loserSetPoints}–${f.winnerSetPoints}`),
+  ]
+  return `${sets} (${each.join(', ')})`
+}
 
 /** Why a list of set scores isn't valid, or null if it is. */
 export function setScoresProblem(sets: SetScore[] | undefined, maxSets = MAX_SETS): string | null {
@@ -124,8 +207,8 @@ export function tieBreakOrder(s: Pick<Settings, 'tieBreaks'>): TieBreakRule[] {
 
 const share = (a: number, b: number) => (a + b > 0 ? a / (a + b) : 0)
 
-type Counted = { home: string; away: string; r: CompleteResult }
-type RankContext = { names: Map<string, string>; counted: Counted[]; pts: Points }
+type Counted = { home: string; away: string; r: CompleteResult; won: 'home' | 'away' | 'draw'; forfeit: boolean }
+type RankContext = { names: Map<string, string>; counted: Counted[]; pts: Points; lossPoints: (c: Counted) => number }
 
 /**
  * The ladder from published round-robin results, sorted by ladder points and then the season's tie-break order
@@ -136,6 +219,10 @@ type RankContext = { names: Map<string, string>; counted: Counted[]; pts: Points
 export function standings(s: Settings, weeks: Week[], opts: StandingsOptions = {}): Standing[] {
   const pts = s.points ?? DEFAULT_POINTS
   const policy = withdrawnPolicy(s)
+  const level = levelSetsRule(s)
+  // The losing side of a game marked forfeit gets the loss points unless the season's forfeit rule says 0.
+  const forfeitLoss = s.forfeit?.lossPoints !== false
+  const lossPoints = (c: Pick<Counted, 'forfeit'>) => (c.forfeit && !forfeitLoss ? 0 : pts.loss)
   const withdrawn = new Set(s.teams.filter((t) => t.withdrawn).map((t) => t.id))
   const rows = new Map<string, Standing>(
     s.teams.map((t) => [
@@ -150,24 +237,31 @@ export function standings(s: Settings, weeks: Week[], opts: StandingsOptions = {
       const r = completeResult(g.publishedResult)
       if (!r || !isTeam(g.home) || !isTeam(g.away)) continue
       if (policy.results === 'void' && (withdrawn.has(g.home.team) || withdrawn.has(g.away.team))) continue
-      counted.push({ home: g.home.team, away: g.away.team, r })
+      const c: Counted = {
+        home: g.home.team,
+        away: g.away.team,
+        r,
+        won: outcome(g.publishedResult, level) ?? 'draw',
+        forfeit: g.status === 'forfeit',
+      }
+      counted.push(c)
       const sides = [
-        [rows.get(g.home.team), r.home, r.away, r.homePoints, r.awayPoints],
-        [rows.get(g.away.team), r.away, r.home, r.awayPoints, r.homePoints],
+        [rows.get(g.home.team), 'home', r.home, r.away, r.homePoints, r.awayPoints],
+        [rows.get(g.away.team), 'away', r.away, r.home, r.awayPoints, r.homePoints],
       ] as const
-      for (const [row, sf, sa, pf, pa] of sides) {
+      for (const [row, side, sf, sa, pf, pa] of sides) {
         if (!row) continue
         row.played++
         row.setsFor += sf
         row.setsAgainst += sa
         row.pointsFor += pf
         row.pointsAgainst += pa
-        if (sf > sa) {
+        if (c.won === side) {
           row.won++
           row.points += pts.win
-        } else if (sf < sa) {
+        } else if (c.won !== 'draw') {
           row.lost++
-          row.points += pts.loss
+          row.points += lossPoints(c)
         } else {
           row.drawn++
           row.points += pts.draw
@@ -181,7 +275,7 @@ export function standings(s: Settings, weeks: Week[], opts: StandingsOptions = {
   }
   const list = [...rows.values()].filter((r) => !(policy.ladder === 'hide' && withdrawn.has(r.teamId)))
   for (const r of list) if (withdrawn.has(r.teamId)) r.withdrawn = true
-  const ctx: RankContext = { names: new Map(s.teams.map((t) => [t.id, t.name])), counted, pts }
+  const ctx: RankContext = { names: new Map(s.teams.map((t) => [t.id, t.name])), counted, pts, lossPoints }
   const rules = tieBreakOrder(s)
   return [
     ...rankGroup(
@@ -200,10 +294,11 @@ export function standings(s: Settings, weeks: Week[], opts: StandingsOptions = {
 /** Ladder points earned in the games between the teams of `group`: a mini-ladder for head to head. */
 function headToHead(group: Standing[], ctx: RankContext): Map<string, number> {
   const out = new Map(group.map((r) => [r.teamId, 0]))
-  for (const { home, away, r } of ctx.counted) {
+  for (const c of ctx.counted) {
+    const { home, away } = c
     if (!out.has(home) || !out.has(away)) continue
-    const [h, a] =
-      r.home > r.away ? [ctx.pts.win, ctx.pts.loss] : r.home < r.away ? [ctx.pts.loss, ctx.pts.win] : [ctx.pts.draw, ctx.pts.draw]
+    const loss = ctx.lossPoints(c)
+    const [h, a] = c.won === 'home' ? [ctx.pts.win, loss] : c.won === 'away' ? [loss, ctx.pts.win] : [ctx.pts.draw, ctx.pts.draw]
     out.set(home, out.get(home)! + h)
     out.set(away, out.get(away)! + a)
   }
@@ -309,7 +404,8 @@ export function lastPublishedMatchDay(weeks: Week[]): number {
  * don't count). null for a season with no round robin.
  */
 export function ladderWeek(weeks: Week[]): { week: number; of: number } | null {
-  const of = weeks.filter((w) => w.kind === 'regular').length
+  // Match day numbers, not nights: a catch-up night for a moved game keeps its game's match day number.
+  const of = new Set(weeks.filter((w) => w.kind === 'regular').map((w) => w.matchDay)).size
   return of > 0 ? { week: lastPublishedMatchDay(weeks), of } : null
 }
 
@@ -354,17 +450,18 @@ export function weekResultsState(w: Week): WeekResultsState {
   return w.games.some((g) => hasEntry(g.result)) ? 'entering' : 'empty'
 }
 
-/** Why a match day's results can't be published yet, or null if they can. */
-export function publishProblem(w: Week): string | null {
+/** Why a match day's results can't be published yet, or null if they can. `levelSets` is the season's 1–1 rule. */
+export function publishProblem(w: Week, levelSets: LevelSetsRule = 'draw'): string | null {
   const missing = w.games.filter((g) => !isComplete(g.result)).length
   if (missing)
     return `Enter sets and points for ${missing === w.games.length ? 'every game' : `the ${missing} remaining game${missing > 1 ? 's' : ''}`} to publish.`
   for (const g of w.games) {
     const problem = setScoresProblem(g.result?.sets)
     if (problem) return `${g.title ?? 'A game'}: ${problem}`
+    if (g.result?.outcome && !g.result.note?.trim()) return `${g.title ?? 'A game'}: say why its outcome was decided by hand.`
   }
   if (w.kind !== 'regular') {
-    const draw = w.games.find((g) => outcome(g.result) === 'draw')
+    const draw = w.games.find((g) => outcome(g.result, levelSets) === 'draw')
     if (draw) return `${draw.title ?? 'A finals game'} is a draw, but finals need a winner.`
   }
   return null
@@ -395,7 +492,7 @@ export function makeResolver(s: Settings, weeks: Week[]): (r: Ref | null) => Ref
     if (!m || !game) return r
     const home = resolve(game.home, depth + 1)
     const away = resolve(game.away, depth + 1)
-    const o = isComplete(game.publishedResult) ? outcome(game.publishedResult) : null
+    const o = isComplete(game.publishedResult) ? outcome(game.publishedResult, levelSetsRule(s)) : null
     if (!isTeam(home) || !isTeam(away) || !o || o === 'draw') return r
     return (m[1] === 'Winner') === (o === 'home') ? home : away
   }

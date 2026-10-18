@@ -61,32 +61,35 @@ those), so results being typed for such a day will get a `409` on the next save.
 
 ## Endpoints
 
-| Method and path                                           | Role   | Body                                                           | Returns                                |
-| --------------------------------------------------------- | ------ | -------------------------------------------------------------- | -------------------------------------- |
-| `GET /api/admin/leagues`                                  | editor |                                                                | `{ leagues: LeagueListItem[] }`        |
-| `POST /api/admin/seasons`                                 | admin  | `{ leagueId, year, quarter, startDate?, name?, copyFrom? }`    | `SeasonView` (201)                     |
-| `GET /api/admin/seasons/:id`                              | editor |                                                                | `SeasonView`                           |
-| `PATCH /api/admin/seasons/:id`                            | admin  | `{ baseUpdatedAt, settings: SettingsPatch }`                   | `SeasonView & { cache }`               |
-| `DELETE /api/admin/seasons/:id?baseUpdatedAt=…`           | admin  | (or `{ baseUpdatedAt }`)                                       | `{ ok: true }`                         |
-| `PUT /api/admin/seasons/:id/draw`                         | admin  | `{ baseUpdatedAt, weeks, generatedFrom?, edited?, settings? }` | `{ season, issues, matchDays, cache }` |
-| `PUT /api/admin/seasons/:id/teams`                        | admin  | `{ baseUpdatedAt, teamIds }`                                   | `SeasonView`                           |
-| `POST /api/admin/seasons/:id/status`                      | admin  | `{ baseUpdatedAt, status }`                                    | `SeasonView & { cache }`               |
-| `GET /api/admin/seasons/:id/clashes?from=&to=`            | editor |                                                                | `ClashDraws`                           |
-| `PUT /api/admin/seasons/:id/match-days/:dayId/results`    | editor | `{ baseUpdatedAt, results: { [matchId]: Result \| null } }`    | `{ matchDay }`                         |
-| `POST /api/admin/seasons/:id/match-days/:dayId/publish`   | editor | `{ baseUpdatedAt }`                                            | `{ matchDay, cache }`                  |
-| `POST /api/admin/seasons/:id/match-days/:dayId/undo`      | editor | `{ baseUpdatedAt }`                                            | `{ matchDay }`                         |
-| `POST …/match-days/:dayId/matches/:matchId/status`        | editor | `{ baseUpdatedAt, status, note? }` (see Game statuses)         | `{ matchDay, match, cache }`           |
-| `POST …/match-days/:dayId/night`                          | admin  | `{ baseUpdatedAt, action, note?, pushBack? }` (season token)   | `SeasonView & { cache }`               |
-| `POST /api/admin/seasons/:id/teams/:teamId/withdraw`      | admin  | `{ baseUpdatedAt, reason, cancelFixtures?, from? }`            | `WithdrawResult & { cache }`           |
-| `POST /api/admin/seasons/:id/teams/:teamId/reinstate`     | admin  | `{ baseUpdatedAt }`                                            | `ReinstateResult & { cache }`          |
-| `GET /api/admin/matches?from=&to=&league=&season=&team=…` | editor |                                                                | `MatchList`                            |
-| `GET /api/admin/seasons/:id/adjustments`                  | editor |                                                                | `{ adjustments }`                      |
-| `POST /api/admin/seasons/:id/adjustments`                 | admin  | `{ teamId, points, reason }`                                   | `{ adjustments, cache }` (201)         |
-| `PATCH /api/admin/seasons/:id/adjustments/:adjustmentId`  | admin  | `{ points?, reason? }`                                         | `{ adjustments, cache }`               |
-| `DELETE /api/admin/seasons/:id/adjustments/:adjustmentId` | admin  |                                                                | `{ adjustments, cache }`               |
-| `GET /api/admin/teams`                                    | editor |                                                                | `{ teams: TeamListItem[] }`            |
-| `POST /api/admin/teams`                                   | admin  | `{ name }`                                                     | `{ team: TeamListItem }` (201)         |
-| `PATCH /api/admin/teams/:id`                              | admin  | `{ name }`                                                     | `{ team, cache }`                      |
+| Method and path                                           | Role   | Body                                                                                                           | Returns                                     |
+| --------------------------------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| `GET /api/admin/leagues`                                  | editor |                                                                                                                | `{ leagues: LeagueListItem[] }`             |
+| `POST /api/admin/seasons`                                 | admin  | `{ leagueId, year, quarter, startDate?, name?, copyFrom? }`                                                    | `SeasonView` (201)                          |
+| `GET /api/admin/seasons/:id`                              | editor |                                                                                                                | `SeasonView`                                |
+| `PATCH /api/admin/seasons/:id`                            | admin  | `{ baseUpdatedAt, settings: SettingsPatch }`                                                                   | `SeasonView & { cache }`                    |
+| `DELETE /api/admin/seasons/:id?baseUpdatedAt=…`           | admin  | (or `{ baseUpdatedAt }`)                                                                                       | `{ ok: true }`                              |
+| `PUT /api/admin/seasons/:id/draw`                         | admin  | `{ baseUpdatedAt, weeks, generatedFrom?, edited?, settings? }`                                                 | `{ season, issues, matchDays, cache }`      |
+| `PUT /api/admin/seasons/:id/teams`                        | admin  | `{ baseUpdatedAt, teamIds }`                                                                                   | `SeasonView`                                |
+| `POST /api/admin/seasons/:id/status`                      | admin  | `{ baseUpdatedAt, status }`                                                                                    | `SeasonView & { cache }`                    |
+| `GET /api/admin/seasons/:id/clashes?from=&to=`            | editor |                                                                                                                | `ClashDraws`                                |
+| `PUT /api/admin/seasons/:id/match-days/:dayId/results`    | editor | `{ baseUpdatedAt, results: { [matchId]: Result \| null } }`                                                    | `{ matchDay }`                              |
+| `POST /api/admin/seasons/:id/match-days/:dayId/publish`   | editor | `{ baseUpdatedAt }`                                                                                            | `{ matchDay, cache }`                       |
+| `POST /api/admin/seasons/:id/match-days/:dayId/undo`      | editor | `{ baseUpdatedAt }`                                                                                            | `{ matchDay }`                              |
+| `POST …/match-days/:dayId/matches/:matchId/status`        | editor | `{ baseUpdatedAt, status, note?, forfeitedBy? }` (see Game statuses)                                           | `{ matchDay, match, result?, cache }`       |
+| `PATCH …/match-days/:dayId/matches/:matchId`              | editor | `{ baseUpdatedAt, referee }` (match day token)                                                                 | `{ matchDay, match, cache }`                |
+| `POST /api/admin/seasons/:id/matches/:matchId/move`       | admin  | `{ baseUpdatedAt, toWeekId \| date, session, position }` or `{ baseUpdatedAt, action: 'undo' }` (season token) | `SeasonView & { warnings, created, cache }` |
+| `POST …/match-days/:dayId/night`                          | admin  | `{ baseUpdatedAt, action, note?, pushBack? }` (season token)                                                   | `SeasonView & { cache }`                    |
+| `POST /api/admin/seasons/:id/teams/:teamId/withdraw`      | admin  | `{ baseUpdatedAt, reason, cancelFixtures?, from? }`                                                            | `WithdrawResult & { cache }`                |
+| `POST /api/admin/seasons/:id/teams/:teamId/reinstate`     | admin  | `{ baseUpdatedAt }`                                                                                            | `ReinstateResult & { cache }`               |
+| `GET /api/admin/matches?from=&to=&league=&season=&team=…` | editor |                                                                                                                | `MatchList`                                 |
+| `GET /api/admin/seasons/:id/adjustments`                  | editor |                                                                                                                | `{ adjustments }`                           |
+| `POST /api/admin/seasons/:id/adjustments`                 | admin  | `{ teamId, points, reason }`                                                                                   | `{ adjustments, cache }` (201)              |
+| `PATCH /api/admin/seasons/:id/adjustments/:adjustmentId`  | admin  | `{ points?, reason? }`                                                                                         | `{ adjustments, cache }`                    |
+| `DELETE /api/admin/seasons/:id/adjustments/:adjustmentId` | admin  |                                                                                                                | `{ adjustments, cache }`                    |
+| `GET /api/admin/teams`                                    | editor |                                                                                                                | `{ teams: TeamListItem[] }`                 |
+| `POST /api/admin/teams`                                   | admin  | `{ name }`                                                                                                     | `{ team: TeamListItem }` (201)              |
+| `PATCH /api/admin/teams/:id`                              | admin  | `{ name }`                                                                                                     | `{ team, cache }`                           |
+| `POST /api/admin/teams/:id/merge`                         | admin  | `{ mergeId }`                                                                                                  | `{ team, merged, seasons, cache }`          |
 
 `:dayId` is a week id (`Week.id`). Holiday suggestions stay client-side: `holidaysOnGameNights(startDate, weeks)` in the lib.
 
@@ -205,7 +208,17 @@ type ClashDraws = {
     team is shown last and marked "(withdrawn)", or left off. Its played games still count, or count for nobody
     (both sides). Its cancelled games show as cancelled, or as a bye for the opponent. Missing means
     `{ mark, keep, cancelled }` (`withdrawnPolicy()`).
-  - A season copied from another (`copyFrom`) keeps both. The 1–1 draw rule is unchanged (still a draw).
+  - `levelSets: 'draw' | 'points'` is the 1–1 rule: a match level on sets is a draw (missing; the demo's rule), or
+    decided on total rally points as SportsPress did (level on points too is still a draw). It's the lib's
+    `outcome(result, levelSetsRule(settings))`, used by `standings()`, head to head, `makeResolver()` and the finals
+    check in `publishProblem()` (a 1–1 final decided on points can publish).
+  - `forfeit: { winnerSets, loserSets, winnerSetPoints, loserSetPoints, lossPoints }` is what a game marked forfeit
+    counts as (`forfeitRule(settings, setsPerMatch)` fills in the defaults: every set the winner needs 25–0, so 2–0
+    social and 3–0 best of 5, and `lossPoints: true`). `winnerSets + loserSets ≤ setsPerMatch` and the winner gets more
+    sets (`forfeitRuleProblem()`, else `400`). Set points both 0 records the sets with no set scores. With
+    `lossPoints: false` the losing side of a game whose status is `forfeit` gets 0 ladder points instead of the loss
+    points, on every published forfeit, straight away.
+  - A season copied from another (`copyFrom`) keeps all four.
 
 ### Team list
 
@@ -259,10 +272,15 @@ Results go one match day at a time and need a **published** season (`409 season_
 
 - Saves **draft** results only; the public site doesn't change. Matches left out are untouched; `null` (or an
   all-blank result) clears one. Every match must be on that day.
-- `Result` is the lib's: `{ home, away, homePoints?, awayPoints?, sets? }`. With `sets`, sets won and point totals
-  are derived from them (`effectiveResult`) and what's stored always agrees. Checked: whole numbers ≥ 0, set points
-  ≤ 99, totals ≤ 999, `setScoresProblem(sets, setsPerMatch)` (so at most 2 sets in social leagues, 5 in TVSL), and
-  `home + away ≤ setsPerMatch`.
+- `Result` is the lib's: `{ home, away, homePoints?, awayPoints?, sets?, outcome?, note? }`. With `sets`, sets won and
+  point totals are derived from them (`effectiveResult`) and what's stored always agrees. Checked: whole numbers ≥ 0,
+  set points ≤ 99, totals ≤ 999, `setScoresProblem(sets, setsPerMatch)` (so at most 2 sets in social leagues, 5 in
+  TVSL), and `home + away ≤ setsPerMatch`.
+- **Decided by hand:** `outcome: 'home' | 'away' | 'draw'` (stored in `match_results.outcome`) is who won whatever the
+  scores say, e.g. a walkover; `note` (≤ 200, `match_results.note`) is why, and is required with an outcome (`400`
+  without). A result can be just an outcome: missing sets and points then count as 0 (`completeResult`). The ladder,
+  head to head and finals use it; the public fixtures show "W - L" / "L - W" / "Draw" when there are no sets, and
+  "<team> awarded the win: <note>" (or "Declared a draw: …") under the result. Publish copies both columns.
 - A result for a **cancelled** game is `400` (clearing it with `null` is fine).
 
 `POST …/match-days/:dayId/publish { baseUpdatedAt }`
@@ -285,13 +303,13 @@ All three return `{ matchDay: { id, updatedAt, resultsPublishedAt } }`. Keep the
 
 `POST …/match-days/:dayId/matches/:matchId/status { baseUpdatedAt, status, note? }` (editor), with `status` one of:
 
-| `status`    | Stored as                                               | Effect                                                                                                                   |
-| ----------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `cancelled` | `cancelled`                                             | Its draft result is deleted; it needs no result to publish the day; the next publish drops its published result (if any) |
-| `postponed` | `postponed`                                             | To be replayed. Like cancelled, except a draft result is kept for when it's played                                       |
-| `tbd`       | `tbd`                                                   | Date or time still to be decided. Same rules as postponed                                                                |
-| `forfeit`   | `forfeit`                                               | Labels the game "(forfeit)" on the fixtures. It's an ordinary result otherwise: enter the score it counts as             |
-| `played`    | `played` if it has a published result, else `scheduled` | Undoes any of the above                                                                                                  |
+| `status`    | Stored as                                               | Effect                                                                                                                                                                                                                                                                                                                                                                             |
+| ----------- | ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cancelled` | `cancelled`                                             | Its draft result is deleted; it needs no result to publish the day; the next publish drops its published result (if any)                                                                                                                                                                                                                                                           |
+| `postponed` | `postponed`                                             | To be replayed. Like cancelled, except a draft result is kept for when it's played                                                                                                                                                                                                                                                                                                 |
+| `tbd`       | `tbd`                                                   | Date or time still to be decided. Same rules as postponed                                                                                                                                                                                                                                                                                                                          |
+| `forfeit`   | `forfeit`                                               | Labels the game "(forfeit)" on the fixtures. With `forfeitedBy: 'home' \| 'away'`, the draft result becomes the season's forfeit score (`forfeitResult(forfeitRule(settings), side)`, decided by hand for the other side, note "Forfeit") and is returned as `result`; without it the result is left alone. Either way it's an ordinary result to publish, and can be edited first |
+| `played`    | `played` if it has a published result, else `scheduled` | Undoes any of the above                                                                                                                                                                                                                                                                                                                                                            |
 
 - `note` (≤ 200 characters) is the public reason ("Venue unavailable"). It's stored in `matches.status_note` and shown
   under the status on the fixtures. Leaving it out keeps the current note; `played` clears it.
@@ -306,8 +324,39 @@ All three return `{ matchDay: { id, updatedAt, resultsPublishedAt } }`. Keep the
   nothing (no audit, no purge).
 - Returns `{ matchDay, match: { id, status, statusNote }, cache }`. The client keeps `SeasonView.matches[id]` in step
   and, for `cancelled`, clears the game's `result` locally.
-- The ladder (`standings()`) never sees the status: an off game simply has no published result. `progress()` and
-  `isFinished()` skip cancelled games. The 1–1 draw rule is unchanged.
+- The ladder (`standings()`) only reads the status for forfeits (the season's `forfeit.lossPoints`): an off game simply
+  has no published result. `progress()` and `isFinished()` skip cancelled games.
+
+### Referee
+
+`PATCH …/match-days/:dayId/matches/:matchId { baseUpdatedAt, referee }` (editors, match day token) sets
+`matches.referee` (free text ≤ 80, spaces tidied; `''` or `null` clears it). It's `Game.referee` in the view, "Referee:
+…" on the public fixtures and in calendar feeds. Season must be published and not archived. Audited as `match.update`;
+purges the season's pages. Returns `{ matchDay, match: { id, referee }, cache }`.
+
+### Moving one game to another night
+
+`POST /api/admin/seasons/:id/matches/:matchId/move { baseUpdatedAt, toWeekId | date, session, position }` (admins,
+published seasons, season token) moves one game. The plan is the lib's `moveToNight(settings, weeks, gameId, target)`
+(`src/lib/fixtures/move.ts`), which the admin previews with:
+
+- The game can't have a published result. The target is another night of this season by id (not a week off, not a
+  postponed or cancelled night), or a `date`: the season's night on that date, or a **new catch-up night** (same kind
+  and match day number as the game's night; it doesn't add a week to "Week X of Y").
+- The slot (`session`, `position` within the season's sessions and courts) must be free with a court, and no other
+  game may use that court then. Refused: either team, or the duty team, already plays at that time. Warnings (returned
+  as `warnings`): a double header, or a duty team that doesn't play that night.
+- Then the other leagues at the venue that night are checked with `courtClashes()`; a clash is refused.
+- The game keeps its id, draft result, duty and title. A postponed or TBD game becomes scheduled (its note is cleared).
+  `matches.original_match_day_id` keeps the night it was **first** on (moving it back there clears it). The view's
+  `Game.originalWeekId` carries it; the old night lists the game as "Moved" ("Moved to 30/10/2026", fixture row kind
+  `moved`, not a calendar event), the new one as "(moved from …)". Byes ignore moved games on both nights.
+- One batch (32 queries in all, with the clash check), audited as `match.move` with the game's old night, slot, start time, court, status,
+  note and original night.
+- `{ baseUpdatedAt, action: 'undo' }` puts back the last move exactly (`match.move_undo`) and deletes a catch-up night
+  it emptied; `409 cannot_undo` once the game has moved again, has a published result, or its old slot is taken.
+- Errors: `409 cannot_move` with the reason; `409 season_not_published` on drafts (drag the game on the Fixtures tab
+  instead); `409 conflict` on a stale token.
 
 ### A whole night (bulk postpone or cancel)
 
@@ -403,10 +452,20 @@ unless the organiser asks.
 
 ### Teams
 
-`GET /api/admin/teams` lists all teams (88 imported) sorted by name, each with `seasons` (how many it's been in)
-and `lastSeason`. `POST` creates one (`409 team_exists` for a name that differs only in case); its slug is made from
+`GET /api/admin/teams` lists all teams (88 imported) sorted by name, each with `seasons` (how many it's been in),
+`lastSeason` and `history` (every season, newest first: `{ id, name, year, quarter, leagueId, leagueCode, status,
+withdrawnAt }`). `POST` creates one (`409 team_exists` for a name that differs only in case); its slug is made from
 the name, numbered if taken. `PATCH` renames: the name changes everywhere (ladders, fixtures, archived seasons), the
 slug doesn't (old `/team/<slug>/` URLs keep redirecting), and every public page is purged.
+
+`POST /api/admin/teams/:id/merge { mergeId }` merges the duplicate `mergeId` into team `:id` (Admin → Teams). Its
+`season_teams`, matches (home, away and duty), ladder adjustments and enrolment groups move to `:id`, and it's deleted.
+`409 same_season` when both were in one season. `:id` keeps its name and slug; the duplicate's team calendar feeds
+(`/leagues/<league>/teams/<slug>.ics`, per league it played in) get 301 redirects to `:id`'s (the feed route follows
+the redirects table when a team slug is unknown), and redirects that pointed at them are repointed. Its `wp_id` moves
+to `:id` when `:id` has none. One batch of single-statement updates (2 parameters each), whatever the number of
+games: 14 queries. Audited as `team.merge` (the duplicate's id, name, slug, wp id and seasons); purges the site.
+Returns `{ team, merged: { id, name }, seasons, cache }`.
 
 ### Court clashes
 
@@ -432,8 +491,9 @@ const clashes = courtClashes([{ seasonId: id, label: name, venue: venue ?? '', s
 | 409    | `season_not_published` | Results, a whole-night action or a withdrawal on a draft season                  |
 | 409    | `season_exists`        | Creating a quarter the league already has                                        |
 | 409    | `has_results`          | Unpublishing a season with results; postponing a night with published results    |
-| 409    | `cannot_move`          | Pushing nights back past one with published results                              |
-| 409    | `cannot_undo`          | Undoing a push-back after the nights moved again or got results                  |
+| 409    | `cannot_move`          | Pushing nights back past one with published results; a game move that's refused  |
+| 409    | `cannot_undo`          | Undoing a push-back or a game move after things changed since                    |
+| 409    | `same_season`          | Merging two teams that played in the same season                                 |
 | 409    | `bad_transition`       | e.g. draft → archived                                                            |
 | 409    | `not_draft`            | Deleting a published or archived season                                          |
 | 409    | `team_exists`          | Team name taken (case-insensitive)                                               |
@@ -445,7 +505,8 @@ const clashes = courtClashes([{ seasonId: id, label: name, venue: venue ?? '', s
 `season.create`, `season.update`, `season.draw_save`, `season.teams`, `season.publish`, `season.unpublish`,
 `season.archive`, `season.unarchive`, `season.delete`, `results.publish`, `match.status`, `ladder.adjust`,
 `team.create`, `team.rename`, `match_day.postpone`, `match_day.cancel`, `match_day.restore`, `season.push_back`,
-`team.withdraw`, `team.reinstate`, `fixtures.import`. Draft result saves and undo aren't audited (nothing public changes). The audit screen
+`team.withdraw`, `team.reinstate`, `fixtures.import`, `match.update` (referee), `match.move`, `match.move_undo`,
+`team.merge`. Draft result saves and undo aren't audited (nothing public changes). The audit screen
 (`src/admin/screens/Audit.tsx`) labels them all.
 
 ## Free-plan budget
@@ -464,6 +525,9 @@ counts), plus 1 for the route's role check:
 | whole night: postpone, cancel or restore              | 23         |
 | whole night: push back or undo it (biggest season)    | 24–26      |
 | withdraw or reinstate a team                          | 24         |
+| move one game, with the clash check (undo)            | 32 (25)    |
+| referee                                               | 9          |
+| merge two teams                                       | 14         |
 | match list                                            | 7          |
 
 Every statement binds ≤ 100 parameters (multi-row inserts are chunked by `chunkByParams()`), and each write is one

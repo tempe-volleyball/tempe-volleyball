@@ -27,6 +27,8 @@ export function settingsBody(s: Settings, setsPerMatch: number) {
     // Ladder rules: only sent once set, so seasons that never chose keep today's defaults.
     ...(s.tieBreaks ? { tieBreaks: s.tieBreaks } : {}),
     ...(s.withdrawn ? { withdrawn: s.withdrawn } : {}),
+    ...(s.levelSets ? { levelSets: s.levelSets } : {}),
+    ...(s.forfeit ? { forfeit: s.forfeit } : {}),
   }
 }
 export type SettingsBody = ReturnType<typeof settingsBody>

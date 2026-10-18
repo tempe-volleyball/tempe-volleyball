@@ -46,12 +46,16 @@ const firstOfNight = new Set(rows.flatMap((r, i) => (r.movedFrom && rows[i - 1]?
                 {formatAU(r.date)}
                 {firstOfNight.has(i) && <span class="block text-xs">(moved from {formatAU(r.movedFrom)})</span>}
               </td>
-              <td class="team min-w-40 sm:min-w-56">{r.match}</td>
+              <td class="team min-w-40 sm:min-w-56">
+                {r.match}
+                {r.referee && <span class="block text-xs">Referee: {r.referee}</span>}
+              </td>
               <td>{r.time}</td>
               <td class="whitespace-nowrap">
                 {r.result}
                 {r.forfeit && <span class="block text-xs">(forfeit)</span>}
                 {r.sets && <span class="block text-xs">{r.sets}</span>}
+                {r.resultNote && <span class="block text-xs whitespace-normal">{r.resultNote}</span>}
                 {r.note && <span class="block text-xs whitespace-normal">{r.note}</span>}
               </td>
               <td class="whitespace-nowrap">{r.court}</td>

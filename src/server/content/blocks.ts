@@ -58,6 +58,7 @@ export function leagueBlockData(view: LeagueSeason): LeagueBlockData {
   for (const w of competition.weeks) for (const g of w.games) rowTeams.set(g.id, [...teamOf(g.home), ...teamOf(g.away), ...teamOf(g.duty)])
   const fixtures = fixtureRows(competition, data.matches)
   for (const r of fixtures) {
+    if (r.kind === 'moved') rowTeams.set(r.key, rowTeams.get(r.key.split(':moved:')[1] ?? '') ?? [])
     if (r.kind !== 'bye') continue
     const team = r.key.split(':bye:')[1]
     if (team) rowTeams.set(r.key, [team])

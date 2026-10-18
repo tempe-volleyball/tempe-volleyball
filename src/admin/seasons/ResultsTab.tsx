@@ -4,15 +4,20 @@ import {
   courtName,
   dayPublishProblem,
   dayResultsState,
+  dutyEnabled,
   formatLong,
+  isComplete,
   isOffStatus,
   isTeam,
+  levelSetsRule,
   MATCH_STATUS_LABEL,
   makeResolver,
+  movedAway,
   outcome,
   refName,
   sameResult,
   type Game,
+  type LevelSetsRule,
   type Ref,
   type Result,
   type Settings,
@@ -47,6 +52,11 @@ export type ResultsActions = {
   onDiscard: (weekId: string) => void
   onUndo: (weekId: string) => void
   onStatus: (weekId: string, gameId: string, status: GameStatus) => void
+  /** Saves a game's referee straight away ('' clears it). */
+  onReferee: (weekId: string, gameId: string, referee: string) => Promise<void>
+  /** Admins: move one game to another night (opens the dialog), or put back its last move. */
+  onMove: (weekId: string, gameId: string) => void
+  onUndoMove: (gameId: string) => void
   onAddAdjustment: (a: { teamId: string; points: number; reason: string }) => Promise<void>
   onUpdateAdjustment: (id: string, a: { points: number; reason: string }) => Promise<void>
   onDeleteAdjustment: (id: string) => Promise<void>
@@ -119,6 +129,7 @@ export function ResultsTab({
             <MatchDay
               key={w.id}
               saved={w}
+              weeks={weeks}
               edit={edits[w.id]}
               settings={s}
               setsPerMatch={view.season.setsPerMatch}
@@ -163,6 +174,7 @@ const STATUS: Record<WeekResultsState, { text: string; cls: string }> = {
 
 function MatchDay({
   saved,
+  weeks,
   edit,
   settings: s,
   setsPerMatch,
@@ -177,6 +189,8 @@ function MatchDay({
   actions,
 }: {
   saved: Week
+  /** The whole draw (saved), for games moved to or from other nights. */
+  weeks: Week[]
   edit: DayEdit | undefined
   /** Changes when the typed-in boxes should start again from the results (after discard, undo or a reload). */
   resetKey: string
@@ -198,8 +212,9 @@ function MatchDay({
   const night = saved.status
   const savedState = dayResultsState(saved, cancelled)
   const state = dayResultsState(w, cancelled)
+  const level = levelSetsRule(s)
   const problems = Object.values(edit?.problems ?? {})
-  const problem = problems[0] ?? dayPublishProblem(w, cancelled)
+  const problem = problems[0] ?? dayPublishProblem(w, cancelled, level)
   const waiting = w.games.some((g) => !cancelled.has(g.id) && (!isTeam(resolve(g.home)) || !isTeam(resolve(g.away))))
   const unsaved = !!edit
   const wasPublished = !!saved.resultsPublishedAt || savedState === 'published' || savedState === 'changed'
@@ -211,7 +226,9 @@ function MatchDay({
     : waiting && state === 'empty'
       ? { text: 'Waiting for earlier results', cls: 'bg-black/5 text-black/60' }
       : STATUS[state]
-  const byes = byesForWeek(s, w)
+  const byes = byesForWeek(s, w, weeks)
+  const away = movedAway(weeks, w.id)
+  const dateOf = (weekId: string) => weeks.find((x) => x.id === weekId)?.date
   const canPublish = !problem && !waiting && (state === 'ready' || state === 'changed' || (unsaved && state === 'published'))
 
   return (
@@ -275,12 +292,29 @@ function MatchDay({
             note={note(g.id)}
             highlight={highlight}
             editing={editing && !busy}
+            canEnter={canEnter && !busy}
+            canManage={canManage && !busy && !unsaved}
+            levelSets={level}
+            movedFrom={g.originalWeekId ? dateOf(g.originalWeekId) : undefined}
             problem={edit?.problems[g.id]}
             onChange={(r, p) => actions.onResult(w.id, g.id, r, p)}
             onStatus={(st) => actions.onStatus(w.id, g.id, st)}
+            onReferee={(ref) => actions.onReferee(w.id, g.id, ref)}
+            onMove={() => actions.onMove(w.id, g.id)}
+            onUndoMove={() => actions.onUndoMove(g.id)}
           />
         ))}
       </ul>
+      {away.length > 0 && (
+        <ul className="border-t border-dashed border-black/15 px-3 py-2 text-xs text-black/60 sm:px-4">
+          {away.map(({ game, to }) => (
+            <li key={game.id}>
+              <span className="font-semibold">Moved to {formatLong(to.date)}:</span> {refName(s, resolve(game.home))} v{' '}
+              {refName(s, resolve(game.away))}
+            </li>
+          ))}
+        </ul>
+      )}
 
       <footer className="flex flex-wrap items-center gap-2 border-t border-black/10 px-3 py-2.5 sm:px-4">
         {byes.length > 0 && <span className="text-xs text-black/60">Bye: {byes.map((t) => refName(s, { team: t })).join(', ')}</span>}
@@ -347,9 +381,16 @@ function ResultRow({
   note,
   highlight,
   editing,
+  canEnter,
+  canManage,
+  levelSets,
+  movedFrom,
   problem,
   onChange,
   onStatus,
+  onReferee,
+  onMove,
+  onUndoMove,
 }: {
   game: Game
   week: Week
@@ -361,9 +402,19 @@ function ResultRow({
   note: string
   highlight: string
   editing: boolean
+  /** Results can be entered (not archived): the referee can be set even on a published day. */
+  canEnter: boolean
+  /** Admins on a published season: move the game to another night. */
+  canManage: boolean
+  levelSets: LevelSetsRule
+  /** The date of the night it was first on, when it was moved here on its own. */
+  movedFrom: string | undefined
   problem: string | undefined
   onChange: (r: Result | undefined, problem: string | null) => void
   onStatus: (s: GameStatus) => void
+  onReferee: (referee: string) => Promise<void>
+  onMove: () => void
+  onUndoMove: () => void
 }) {
   const home = resolve(g.home)
   const away = resolve(g.away)
@@ -371,7 +422,8 @@ function ResultRow({
   // Cancelled, postponed or TBD: no result.
   const cancelled = isOffStatus(status)
   const [form, setForm] = useState<ResultForm>(() => formFromResult(g.result, setsPerMatch))
-  const o = outcome(g.result)
+  const [deciding, setDeciding] = useState(false)
+  const o = outcome(g.result, levelSets)
   const pub = g.publishedResult
   const changed = !!pub && !sameResult(pub, g.result)
   const disabled = !editing || !ready || cancelled
@@ -437,6 +489,17 @@ function ResultRow({
         {status === 'forfeit' && <span className="rounded bg-red-50 px-1.5 font-semibold text-red-800">Forfeit</span>}
         {cancelled && <span className="rounded bg-black/10 px-1.5 font-semibold text-black/70">{MATCH_STATUS_LABEL[status]}</span>}
         {note && <span className="italic">{note}</span>}
+        {movedFrom && <span className="bg-accent/20 rounded px-1.5 font-semibold text-ink">Moved from {formatLong(movedFrom)}</span>}
+        {movedFrom && canManage && !isComplete(g.publishedResult) && (
+          <button type="button" className="text-brand hover:underline" onClick={onUndoMove}>
+            Undo the move
+          </button>
+        )}
+        {canManage && !isComplete(g.publishedResult) && (
+          <button type="button" className="text-brand hover:underline" onClick={onMove} title="Move this game to another night">
+            {status === 'postponed' || status === 'tbd' ? 'Move to another night' : 'Move…'}
+          </button>
+        )}
         {editing && ready && (
           <select
             aria-label={`Status of ${homeName} v ${awayName}`}
@@ -529,10 +592,51 @@ function ResultRow({
           </tbody>
         </table>
       </div>
+      {(deciding || form.outcome) && editing && ready && !cancelled && (
+        <div className="bg-accent/10 mt-2 grid gap-2 rounded p-2 text-sm sm:grid-cols-[12rem_1fr_auto] sm:items-center">
+          <select
+            aria-label={`Outcome of ${homeName} v ${awayName}`}
+            className="rounded border border-black/20 bg-white px-2 py-1.5"
+            value={form.outcome}
+            onChange={(e) => update({ ...form, outcome: e.target.value as ResultForm['outcome'] })}
+          >
+            <option value="">From the scores</option>
+            <option value="home">{homeName} win</option>
+            <option value="away">{awayName} win</option>
+            <option value="draw">A draw</option>
+          </select>
+          <input
+            aria-label="Why the outcome was decided by hand"
+            className="rounded border border-black/20 bg-white px-2 py-1.5"
+            maxLength={200}
+            placeholder="Why, e.g. walkover: not enough players (shown on the website)"
+            value={form.note}
+            disabled={!form.outcome}
+            onChange={(e) => update({ ...form, note: e.target.value })}
+          />
+          <button
+            type="button"
+            className="text-xs text-black/60 hover:text-red-700 hover:underline"
+            onClick={() => {
+              setDeciding(false)
+              update({ ...form, outcome: '', note: '' })
+            }}
+          >
+            Use the scores
+          </button>
+        </div>
+      )}
+      {!editing && g.result?.outcome && (
+        <p className="mt-1 text-xs text-black/70">
+          Decided by hand: {g.result.outcome === 'draw' ? 'a draw' : `${g.result.outcome === 'home' ? homeName : awayName} win`}
+          {g.result.note ? ` (${g.result.note})` : ''}
+        </p>
+      )}
       {problem && editing && <p className="mt-1 text-xs text-red-700">{problem}</p>}
       {!ready && <p className="mt-1 text-xs text-black/60">Teams are decided once the earlier results are published.</p>}
+      <RefereeField game={g} canEdit={canEnter} always={!dutyEnabled(s)} onSave={onReferee} />
       {editing && ready && !cancelled && (
-        <div className="mt-1 flex gap-3 text-xs">
+        <div className="mt-1 flex flex-wrap gap-3 text-xs">
           <button
             type="button"
             className="text-brand hover:underline"
@@ -540,11 +644,19 @@ function ResultRow({
           >
             {setsMode ? 'Enter sets and points totals instead' : 'Enter set scores instead'}
           </button>
+          {!form.outcome && !deciding && (
+            <button type="button" className="text-brand hover:underline" onClick={() => setDeciding(true)}>
+              Decide the outcome by hand
+            </button>
+          )}
           {g.result && (
             <button
               type="button"
               className="text-black/60 hover:text-red-700 hover:underline"
-              onClick={() => update(formFromResult(undefined, setsPerMatch))}
+              onClick={() => {
+                setDeciding(false)
+                update(formFromResult(undefined, setsPerMatch))
+              }}
             >
               Clear
             </button>
@@ -552,6 +664,73 @@ function ResultRow({
         </div>
       )}
     </li>
+  )
+}
+
+/**
+ * The game's referee (matches.referee), saved as soon as it's typed (on leaving the box or Enter). Shown for seasons
+ * without team duty (TVSL's Volleyball NSW referees), or anywhere once one is set or asked for.
+ */
+function RefereeField({
+  game: g,
+  canEdit,
+  always,
+  onSave,
+}: {
+  game: Game
+  canEdit: boolean
+  always: boolean
+  onSave: (referee: string) => Promise<void>
+}) {
+  const saved = g.referee ?? ''
+  const [open, setOpen] = useState(false)
+  // What's typed, until it's saved (then the saved value shows again).
+  const [typed, setTyped] = useState<string | null>(null)
+  const value = typed ?? saved
+  const [state, setState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  if (!canEdit) return saved ? <p className="mt-1 text-xs text-black/60">Referee: {saved}</p> : null
+  if (!always && !saved && !open)
+    return (
+      <button type="button" className="text-brand mt-1 text-xs hover:underline" onClick={() => setOpen(true)}>
+        Add a referee
+      </button>
+    )
+  const save = () => {
+    const next = value.trim().replace(/\s+/g, ' ')
+    if (next === saved) return setTyped(null)
+    setState('saving')
+    onSave(next).then(
+      () => {
+        setTyped(null)
+        setState('saved')
+      },
+      () => setState('error'),
+    )
+  }
+  return (
+    <label className="mt-1.5 flex items-center gap-2 text-xs">
+      <span className="text-black/60">Referee</span>
+      <input
+        className="w-48 rounded border border-black/20 bg-white px-2 py-1"
+        maxLength={80}
+        value={value}
+        placeholder="Name(s), shown on the website"
+        onChange={(e) => {
+          setTyped(e.target.value)
+          setState('idle')
+        }}
+        onBlur={save}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            save()
+          }
+        }}
+      />
+      {state === 'saving' && <span className="text-black/60">Saving…</span>}
+      {state === 'saved' && <span className="text-brand">✓ Saved</span>}
+      {state === 'error' && <span className="text-red-700">Not saved</span>}
+    </label>
   )
 }
 

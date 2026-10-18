@@ -368,7 +368,9 @@ These don't block Phase 1 or 2.
    decided on total points: SportsPress recorded it as "draww"/"drawl" and the ladder counted it as a win (3) or a loss
    (1); only a match level on points too was a draw (2). The ported fixtures library counts every 1–1 as a draw. The
    importer reproduces the old ladders with `ladder_adjustments` (reason `wp-import reconciliation`), but Michael needs
-   to confirm the rule for new seasons. Relatedly, the short third set is recorded as set points but doesn't always
+   to confirm the rule for new seasons. It's now a per-season setting (Setup → Ladder rules, `levelSets`: a draw by
+   default, or decided on points), so his answer is a setting, not code (docs/admin.md §3.11). The forfeit score is
+   one too (default SportsPress's: every set 25–0, loss point kept); he confirms that as well. Relatedly, the short third set is recorded as set points but doesn't always
    count as a set, so the importer keeps SportsPress's sets/points totals and drops set scores that disagree.
 8. Smaller ones, for later phases:
    - Do mixed leagues need gender on registrations (for team balance)?

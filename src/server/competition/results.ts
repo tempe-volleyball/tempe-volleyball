@@ -1,5 +1,16 @@
 import { and, eq, inArray } from 'drizzle-orm'
-import { dayPublishProblem, isOffStatus, setScoresProblem, type Game, type Ref, type Week } from '../../lib/fixtures'
+import {
+  dayPublishProblem,
+  forfeitResult,
+  forfeitRule,
+  isOffStatus,
+  levelSetsRule,
+  setScoresProblem,
+  type Game,
+  type Ref,
+  type Result,
+  type Week,
+} from '../../lib/fixtures'
 import { tags, type PurgeTargets } from '../cache'
 import { runBatch, type AppDb } from '../db'
 import {
@@ -30,7 +41,8 @@ import { archived } from './seasons'
 // Concurrency: match_days.updated_at, which all three bump (and so does setMatchStatus).
 //
 // Cancelled games (matches.status = 'cancelled') take no result: saving one is refused, and publishing skips them
-// and drops any result they had. A forfeit is an ordinary result with a label.
+// and drops any result they had. Marking a game forfeit (saying which side forfeited) puts the season's forfeit
+// score in as its draft result, decided by hand for the other side; it can still be changed before publishing.
 
 export type MatchDayState = { id: string; updatedAt: string; resultsPublishedAt: string | null }
 
@@ -132,6 +144,8 @@ const copyRows = (rows: MatchResult[], kind: MatchResult['kind'], actorId: strin
       setScores: r.setScores,
       homePoints: r.homePoints,
       awayPoints: r.awayPoints,
+      outcome: r.outcome,
+      note: r.note,
       updatedAt: at,
       updatedBy: actorId,
     }),
@@ -205,7 +219,7 @@ export async function publishResults(
   // Cancelled, postponed and TBD games need no result and publish without one.
   const cancelled = offIn(l)
   const problem =
-    dayPublishProblem(week, cancelled) ??
+    dayPublishProblem(week, cancelled, levelSetsRule(l.season.settings)) ??
     week.games
       .filter((g) => !cancelled.has(g.id))
       .map((g) => setScoresProblem(g.result?.sets, l.season.setsPerMatch))
@@ -270,7 +284,7 @@ export async function undoResults(
 export const settableStatuses = ['played', 'forfeit', 'cancelled', 'postponed', 'tbd'] as const
 export type SettableStatus = (typeof settableStatuses)[number]
 
-export type SetMatchStatusInput = { baseUpdatedAt?: unknown; status?: unknown; note?: unknown }
+export type SetMatchStatusInput = { baseUpdatedAt?: unknown; status?: unknown; note?: unknown; forfeitedBy?: unknown }
 
 /**
  * Marks one game cancelled, postponed, TBD or a forfeit, or back to played, with an optional public note ("Venue
@@ -278,6 +292,9 @@ export type SetMatchStatusInput = { baseUpdatedAt?: unknown; status?: unknown; n
  * when they're played. Off games (cancelled, postponed, TBD) take no result and drop a published one at the next
  * publish. Bumps the match day's token. The public fixtures show the status straight away, so this purges the
  * league's pages. Audited as match.status.
+ *
+ * A forfeit with `forfeitedBy` ('home' or 'away') also replaces the game's draft result with the season's forfeit
+ * score (forfeitRule), decided by hand for the other side. Without it, the result is left as it is.
  */
 export async function setMatchStatus(
   db: AppDb,
@@ -287,11 +304,21 @@ export async function setMatchStatus(
   matchId: string,
   input: SetMatchStatusInput,
   now = new Date(),
-): Promise<Changed<{ matchDay: MatchDayState; match: { id: string; status: Match['status']; statusNote: string | null } }>> {
+): Promise<
+  Changed<{
+    matchDay: MatchDayState
+    match: { id: string; status: Match['status']; statusNote: string | null }
+    /** The new draft result, when a forfeit filled it in. */
+    result?: Result
+  }>
+> {
   const base = baseUpdatedAt(input.baseUpdatedAt)
   const wanted = input.status
   if (typeof wanted !== 'string' || !(settableStatuses as readonly string[]).includes(wanted))
     throw invalid(`status must be one of ${settableStatuses.join(', ')}.`)
+  const forfeitedBy = input.forfeitedBy ?? null
+  if (forfeitedBy !== null && (wanted !== 'forfeit' || (forfeitedBy !== 'home' && forfeitedBy !== 'away')))
+    throw invalid('forfeitedBy must be home or away, and only with status forfeit.')
   id(matchId, 'Match')
   const l = await loadDay(db, seasonId, dayId)
   assertResultsOpen(l, base)
@@ -300,13 +327,18 @@ export async function setMatchStatus(
   const hasPublished = l.results.some((r) => r.matchId === matchId && r.kind === 'published')
   const status: Match['status'] = wanted === 'played' ? (hasPublished ? 'played' : 'scheduled') : (wanted as SettableStatus)
   const statusNote = wanted === 'played' ? null : text(input.note, 'Note') || (input.note === undefined ? match.statusNote : null)
+  const score = forfeitedBy ? forfeitResult(forfeitRule(l.season.settings, l.season.setsPerMatch), forfeitedBy as 'home' | 'away') : null
+  const values = score ? parseResult(score, l.season.setsPerMatch, 'The forfeit score') : null
   const unchanged = { matchDay: dayState(l.day, l.day.updatedAt), match: { id: matchId, status, statusNote } }
-  if (status === match.status && statusNote === match.statusNote) return { result: unchanged, purge: {} }
+  if (status === match.status && statusNote === match.statusNote && !values) return { result: unchanged, purge: {} }
   const at = now.toISOString()
   await runBatch(db, [
     db.update(matches).set({ status, statusNote, updatedAt: at, updatedBy: actor.id }).where(eq(matches.id, matchId)),
-    ...(status === 'cancelled'
+    ...(status === 'cancelled' || values
       ? [db.delete(matchResults).where(and(eq(matchResults.kind, 'draft'), eq(matchResults.matchId, matchId)))]
+      : []),
+    ...(values
+      ? [db.insert(matchResults).values(compact({ matchId, kind: 'draft' as const, ...values, updatedAt: at, updatedBy: actor.id }))]
       : []),
     db.update(matchDays).set({ updatedAt: at, updatedBy: actor.id }).where(eq(matchDays.id, dayId)),
     audit(
@@ -315,9 +347,55 @@ export async function setMatchStatus(
       'match.status',
       { type: 'match', id: matchId },
       { season: l.season.name, date: l.day.date, status: match.status, note: match.statusNote },
-      { season: l.season.name, date: l.day.date, status, note: statusNote },
+      { season: l.season.name, date: l.day.date, status, note: statusNote, ...(forfeitedBy ? { forfeitedBy } : {}) },
       at,
     ),
   ])
-  return { result: { matchDay: dayState(l.day, at), match: { id: matchId, status, statusNote } }, purge: purgeFor(l) }
+  return {
+    result: { matchDay: dayState(l.day, at), match: { id: matchId, status, statusNote }, ...(score ? { result: score } : {}) },
+    purge: purgeFor(l),
+  }
+}
+
+export type SetMatchDetailsInput = { baseUpdatedAt?: unknown; referee?: unknown }
+
+/**
+ * Details of one game that aren't its result or status: for now the referee's name(s) (matches.referee, ≤ 80
+ * characters; '' or null clears it), shown on the public fixtures. Editors and up, like results; bumps the match
+ * day's token and purges the league's pages. Audited as match.update.
+ */
+export async function setMatchDetails(
+  db: AppDb,
+  actor: Editor,
+  seasonId: string,
+  dayId: string,
+  matchId: string,
+  input: SetMatchDetailsInput,
+  now = new Date(),
+): Promise<Changed<{ matchDay: MatchDayState; match: { id: string; referee: string | null } }>> {
+  const base = baseUpdatedAt(input.baseUpdatedAt)
+  id(matchId, 'Match')
+  if (input.referee === undefined) throw invalid('Send the referee (or null to clear it).')
+  const referee = text(input.referee, 'Referee', 80) || null
+  const l = await loadDay(db, seasonId, dayId)
+  assertResultsOpen(l, base)
+  const match = l.matches.find((m) => m.id === matchId)
+  if (!match) throw notFound('game')
+  if (referee === match.referee)
+    return { result: { matchDay: dayState(l.day, l.day.updatedAt), match: { id: matchId, referee } }, purge: {} }
+  const at = now.toISOString()
+  await runBatch(db, [
+    db.update(matches).set({ referee, updatedAt: at, updatedBy: actor.id }).where(eq(matches.id, matchId)),
+    db.update(matchDays).set({ updatedAt: at, updatedBy: actor.id }).where(eq(matchDays.id, dayId)),
+    audit(
+      db,
+      actor,
+      'match.update',
+      { type: 'match', id: matchId },
+      { season: l.season.name, date: l.day.date, referee: match.referee },
+      { season: l.season.name, date: l.day.date, referee },
+      at,
+    ),
+  ])
+  return { result: { matchDay: dayState(l.day, at), match: { id: matchId, referee } }, purge: purgeFor(l) }
 }

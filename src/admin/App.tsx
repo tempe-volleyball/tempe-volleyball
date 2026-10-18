@@ -13,6 +13,7 @@ import { PostEditor, PostList } from './screens/Posts'
 import { Security } from './screens/Security'
 import { Settings } from './screens/Settings'
 import { SignIn } from './screens/SignIn'
+import { Teams } from './screens/Teams'
 import { Users } from './screens/Users'
 import { Categories } from './programmes/Categories'
 import { ProgrammeList } from './programmes/ProgrammeList'
@@ -59,6 +60,7 @@ function Shell({ me, children }: { me: Me; children: React.ReactNode }) {
           {!me.totpRequired && <NavLink href="/">Home</NavLink>}
           {!me.totpRequired && <NavLink href="/leagues">Leagues</NavLink>}
           {!me.totpRequired && <NavLink href="/matches">Matches</NavLink>}
+          {!me.totpRequired && <NavLink href="/teams">Teams</NavLink>}
           {!me.totpRequired && <NavLink href="/training">Training</NavLink>}
           {!me.totpRequired && <NavLink href="/development">Development</NavLink>}
           {!me.totpRequired && <NavLink href="/events">Events</NavLink>}
@@ -144,6 +146,12 @@ function Home({ me }: { me: Me }) {
             </Link>
           </li>
           <li>
+            <Link href="/teams" className="text-brand underline">
+              Every team, with the seasons it played
+            </Link>
+            {me.user.role !== 'editor' ? ' (rename, merge duplicates)' : ''}
+          </li>
+          <li>
             <Link href="/pages" className="text-brand underline">
               Edit pages
             </Link>{' '}
@@ -226,6 +234,9 @@ function SignedIn({ me }: { me: Me }) {
         </Route>
         <Route path="/leagues">
           <SeasonList me={me} />
+        </Route>
+        <Route path="/teams">
+          <Teams me={me} />
         </Route>
         <Route path="/leagues/:id/:tab?">{(p) => <ProgrammePage key={p.id} me={me} kind="league" id={p.id} tab={p.tab} />}</Route>
         <Route path="/training">

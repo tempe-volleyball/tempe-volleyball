@@ -1,5 +1,5 @@
 import { publishProblem, weekResultsState, type WeekResultsState } from './results'
-import type { Game, Week } from './types'
+import type { Game, LevelSetsRule, Week } from './types'
 
 // Cancelled games. The lib's Game doesn't carry a status (matches.status does: scheduled, played, forfeit,
 // cancelled), so these take the ids of the day's cancelled games. A cancelled game needs no result to publish its
@@ -21,9 +21,9 @@ export function dayResultsState(w: Week, cancelled: ReadonlySet<string>): WeekRe
 }
 
 /** publishProblem(), with cancelled games left out (a night where every game was cancelled can be published). */
-export const dayPublishProblem = (w: Week, cancelled: ReadonlySet<string>): string | null => {
+export const dayPublishProblem = (w: Week, cancelled: ReadonlySet<string>, levelSets: LevelSetsRule = 'draw'): string | null => {
   const playing = withoutCancelled(w, cancelled)
-  return playing.games.length === 0 ? null : publishProblem(playing)
+  return playing.games.length === 0 ? null : publishProblem(playing, levelSets)
 }
 
 /**
