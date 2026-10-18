@@ -20,7 +20,11 @@ import {
 import { dayPublishProblem } from './status'
 import { isTeam, type Game, type Ref, type Result, type Settings, type Week } from './types'
 
-const generated = () => withGenerated(demoCompetition())
+/** The demo draw with a fixed seed (demoCompetition's is random), so these tests see the same draw every run. */
+const generated = (seed = 20271) => {
+  const demo = demoCompetition()
+  return withGenerated({ ...demo, settings: { ...demo.settings, seed } })
+}
 const teamOf = (ref: Ref) => (isTeam(ref) ? ref.team : '')
 const sets = (...s: [number, number][]): Result => ({ home: null, away: null, sets: s })
 
@@ -155,9 +159,9 @@ describe('forfeits', () => {
   })
 })
 
-describe('moving one game to another night', () => {
+describe.each([20271, 7, 424242])('moving one game to another night (seed %i)', (seed) => {
   const setup = () => {
-    const c = generated()
+    const c = generated(seed)
     const weeks = c.weeks!
     const from = weeks[0]!
     const g = from.games[0]!
@@ -194,13 +198,15 @@ describe('moving one game to another night', () => {
 
   it('refuses a taken slot, a team playing at that time, published results and weeks off', () => {
     const { s, weeks, g } = setup()
-    const other = weeks[1]!
+    const team = teamOf(g.home)
+    const plays = (w: Week) => w.games.some((x) => teamOf(x.home) === team || teamOf(x.away) === team)
+    // Another night the home team plays on (with 9 teams, it has a bye some weeks).
+    const other = weeks.slice(1).find((w) => w.kind === 'regular' && plays(w))!
     const taken = other.games[0]!
     expect(moveToNight(s, weeks, g.id, { weekId: other.id, session: taken.session, position: taken.court }).problem).toMatch(
       /slot is taken/,
     )
     // A free slot in a session where one of the teams already plays.
-    const team = teamOf(g.home)
     const theirs = other.games.find((x) => teamOf(x.home) === team || teamOf(x.away) === team)!
     // Free a slot in that session (every slot is used in the demo) by taking out another game.
     const spare = other.games.find((x) => x.session === theirs.session && x.id !== theirs.id)!
@@ -222,12 +228,19 @@ describe('moving one game to another night', () => {
   it('allows a double header on another night, with a warning, and validate() agrees', () => {
     const { s: withDuty, weeks: full, g } = setup()
     const s = { ...withDuty, duty: false }
-    const team = teamOf(g.home)
-    const theirs = full[1]!.games.find((x) => teamOf(x.home) === team || teamOf(x.away) === team)!
+    const [home, away] = [teamOf(g.home), teamOf(g.away)]
+    const sessionOf = (w: Week, t: string) => w.games.find((x) => teamOf(x.home) === t || teamOf(x.away) === t)?.session
+    // A later night where the home team plays and the away team doesn't play in the other session (so there's room).
+    const night = full
+      .slice(1)
+      .find(
+        (w) => w.kind === 'regular' && sessionOf(w, home) !== undefined && [undefined, sessionOf(w, home)].includes(sessionOf(w, away)),
+      )!
+    const theirs = night.games.find((x) => teamOf(x.home) === home || teamOf(x.away) === home)!
     // Free a slot in the other session that night (every slot is used in the demo).
-    const spare = full[1]!.games.find((x) => x.session !== theirs.session)!
-    const weeks = full.map((w, i) => (i !== 1 ? w : { ...w, games: w.games.filter((x) => x.id !== spare.id) }))
-    const other = weeks[1]!
+    const spare = night.games.find((x) => x.session !== theirs.session)!
+    const weeks = full.map((w) => (w.id !== night.id ? w : { ...w, games: w.games.filter((x) => x.id !== spare.id) }))
+    const other = weeks.find((w) => w.id === night.id)!
     // Find a free slot in another session that doesn't clash with either team or the duty team.
     let result: ReturnType<typeof moveToNight> | null = null
     for (let session = 0; session < s.sessions.length && !result?.plan; session++)
