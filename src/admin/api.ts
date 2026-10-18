@@ -158,6 +158,7 @@ export type { Programme, ProgrammeKind, ProgrammeStatus, OccurrenceStatus } from
 
 // ── Enrolment (docs/api/enrolment.md) ─────────────────────────────────────────
 
+export type { Dashboard, DashboardDay } from '../server/dashboard'
 export type { TargetSummary, TargetDetail, RegistrationRow, GroupRow, Counts } from '../server/enrolment/admin'
 export type { FormsList, FormSummary } from '../server/enrolment/forms'
 export type { EnrolmentForm } from '../server/db/schema'

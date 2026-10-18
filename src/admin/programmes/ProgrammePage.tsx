@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Link, useLocation } from 'wouter'
+import { useLocation } from 'wouter'
 import { checkSlug } from '../../lib/content/paths'
 import { generatedSummaryLine, scheduleText } from '../../lib/programme-text'
 import { programmePath } from '../../lib/programmes'
@@ -7,8 +7,23 @@ import { sydneyToUtc, utcToSydneyInput } from '../../lib/time'
 import { api, formatWhen, isConflict, type Me, type Programme, type ProgrammeKind, type ProgrammeView, type PurgeResult } from '../api'
 import { RichText } from '../editor/LazyRichText'
 import { ImageField } from '../media/MediaLibrary'
-import { useUnsavedWarning } from '../screens/Pages'
-import { Button, Card, Checkbox, Field, Notice, Select, StatusBadge, TabLinks, TextArea, errorMessage, purgeNote } from '../ui'
+import { skipLeaveGuard, useUnsavedWarning } from '../unsaved'
+import {
+  Breadcrumbs,
+  Skeleton,
+  confirmAction,
+  Button,
+  Card,
+  Checkbox,
+  Field,
+  Notice,
+  Select,
+  StatusBadge,
+  TabLinks,
+  TextArea,
+  errorMessage,
+  purgeNote,
+} from '../ui'
 import { KINDS, WEEKDAY_NAMES, centsToDollars, dollarsToCents, intOrNull, statusLabel } from './kinds'
 import { InstancesTab } from './Schedule'
 
@@ -172,6 +187,7 @@ export function ProgrammePage({ me, kind, id, tab: requested }: { me: Me; kind: 
       api<ProgrammeView>(`/api/admin/programmes/${id}`)
         .then((v) => {
           if (v.programme.kind !== kind) {
+            skipLeaveGuard()
             navigate(`${KINDS[v.programme.kind].base}/${id}`, { replace: true })
             return
           }
@@ -186,7 +202,7 @@ export function ProgrammePage({ me, kind, id, tab: requested }: { me: Me; kind: 
 
   const changes = useMemo(() => (form && loaded ? changedPayload(form, loaded, kind) : {}), [form, loaded, kind])
   const dirty = Object.keys(changes).length > 0 || descDirty
-  useUnsavedWarning(dirty)
+  useUnsavedWarning(dirty, { within: `${cfg.base}/${id}` })
 
   const tabs = [{ key: 'details', label: 'Details' }, { key: 'enrolment', label: 'Enrolment' }, cfg.instancesTab]
   const tab = tabs.some((t) => t.key === requested) ? requested! : 'details'
@@ -194,13 +210,11 @@ export function ProgrammePage({ me, kind, id, tab: requested }: { me: Me; kind: 
   if (loadError)
     return (
       <div className="space-y-4">
-        <Link href={cfg.base} className="text-brand text-sm underline">
-          ← {cfg.title}
-        </Link>
+        <Breadcrumbs items={[{ label: cfg.title, href: cfg.base }, { label: 'Not found' }]} />
         <Notice kind="error">{loadError}</Notice>
       </div>
     )
-  if (!view || !form) return <p className="text-sm text-black/60">Loading…</p>
+  if (!view || !form) return <Skeleton />
 
   const p = view.programme
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setForm((f) => (f ? { ...f, [k]: v } : f))
@@ -241,11 +255,12 @@ export function ProgrammePage({ me, kind, id, tab: requested }: { me: Me; kind: 
   }
 
   const remove = async () => {
-    if (!window.confirm(`Delete ${p.name}? This can't be undone.`)) return
+    if (!(await confirmAction({ title: `Delete ${p.name}?`, body: 'This can’t be undone.', confirmLabel: 'Delete', danger: true }))) return
     setBusy('delete')
     try {
       await api(`/api/admin/programmes/${id}`, { method: 'DELETE' })
       setLoaded(form)
+      skipLeaveGuard()
       navigate(cfg.base)
     } catch (e) {
       setError(errorMessage(e))
@@ -273,12 +288,10 @@ export function ProgrammePage({ me, kind, id, tab: requested }: { me: Me; kind: 
   return (
     <div>
       <div className="mb-2">
-        <Link href={cfg.base} className="text-brand text-sm underline">
-          ← {cfg.title}
-        </Link>
+        <Breadcrumbs items={[{ label: cfg.title, href: cfg.base }, { label: p.name }]} />
         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-2">
           <h1 className="text-2xl font-bold">
-            {p.name} <span className="text-base font-semibold text-black/50">{p.code}</span>
+            {p.name} <span className="text-base font-semibold text-black/70">{p.code}</span>
           </h1>
           <StatusBadge status={p.status} />
           {p.status !== 'draft' && (

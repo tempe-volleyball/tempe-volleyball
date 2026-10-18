@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'wouter'
 import { duplicateGroups, shareASeason, teamKey } from '../../lib/teams'
 import { api, type Me, type PurgeResult, type TeamListItem } from '../api'
-import { Button, Card, Dialog, Notice, errorMessage, purgeNote } from '../ui'
+import { Skeleton, Button, Card, Dialog, Notice, errorMessage, purgeNote } from '../ui'
 
 // Admin → Teams (docs/admin.md §1 "Teams and rollover"): every team across leagues, with the seasons each played,
 // search, rename, new team, and merging duplicates (a duplicate's seasons, games, adjustments and enrolment groups move
@@ -46,7 +46,7 @@ export function Teams({ me }: { me: Me }) {
     void load()
   }
 
-  if (!teams) return error ? <Notice kind="error">{error}</Notice> : <p className="text-sm text-black/60">Loading…</p>
+  if (!teams) return error ? <Notice kind="error">{error}</Notice> : <Skeleton />
 
   return (
     <div className="space-y-5">

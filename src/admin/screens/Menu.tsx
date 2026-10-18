@@ -26,8 +26,8 @@ import { atLeast } from '../../lib/roles'
 import { programmePath } from '../../lib/programmes'
 import { api, type Me, type PurgeResult } from '../api'
 import { intoId, locate, moveItem, parseIntoId } from '../menu-move'
-import { Button, Card, Notice, errorMessage, purgeNote } from '../ui'
-import { useUnsavedWarning } from './Pages'
+import { Skeleton, confirmAction, Button, Card, Notice, errorMessage, purgeNote } from '../ui'
+import { useUnsavedWarning } from '../unsaved'
 
 // The menu editor (docs/admin.md §3.5): two levels. Drag ⠿ to reorder, or between levels: onto a sub-item (or a
 // dropdown's "drop here" strip) to put an item in that dropdown, onto a top-level row to take a sub-item out.
@@ -133,7 +133,7 @@ function DropZone({ id, label, enabled, children }: { id: string; label: string;
     <div
       ref={setNodeRef}
       className={`flex min-h-8 flex-wrap items-center gap-3 rounded border-2 border-dashed px-2 text-xs ${
-        !enabled ? 'border-transparent' : isOver ? 'border-brand bg-brand/10 text-brand' : 'border-black/20 text-black/50'
+        !enabled ? 'border-transparent' : isOver ? 'border-brand bg-brand/10 text-brand' : 'border-black/20 text-black/60'
       }`}
     >
       {children}
@@ -147,7 +147,7 @@ function Sortable({ id, children }: { id: string; children: (handle: ReactNode) 
   const handle = (
     <button
       type="button"
-      className="cursor-grab touch-none px-1 text-lg leading-none text-black/50"
+      className="cursor-grab touch-none px-1 text-lg leading-none text-black/60"
       aria-label="Drag to reorder"
       {...attributes}
       {...listeners}
@@ -292,7 +292,7 @@ function ItemRow({
           <option value="after">After the programmes</option>
         </select>
       )}
-      <span className="ml-auto flex items-center gap-2">
+      <span className="ml-auto flex max-w-full min-w-0 flex-wrap items-center gap-2">
         <label className="flex items-center gap-1 text-sm">
           <input type="checkbox" className="accent-brand" checked={item.hidden} onChange={(e) => onChange({ hidden: e.target.checked })} />
           Hide
@@ -363,7 +363,7 @@ function AutoLinks({
                 />
                 <span className={shown.has(p.id) ? '' : 'line-through opacity-60'}>{p.name}</span>
               </label>
-              <span className="font-mono text-xs text-black/50">{programmePath(p.kind, p.slug)}</span>
+              <span className="font-mono text-xs text-black/60">{programmePath(p.kind, p.slug)}</span>
               {replaced.has(p.id) && <span className="text-xs text-black/60">(replaced by your own item below)</span>}
             </li>
           ))}
@@ -417,9 +417,18 @@ export function Menu({ me }: { me: Me }) {
       cur.map((i) => (i.key === k ? { ...i, ...p } : { ...i, children: i.children.map((c) => (c.key === k ? { ...c, ...p } : c)) })),
     )
 
-  const remove = (k: string) => {
+  const remove = async (k: string) => {
     const item = items?.find((i) => i.key === k)
-    if (item?.children.length && !window.confirm(`Remove “${item.label}” and its ${item.children.length} sub-items?`)) return
+    if (
+      item?.children.length &&
+      !(await confirmAction({
+        title: `Remove “${item.label}” and its ${item.children.length} sub-items?`,
+        body: 'Nothing changes on the site until you save the menu.',
+        confirmLabel: 'Remove',
+        danger: true,
+      }))
+    )
+      return
     update((cur) => cur.filter((i) => i.key !== k).map((i) => ({ ...i, children: i.children.filter((c) => c.key !== k) })))
   }
 
@@ -518,7 +527,7 @@ export function Menu({ me }: { me: Me }) {
     }
   }
 
-  if (!items) return error ? <Notice kind="error">{error}</Notice> : <p className="text-sm text-black/60">Loading…</p>
+  if (!items) return error ? <Notice kind="error">{error}</Notice> : <Skeleton />
 
   return (
     <div className="space-y-6">

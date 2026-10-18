@@ -15,7 +15,7 @@ import {
 } from '../../lib/fixtures'
 import { api, type ClashDraws, type SeasonView } from '../api'
 import { Button, Dialog, Notice, errorMessage } from '../ui'
-import { inputClass } from './SetupTab'
+import { inputClass } from './styles'
 
 // Dialogs for one game on the Results tab: marking it a forfeit (which team forfeited, so the season's forfeit score
 // goes in as its result), and moving it to another night (previewed with the lib's moveToNight(), the same check the

@@ -1,52 +1,113 @@
-import { Suspense, lazy, useState } from 'react'
+import { Suspense, lazy, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, Redirect, Route, Router, Switch, useLocation } from 'wouter'
 import type { Me } from './api'
 import { authClient } from './auth-client'
 import { aroundNav } from './leave-guard'
-import { AcceptInvite } from './screens/AcceptInvite'
-import { Audit } from './screens/Audit'
-import { Matches } from './screens/Matches'
-import { Media } from './screens/Media'
-import { Menu } from './screens/Menu'
-import { PageEditor, PageList } from './screens/Pages'
-import { PostEditor, PostList } from './screens/Posts'
-import { Security } from './screens/Security'
-import { Settings } from './screens/Settings'
+import { bottomBar, isCurrent, navFor, navItemFor, HOME, type NavItem } from './nav'
 import { SignIn } from './screens/SignIn'
-import { Teams } from './screens/Teams'
-import { Users } from './screens/Users'
-import { Categories } from './programmes/Categories'
-import { ProgrammeList } from './programmes/ProgrammeList'
-import { ProgrammePage } from './programmes/ProgrammePage'
-import { Venues } from './programmes/Venues'
-import { EnrolmentList } from './enrolment/EnrolmentList'
-import { FormEditor, FormList } from './enrolment/Forms'
-import { TargetPage } from './enrolment/TargetPage'
-import { SeasonList } from './seasons/SeasonList'
-import { SeasonPage } from './seasons/SeasonPage'
-import { Button, Card, RoleBadge } from './ui'
-
-// The Stats screen (charts) is its own chunk, loaded when first opened.
-const Stats = lazy(() => import('./screens/Stats'))
+import { AcceptInvite } from './screens/AcceptInvite'
+import { ConfirmHost, RoleBadge, Skeleton, Toaster } from './ui'
+import { LeaveHost } from './unsaved'
 
 // The admin app: one React island at /admin/* with a client-side router (wouter, base /admin). The server renders
 // the same shell for every /admin path and has already checked the session (src/middleware.ts), so `me` is the
 // signed-in user, or null on the public sign-in and invite pages.
+//
+// Each section is its own chunk, loaded when first opened, so the results screen on a phone at the venue doesn't
+// download the page editor, the charts or the draw generator first (docs/admin.md §4).
 
-function NavLink({ href, children }: { href: string; children: string }) {
-  const [location] = useLocation()
-  const active = href === '/' ? location === '/' : location.startsWith(href)
+const Home = lazy(() => import('./screens/Home'))
+const Stats = lazy(() => import('./screens/Stats'))
+const Audit = lazy(() => import('./screens/Audit').then((m) => ({ default: m.Audit })))
+const Matches = lazy(() => import('./screens/Matches').then((m) => ({ default: m.Matches })))
+const Media = lazy(() => import('./screens/Media').then((m) => ({ default: m.Media })))
+const Menu = lazy(() => import('./screens/Menu').then((m) => ({ default: m.Menu })))
+const PageEditor = lazy(() => import('./screens/Pages').then((m) => ({ default: m.PageEditor })))
+const PageList = lazy(() => import('./screens/Pages').then((m) => ({ default: m.PageList })))
+const PostEditor = lazy(() => import('./screens/Posts').then((m) => ({ default: m.PostEditor })))
+const PostList = lazy(() => import('./screens/Posts').then((m) => ({ default: m.PostList })))
+const Security = lazy(() => import('./screens/Security').then((m) => ({ default: m.Security })))
+const Settings = lazy(() => import('./screens/Settings').then((m) => ({ default: m.Settings })))
+const Teams = lazy(() => import('./screens/Teams').then((m) => ({ default: m.Teams })))
+const Users = lazy(() => import('./screens/Users').then((m) => ({ default: m.Users })))
+const Categories = lazy(() => import('./programmes/Categories').then((m) => ({ default: m.Categories })))
+const ProgrammeList = lazy(() => import('./programmes/ProgrammeList').then((m) => ({ default: m.ProgrammeList })))
+const ProgrammePage = lazy(() => import('./programmes/ProgrammePage').then((m) => ({ default: m.ProgrammePage })))
+const Venues = lazy(() => import('./programmes/Venues').then((m) => ({ default: m.Venues })))
+const EnrolmentList = lazy(() => import('./enrolment/EnrolmentList').then((m) => ({ default: m.EnrolmentList })))
+const FormEditor = lazy(() => import('./enrolment/Forms').then((m) => ({ default: m.FormEditor })))
+const FormList = lazy(() => import('./enrolment/Forms').then((m) => ({ default: m.FormList })))
+const TargetPage = lazy(() => import('./enrolment/TargetPage').then((m) => ({ default: m.TargetPage })))
+const SeasonList = lazy(() => import('./seasons/SeasonList').then((m) => ({ default: m.SeasonList })))
+const SeasonPage = lazy(() => import('./seasons/SeasonPage').then((m) => ({ default: m.SeasonPage })))
+
+// ── Icons (inline, decorative) ────────────────────────────────────────────────
+
+const ICONS: Record<string, string> = {
+  '/': 'M3 10.5 12 3l9 7.5V21h-6v-6H9v6H3z',
+  '/matches': 'M4 5h16v15H4zM4 9h16M8 3v4m8-4v4',
+  '/leagues': 'M7 4h10v4a5 5 0 0 1-10 0zM5 5H3a3 3 0 0 0 4 4m12-4h2a3 3 0 0 1-4 4M12 13v4m-4 3h8',
+  '/enrolments': 'M9 4h6v3H9zM6 5h3m6 0h3v16H6zm3 8 2 2 4-4',
+  '/pages': 'M6 3h9l4 4v14H6zM14 3v5h5M9 13h7m-7 4h7',
+  more: 'M4 7h16M4 12h16M4 17h16',
+}
+
+function Icon({ name }: { name: string }) {
   return (
-    <Link
-      href={href}
-      className={`px-3 py-3 text-sm font-semibold tracking-wide uppercase ${active ? 'bg-accent text-ink' : 'text-white hover:bg-white/10'}`}
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-6 w-6"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.8}
+      strokeLinejoin="round"
     >
-      {children}
-    </Link>
+      <path d={ICONS[name] ?? ICONS.more} />
+    </svg>
   )
 }
 
-function Shell({ me, children }: { me: Me; children: React.ReactNode }) {
+// ── Navigation ───────────────────────────────────────────────────────────────
+
+function NavLinks({ me, onNavigate }: { me: Me; onNavigate?: () => void }) {
+  const [location] = useLocation()
+  const groups = me.totpRequired ? [] : navFor({ role: me.user.role, canManageUsers: me.canManageUsers })
+  const link = (item: NavItem) => {
+    const current = isCurrent(item, location)
+    return (
+      <Link
+        key={item.href}
+        href={item.href}
+        onClick={onNavigate}
+        aria-current={current ? 'page' : undefined}
+        className={`block rounded px-3 py-2.5 text-sm font-semibold lg:py-1.5 ${
+          current ? 'bg-accent text-ink' : 'text-white hover:bg-white/10'
+        }`}
+      >
+        {item.label}
+      </Link>
+    )
+  }
+  return (
+    <div className="space-y-4">
+      {!me.totpRequired && <ul>{<li>{link(HOME)}</li>}</ul>}
+      {groups.map((g) => (
+        <div key={g.label}>
+          <h2 className="text-brand-text/80 px-3 pb-1 text-xs font-bold tracking-wider uppercase">{g.label}</h2>
+          <ul>
+            {g.items.map((i) => (
+              <li key={i.href}>{link(i)}</li>
+            ))}
+          </ul>
+        </div>
+      ))}
+      {me.totpRequired && <ul>{<li>{link({ href: '/security', label: 'Security' })}</li>}</ul>}
+    </div>
+  )
+}
+
+function Account({ me }: { me: Me }) {
   const [signingOut, setSigningOut] = useState(false)
   const signOut = async () => {
     setSigningOut(true)
@@ -54,167 +115,164 @@ function Shell({ me, children }: { me: Me; children: React.ReactNode }) {
     window.location.assign('/admin/sign-in')
   }
   return (
-    <>
-      <nav className="bg-brand" aria-label="Admin">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center px-4">
-          {!me.totpRequired && <NavLink href="/">Home</NavLink>}
-          {!me.totpRequired && <NavLink href="/leagues">Leagues</NavLink>}
-          {!me.totpRequired && <NavLink href="/matches">Matches</NavLink>}
-          {!me.totpRequired && <NavLink href="/teams">Teams</NavLink>}
-          {!me.totpRequired && <NavLink href="/training">Training</NavLink>}
-          {!me.totpRequired && <NavLink href="/development">Development</NavLink>}
-          {!me.totpRequired && <NavLink href="/events">Events</NavLink>}
-          {!me.totpRequired && <NavLink href="/categories">Categories</NavLink>}
-          {!me.totpRequired && <NavLink href="/venues">Venues</NavLink>}
-          {!me.totpRequired && me.user.role !== 'editor' && <NavLink href="/enrolments">Enrolments</NavLink>}
-          {!me.totpRequired && <NavLink href="/pages">Pages</NavLink>}
-          {!me.totpRequired && <NavLink href="/news">News</NavLink>}
-          {!me.totpRequired && <NavLink href="/menu">Menu</NavLink>}
-          {!me.totpRequired && <NavLink href="/media">Media</NavLink>}
-          {!me.totpRequired && <NavLink href="/stats">Stats</NavLink>}
-          {!me.totpRequired && <NavLink href="/settings">Settings</NavLink>}
-          {!me.totpRequired && me.canManageUsers && <NavLink href="/users">Admin users</NavLink>}
-          {!me.totpRequired && me.canManageUsers && <NavLink href="/audit">Audit log</NavLink>}
-          <NavLink href="/security">Security</NavLink>
-          <div className="ml-auto flex items-center gap-3 py-2 text-sm text-white">
-            <span className="hidden sm:inline">{me.user.email}</span>
-            <RoleBadge role={me.user.role} />
-            <button type="button" className="underline underline-offset-2" onClick={() => void signOut()} disabled={signingOut}>
-              Sign out
-            </button>
-          </div>
+    <div className="space-y-2 border-t border-white/20 px-3 pt-4 text-sm text-white">
+      <p className="flex flex-wrap items-center gap-2">
+        <span className="min-w-0 truncate">{me.user.email}</span>
+        <RoleBadge role={me.user.role} />
+      </p>
+      <p className="flex flex-wrap gap-x-4 gap-y-2">
+        <a href="/" className="underline underline-offset-2">
+          View the public site
+        </a>
+        <button type="button" className="underline underline-offset-2" onClick={() => void signOut()} disabled={signingOut}>
+          {signingOut ? 'Signing out…' : 'Sign out'}
+        </button>
+      </p>
+    </div>
+  )
+}
+
+/** Phones and tablets: everything, grouped, in a sheet from the bottom of the screen (reachable with a thumb). */
+function MoreSheet({ me, onClose }: { me: Me; onClose: () => void }) {
+  const ref = useRef<HTMLDialogElement>(null)
+  useEffect(() => {
+    const d = ref.current
+    if (d && !d.open) d.showModal()
+  }, [])
+  return (
+    <dialog
+      ref={ref}
+      aria-label="All admin screens"
+      className="bg-brand mt-auto mb-0 max-h-[85vh] w-full max-w-none overflow-y-auto rounded-t-xl p-0 pb-[env(safe-area-inset-bottom)] backdrop:bg-black/50"
+      onCancel={(e) => {
+        e.preventDefault()
+        onClose()
+      }}
+      onClick={(e) => {
+        // A tap on the backdrop (outside the sheet's content) closes it.
+        if (e.target === e.currentTarget) onClose()
+      }}
+    >
+      <div className="px-3 pt-3 pb-4">
+        <div className="mb-2 flex items-center justify-between">
+          <span className="px-3 font-bold text-white">All screens</span>
+          <button
+            type="button"
+            className="flex h-11 w-11 items-center justify-center text-2xl text-white"
+            aria-label="Close"
+            onClick={onClose}
+          >
+            ×
+          </button>
         </div>
+        <div className="grid gap-x-4 sm:grid-cols-2">
+          <NavLinks me={me} onNavigate={onClose} />
+        </div>
+        <div className="mt-4">
+          <Account me={me} />
+        </div>
+      </div>
+    </dialog>
+  )
+}
+
+function BottomBar({ me }: { me: Me }) {
+  const [location] = useLocation()
+  const [more, setMore] = useState(false)
+  const items = me.totpRequired ? [] : bottomBar({ role: me.user.role, canManageUsers: me.canManageUsers })
+  const inBar = items.some((i) => isCurrent(i, location))
+  return (
+    <>
+      <nav
+        aria-label="Quick"
+        className="fixed inset-x-0 bottom-0 z-40 border-t border-black/10 bg-white pb-[env(safe-area-inset-bottom)] shadow-[0_-2px_8px_rgba(0,0,0,0.08)] lg:hidden"
+      >
+        <ul className="mx-auto flex max-w-xl">
+          {items.map((i) => {
+            const current = isCurrent(i, location)
+            return (
+              <li key={i.href} className="flex-1">
+                <Link
+                  href={i.href}
+                  aria-current={current ? 'page' : undefined}
+                  className={`flex min-h-14 flex-col items-center justify-center gap-0.5 text-[11px] font-semibold ${
+                    current ? 'text-brand' : 'text-black/60'
+                  }`}
+                >
+                  <Icon name={i.href} />
+                  <span className={current ? 'border-accent border-b-2' : 'border-b-2 border-transparent'}>{i.label}</span>
+                </Link>
+              </li>
+            )
+          })}
+          <li className="flex-1">
+            <button
+              type="button"
+              aria-haspopup="dialog"
+              aria-expanded={more}
+              onClick={() => setMore(true)}
+              className={`flex min-h-14 w-full flex-col items-center justify-center gap-0.5 text-[11px] font-semibold ${
+                !inBar ? 'text-brand' : 'text-black/60'
+              }`}
+            >
+              <Icon name="more" />
+              <span className={!inBar ? 'border-accent border-b-2' : 'border-b-2 border-transparent'}>
+                {me.totpRequired ? 'Menu' : 'More'}
+              </span>
+            </button>
+          </li>
+        </ul>
       </nav>
-      <div className="mx-auto max-w-6xl px-4 py-8">{children}</div>
+      {more && <MoreSheet me={me} onClose={() => setMore(false)} />}
     </>
   )
 }
 
-function Home({ me }: { me: Me }) {
+/** "Leagues · Admin · Tempe Volleyball", so tabs and history say where each one is. */
+function useDocumentTitle() {
+  const [location] = useLocation()
+  useEffect(() => {
+    const found = navItemFor(location)
+    document.title = `${found && found.item !== HOME ? `${found.item.label} · ` : ''}Admin · Tempe Volleyball`
+  }, [location])
+}
+
+function Shell({ me, children }: { me: Me; children: ReactNode }) {
+  const [location] = useLocation()
+  useDocumentTitle()
+  // A new screen starts at the top and moves keyboard and screen-reader focus to it (not on the first load).
+  const main = useRef<HTMLDivElement>(null)
+  const shown = useRef(location)
+  useEffect(() => {
+    if (shown.current === location) return
+    shown.current = location
+    main.current?.focus({ preventScroll: true })
+  })
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Hello, {me.user.name || me.user.email}</h1>
-      <Card title="Admin">
-        <p className="text-sm">You can:</p>
-        <ul className="mt-3 list-disc space-y-1 pl-5 text-sm">
-          <li>
-            <Link href="/leagues" className="text-brand underline">
-              {me.user.role === 'editor' ? 'Enter and publish results' : 'Set up seasons, make the draw and enter results'}
-            </Link>
-          </li>
-          {me.user.role !== 'editor' && (
-            <li>
-              <Link href="/enrolments" className="text-brand underline">
-                See enrolments, mark payments and manage waitlists
-              </Link>{' '}
-              (and the{' '}
-              <Link href="/forms" className="text-brand underline">
-                enrolment forms
-              </Link>
-              )
-            </li>
-          )}
-          <li>
-            {me.user.role === 'editor' ? 'See' : 'Manage'} the{' '}
-            <Link href="/leagues" className="text-brand underline">
-              leagues
-            </Link>
-            ,{' '}
-            <Link href="/training" className="text-brand underline">
-              training
-            </Link>
-            ,{' '}
-            <Link href="/development" className="text-brand underline">
-              development programmes
-            </Link>{' '}
-            and{' '}
-            <Link href="/events" className="text-brand underline">
-              events
-            </Link>
-            , their{' '}
-            <Link href="/categories" className="text-brand underline">
-              categories
-            </Link>{' '}
-            and{' '}
-            <Link href="/venues" className="text-brand underline">
-              venues
-            </Link>
-          </li>
-          <li>
-            <Link href="/matches" className="text-brand underline">
-              See every game on a night, for a team or on a court
-            </Link>
-          </li>
-          <li>
-            <Link href="/teams" className="text-brand underline">
-              Every team, with the seasons it played
-            </Link>
-            {me.user.role !== 'editor' ? ' (rename, merge duplicates)' : ''}
-          </li>
-          <li>
-            <Link href="/pages" className="text-brand underline">
-              Edit pages
-            </Link>{' '}
-            and{' '}
-            <Link href="/news" className="text-brand underline">
-              news posts
-            </Link>
-          </li>
-          <li>
-            <Link href="/menu" className="text-brand underline">
-              Change the menu
-            </Link>
-          </li>
-          <li>
-            <Link href="/media" className="text-brand underline">
-              Upload images and files
-            </Link>
-          </li>
-          <li>
-            <Link href="/stats" className="text-brand underline">
-              See visitors, Google searches and site speed
-            </Link>
-          </li>
-          <li>
-            <Link href="/settings" className="text-brand underline">
-              Update contact details, the announcement banner and other settings
-            </Link>
-          </li>
-          {me.canManageUsers && (
-            <li>
-              <Link href="/users" className="text-brand underline">
-                Invite and manage admin users
-              </Link>
-            </li>
-          )}
-          {me.canManageUsers && (
-            <li>
-              <Link href="/audit" className="text-brand underline">
-                See the audit log
-              </Link>
-            </li>
-          )}
-          <li>
-            <Link href="/security" className="text-brand underline">
-              {me.user.twoFactorEnabled ? 'Manage two-factor sign-in' : 'Set up two-factor sign-in'}
-            </Link>
-          </li>
-        </ul>
-      </Card>
-      {!me.user.twoFactorEnabled && (
-        <Card>
-          <p className="text-sm">
-            Tip: set up an authenticator app under{' '}
-            <Link href="/security" className="text-brand underline">
-              Security
-            </Link>{' '}
-            so nobody can sign in as you with just access to your email.
-          </p>
-        </Card>
-      )}
-      <Button variant="link" onClick={() => window.location.assign('/')}>
-        View the public site
-      </Button>
+    <div className="lg:flex">
+      <a href="#admin-main" className="focus:bg-accent sr-only focus:not-sr-only focus:absolute focus:z-50 focus:px-4 focus:py-2">
+        Skip to content
+      </a>
+      <nav aria-label="Admin" className="bg-brand hidden w-60 shrink-0 lg:block">
+        <div className="sticky top-0 flex max-h-screen flex-col gap-4 overflow-y-auto px-3 py-5">
+          <NavLinks me={me} />
+          <Account me={me} />
+        </div>
+      </nav>
+      <div
+        id="admin-main"
+        ref={main}
+        tabIndex={-1}
+        className="min-w-0 flex-1 px-4 pt-5 pb-[calc(5.5rem+env(safe-area-inset-bottom))] outline-none sm:pt-6 lg:px-8 lg:py-8"
+      >
+        <div className="mx-auto max-w-6xl">
+          <Suspense fallback={<Skeleton lines={6} />}>{children}</Suspense>
+        </div>
+      </div>
+      <BottomBar me={me} />
+      <Toaster />
+      <ConfirmHost />
+      <LeaveHost />
     </div>
   )
 }
@@ -223,6 +281,7 @@ function SignedIn({ me }: { me: Me }) {
   const [location] = useLocation()
   // The server already redirects; this covers navigation inside the app.
   if (me.totpRequired && location !== '/security') return <Redirect to="/security?required=1" />
+  const admin = me.user.role !== 'editor'
   return (
     <Shell me={me}>
       <Switch>
@@ -261,20 +320,18 @@ function SignedIn({ me }: { me: Me }) {
           <Matches />
         </Route>
         <Route path="/seasons/:id/:tab?">{(p) => <SeasonPage key={p.id} me={me} id={p.id} tab={p.tab} />}</Route>
-        {me.user.role !== 'editor' && (
+        {admin && (
           <Route path="/enrolments">
             <EnrolmentList />
           </Route>
         )}
-        {me.user.role !== 'editor' && (
-          <Route path="/enrolments/:kind/:id">{(p) => <TargetPage key={`${p.kind}/${p.id}`} kind={p.kind} id={p.id} />}</Route>
-        )}
-        {me.user.role !== 'editor' && (
+        {admin && <Route path="/enrolments/:kind/:id">{(p) => <TargetPage key={`${p.kind}/${p.id}`} kind={p.kind} id={p.id} />}</Route>}
+        {admin && (
           <Route path="/forms">
             <FormList />
           </Route>
         )}
-        {me.user.role !== 'editor' && <Route path="/forms/:id">{(p) => <FormEditor key={p.id} id={p.id} />}</Route>}
+        {admin && <Route path="/forms/:id">{(p) => <FormEditor key={p.id} id={p.id} />}</Route>}
         <Route path="/pages">
           <PageList />
         </Route>
@@ -296,9 +353,7 @@ function SignedIn({ me }: { me: Me }) {
           <Media />
         </Route>
         <Route path="/stats">
-          <Suspense fallback={<p className="text-sm text-black/60">Loading…</p>}>
-            <Stats me={me} />
-          </Suspense>
+          <Stats me={me} />
         </Route>
         <Route path="/settings">
           <Settings me={me} />
@@ -313,15 +368,16 @@ function SignedIn({ me }: { me: Me }) {
           <Security me={me} />
         </Route>
         <Route>
-          <Card title="Not found">
+          <div className="space-y-3">
+            <h1 className="text-2xl font-bold">Not found</h1>
             <p className="text-sm">
-              There's nothing here yet.{' '}
+              There's nothing at this address.{' '}
               <Link href="/" className="text-brand underline">
                 Back to the admin home
               </Link>
               .
             </p>
-          </Card>
+          </div>
         </Route>
       </Switch>
     </Shell>
@@ -333,10 +389,14 @@ export default function App({ me }: { me: Me | null }) {
     <Router base="/admin" aroundNav={aroundNav}>
       <Switch>
         <Route path="/sign-in">
-          <SignIn />
+          <div className="px-4">
+            <SignIn />
+          </div>
         </Route>
         <Route path="/invite">
-          <AcceptInvite />
+          <div className="px-4">
+            <AcceptInvite />
+          </div>
         </Route>
         <Route>{me ? <SignedIn me={me} /> : <Redirect to="/sign-in" />}</Route>
       </Switch>

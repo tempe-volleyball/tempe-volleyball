@@ -15,9 +15,21 @@ export function setLeaveBlocker(b: Blocker | null) {
   blocker = b
 }
 
+/** More blockers (one per form on a screen, from useUnsavedWarning); returns the function that removes it. */
+const extra = new Set<Blocker>()
+export function addLeaveBlocker(b: Blocker) {
+  extra.add(b)
+  return () => {
+    extra.delete(b)
+  }
+}
+
+/** True if any blocker stops the navigation (the first to say so asks the user). */
+const blocked = (to: string) => !!blocker?.(to) || [...extra].some((b) => b(to))
+
 /** For <Router aroundNav>: `to` is already absolute (base included). */
 export const aroundNav: AroundNavHandler = (navigate, to, opts) => {
-  if (blocker?.(to)) return
+  if (blocked(to)) return
   navigate(to, opts)
 }
 
@@ -37,7 +49,7 @@ if (typeof window !== 'undefined') {
   // reads it and the screen never changes underneath the dialog.
   window.addEventListener('popstate', () => {
     const to = location.pathname + location.search
-    if (to !== current && blocker?.(to)) history.pushState(null, '', current)
+    if (to !== current && blocked(to)) history.pushState(null, '', current)
     else current = to
   })
 }

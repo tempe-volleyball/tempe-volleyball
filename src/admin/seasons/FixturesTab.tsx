@@ -618,7 +618,7 @@ function GameCard({
             disabled={!teamsEditable}
             title="Swap home and away"
             aria-label="Swap home and away"
-            className="w-3 shrink-0 text-xs text-black/50 hover:text-black disabled:cursor-default disabled:hover:text-black/50"
+            className="w-3 shrink-0 text-xs text-black/60 hover:text-black disabled:cursor-default disabled:hover:text-black/60"
           >
             v
           </button>

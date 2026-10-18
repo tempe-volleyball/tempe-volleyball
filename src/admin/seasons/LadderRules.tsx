@@ -14,7 +14,7 @@ import {
   type WithdrawnPolicy,
 } from '../../lib/fixtures'
 import { Card, Checkbox } from '../ui'
-import { inputClass } from './SetupTab'
+import { inputClass } from './styles'
 
 // The season's ladder rules (Setup → Ladder rules): the tie-break order after ladder points, how withdrawn teams
 // show, the 1–1 rule and what a forfeit counts as. All are ladder-only settings, so they can change on a published

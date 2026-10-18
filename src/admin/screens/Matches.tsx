@@ -3,7 +3,7 @@ import { Link, useLocation, useSearch } from 'wouter'
 import { MATCH_STATUS_LABEL, addDays, formatLong, weekdayName } from '../../lib/fixtures'
 import { sydneyDate } from '../../lib/time'
 import { api, type MatchList, type MatchListRow } from '../api'
-import { Button, Card, Notice, errorMessage } from '../ui'
+import { Skeleton, Button, Card, Notice, errorMessage } from '../ui'
 
 // Every game across leagues (docs/admin.md §1 "Match list"): "everything on this Thursday", a team's games, one
 // court's night. Filters live in the URL so a view can be bookmarked or shared. Each game links to its match day's
@@ -64,6 +64,8 @@ export function Matches() {
     return [...m]
   }, [data])
   const range = (a: string, b: string) => set({ from: a, to: b })
+  const activeFilters = FILTERS.filter((k) => k !== 'from' && k !== 'to' && get(k)).length
+  const [showFilters, setShowFilters] = useState(false)
   // The next game night of each weekday, for "everything on this Thursday".
   const nextWeekday = (day: number) => {
     let d = today
@@ -124,7 +126,17 @@ export function Matches() {
             </Button>
           </div>
         </div>
-        <div className="mt-3 flex flex-wrap items-end gap-3">
+        {/* Phones: the filters fold away behind one button so tonight's games are on the first screen. */}
+        <button
+          type="button"
+          className="text-brand mt-3 text-sm font-semibold underline underline-offset-2 sm:hidden"
+          aria-expanded={showFilters}
+          aria-controls="match-filters"
+          onClick={() => setShowFilters((v) => !v)}
+        >
+          {showFilters ? 'Hide filters' : `Filters${activeFilters ? ` (${activeFilters} on)` : ''}`}
+        </button>
+        <div id="match-filters" className={`mt-3 flex-wrap items-end gap-3 ${showFilters ? 'flex' : 'hidden sm:flex'}`}>
           <select className={selectClass} aria-label="League" value={get('league')} onChange={(e) => set({ league: e.target.value })}>
             <option value="">All leagues</option>
             {o?.leagues.map((l) => (
@@ -203,7 +215,7 @@ export function Matches() {
 
       {error && <Notice kind="error">{error}</Notice>}
       {data?.truncated && <Notice kind="warning">Showing the first 500 games. Narrow the dates or filters to see the rest.</Notice>}
-      {loading && !data && <p className="text-sm text-black/60">Loading…</p>}
+      {loading && !data && <Skeleton />}
       {data && byDate.length === 0 && !loading && <p className="text-sm text-black/60">No games in that range.</p>}
 
       {byDate.map(([date, rows]) => (
@@ -216,10 +228,10 @@ export function Matches() {
               <thead>
                 <tr className="text-left text-xs tracking-wider text-black/60 uppercase">
                   <th className="px-3 py-1.5">Time</th>
-                  <th className="px-3 py-1.5">League</th>
-                  <th className="px-3 py-1.5">Court</th>
+                  <th className="hidden px-3 py-1.5 sm:table-cell">League</th>
+                  <th className="hidden px-3 py-1.5 sm:table-cell">Court</th>
                   <th className="px-3 py-1.5">Game</th>
-                  <th className="px-3 py-1.5">Duty</th>
+                  <th className="hidden px-3 py-1.5 sm:table-cell">Duty</th>
                   <th className="px-3 py-1.5">Result</th>
                   <th className="px-3 py-1.5">
                     <span className="sr-only">Link</span>
@@ -230,19 +242,25 @@ export function Matches() {
                 {rows.map((r) => (
                   <tr key={r.id} className={r.status === 'cancelled' || r.status === 'postponed' ? 'bg-black/5' : ''}>
                     <td className="px-3 py-1.5 whitespace-nowrap tabular-nums">{r.startTime ?? ''}</td>
-                    <td className="px-3 py-1.5 whitespace-nowrap">
+                    <td className="hidden px-3 py-1.5 whitespace-nowrap sm:table-cell">
                       <span className="font-semibold">{r.leagueCode}</span>
                       {r.seasonStatus === 'draft' && <span className="ml-1 text-xs text-black/60">(draft)</span>}
                     </td>
-                    <td className="px-3 py-1.5 whitespace-nowrap">
+                    <td className="hidden px-3 py-1.5 whitespace-nowrap sm:table-cell">
                       {r.courtName ?? '—'}
                       {r.venueName && !get('venue') && <span className="block text-xs text-black/60">{r.venueName}</span>}
                     </td>
                     <td className="px-3 py-1.5">
                       {r.title && <span className="text-brand mr-1 text-xs font-bold uppercase">{r.title}</span>}
                       {sideName(r.home)} <span className="text-black/60">v</span> {sideName(r.away)}
+                      {/* Phones: league, court and duty under the game instead of three more columns. */}
+                      <span className="block text-xs text-black/60 sm:hidden">
+                        {r.leagueCode}
+                        {r.seasonStatus === 'draft' ? ' (draft)' : ''} · {r.courtName ?? '—'}
+                        {r.duty ? ` · duty ${sideName(r.duty)}` : ''}
+                      </span>
                     </td>
-                    <td className="px-3 py-1.5">{sideName(r.duty)}</td>
+                    <td className="hidden px-3 py-1.5 sm:table-cell">{sideName(r.duty)}</td>
                     <td className="px-3 py-1.5 whitespace-nowrap">
                       {r.result && r.result.homeSets !== null ? (
                         <span className="font-semibold tabular-nums">
@@ -260,7 +278,7 @@ export function Matches() {
                     <td className="px-3 py-1.5 text-right whitespace-nowrap">
                       <Link
                         href={`/seasons/${r.seasonId}/results#results-${r.matchDayId}`}
-                        className="text-brand text-xs font-semibold underline"
+                        className="text-brand -my-2 inline-block py-2 text-xs font-semibold underline"
                       >
                         Results →
                       </Link>

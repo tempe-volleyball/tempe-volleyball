@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { slugify } from '../../lib/content/paths'
 import { api, type CourtRow, type Me, type PurgeResult, type VenueRow } from '../api'
-import { Button, Card, Dialog, Field, Notice, TextArea, errorMessage, purgeNote } from '../ui'
+import { MoveButtons, Skeleton, confirmAction, Button, Card, Dialog, Field, Notice, TextArea, errorMessage, purgeNote } from '../ui'
 
 // Venues (the places) and the courts inside them. Courts keep their ids when renamed, so draws and results follow
 // the new name. Deleting is only for things nothing uses.
@@ -41,7 +41,7 @@ export function Venues({ me }: { me: Me }) {
       </div>
       {error && <Notice kind="error">{error}</Notice>}
       {message && <Notice kind="success">{message}</Notice>}
-      {rows === null && !error && <p className="text-sm text-black/60">Loading…</p>}
+      {rows === null && !error && <Skeleton />}
       <div className="grid gap-5 md:grid-cols-2">
         {rows?.map((v) => (
           <Card
@@ -65,7 +65,7 @@ export function Venues({ me }: { me: Me }) {
                 </p>
               )}
               {v.directions && <p className="text-xs whitespace-pre-line text-black/60">{v.directions}</p>}
-              <p className="text-xs text-black/50">
+              <p className="text-xs text-black/60">
                 Used by {v.usage.programmes} programme{v.usage.programmes === 1 ? '' : 's'}
                 {v.usage.terms ? `, ${v.usage.terms} terms` : ''}
                 {v.usage.sessions ? `, ${v.usage.sessions} sessions` : ''}
@@ -138,8 +138,9 @@ function Courts({
             last={i === venue.courts.length - 1}
             onMove={(by) => move(i, by)}
             onRename={(name) => call(`/api/admin/courts/${c.id}`, 'PATCH', { name }, `Renamed to ${name}.`)}
-            onDelete={() => {
-              if (window.confirm(`Delete ${c.name}?`)) void call(`/api/admin/courts/${c.id}`, 'DELETE', undefined, `Deleted ${c.name}.`)
+            onDelete={async () => {
+              if (await confirmAction({ title: `Delete ${c.name}?`, confirmLabel: 'Delete court', danger: true }))
+                void call(`/api/admin/courts/${c.id}`, 'DELETE', undefined, `Deleted ${c.name}.`)
             }}
           />
         ))}
@@ -194,26 +195,7 @@ function CourtItem({
     <li className="flex flex-wrap items-center gap-2 text-sm">
       {isAdmin ? (
         <>
-          <span className="flex">
-            <button
-              type="button"
-              className="px-1 text-black/50 disabled:opacity-20"
-              aria-label="Move up"
-              disabled={busy || first}
-              onClick={() => onMove(-1)}
-            >
-              ▲
-            </button>
-            <button
-              type="button"
-              className="px-1 text-black/50 disabled:opacity-20"
-              aria-label="Move down"
-              disabled={busy || last}
-              onClick={() => onMove(1)}
-            >
-              ▼
-            </button>
-          </span>
+          <MoveButtons name={court.name} first={first} last={last} disabled={busy} onMove={onMove} />
           <input
             className="w-40 rounded border border-black/20 px-2 py-1 text-sm"
             aria-label="Court name"
@@ -230,7 +212,7 @@ function CourtItem({
       ) : (
         <span>{court.name}</span>
       )}
-      <span className="text-xs text-black/50">{court.matches ? `${court.matches} matches` : used ? `${used} sessions` : 'unused'}</span>
+      <span className="text-xs text-black/60">{court.matches ? `${court.matches} matches` : used ? `${used} sessions` : 'unused'}</span>
       {isAdmin && !used && (
         <Button variant="link" className="ml-auto text-xs text-red-700" disabled={busy} onClick={onDelete}>
           Delete
@@ -248,6 +230,12 @@ function VenueDialog({ venue, onCancel, onDone }: { venue: VenueRow | null; onCa
   const [directions, setDirections] = useState(venue?.directions ?? '')
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const dirty =
+    name !== (venue?.name ?? '') ||
+    slug !== (venue?.slug ?? '') ||
+    address !== (venue?.address ?? '') ||
+    mapUrl !== (venue?.mapUrl ?? '') ||
+    directions !== (venue?.directions ?? '')
   const unused = venue && venue.courts.length === 0 && Object.values(venue.usage).every((n) => n === 0)
 
   const save = async () => {
@@ -268,7 +256,7 @@ function VenueDialog({ venue, onCancel, onDone }: { venue: VenueRow | null; onCa
     }
   }
   const remove = async () => {
-    if (!venue || !window.confirm(`Delete ${venue.name}?`)) return
+    if (!venue || !(await confirmAction({ title: `Delete ${venue.name}?`, confirmLabel: 'Delete venue', danger: true }))) return
     setBusy('delete')
     try {
       const r = await api<{ cache: PurgeResult }>(`/api/admin/venues/${venue.id}`, { method: 'DELETE' })
@@ -280,7 +268,7 @@ function VenueDialog({ venue, onCancel, onDone }: { venue: VenueRow | null; onCa
   }
 
   return (
-    <Dialog title={venue ? venue.name : 'New venue'} onCancel={onCancel}>
+    <Dialog title={venue ? venue.name : 'New venue'} onCancel={onCancel} dirty={dirty && !busy}>
       <form
         className="space-y-4"
         onSubmit={(e) => {

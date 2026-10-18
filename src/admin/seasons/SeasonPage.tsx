@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'wouter'
 import {
   ALL_TABS,
@@ -28,18 +28,22 @@ import {
   type SeasonView,
 } from '../api'
 import { setLeaveBlocker, leaveTo } from '../leave-guard'
-import { useUnsavedWarning } from '../screens/Pages'
-import { Button, Notice, StatusBadge, errorMessage, purgeNote } from '../ui'
+import { useUnsavedWarning } from '../unsaved'
+import { Breadcrumbs, Button, LoadError, Notice, Skeleton, StatusBadge, errorMessage, isNetworkError, purgeNote, toast } from '../ui'
 import { generateInWorker, newSeed } from './browser'
 import { ConfirmDialog, LeaveDialog } from './dialogs'
 import { GameStatusDialog, NightDialog, WithdrawDialog, type NightChoice } from './NightDialogs'
 import { isEmptyPlan, planSave, type Draft } from './draft'
-import { FixturesTab, IssueList } from './FixturesTab'
 import { ForfeitDialog, MoveGameDialog } from './GameDialogs'
-import { PublishTab, WebsiteTab } from './PublishTab'
 import { changedResults } from './results-form'
-import { ResultsTab, type DayEdit, type GameStatus, type ResultsActions } from './ResultsTab'
-import { SetupTab } from './SetupTab'
+import { ResultsTab, type DayEdit, type DayNote, type GameStatus, type ResultsActions } from './ResultsTab'
+
+// Results is the tab used at the venue on a phone, so it's in this chunk; the organiser's other tabs load on demand.
+const FixturesTab = lazy(() => import('./FixturesTab').then((m) => ({ default: m.FixturesTab })))
+const IssueList = lazy(() => import('./FixturesTab').then((m) => ({ default: m.IssueList })))
+const PublishTab = lazy(() => import('./PublishTab').then((m) => ({ default: m.PublishTab })))
+const WebsiteTab = lazy(() => import('./PublishTab').then((m) => ({ default: m.WebsiteTab })))
+const SetupTab = lazy(() => import('./SetupTab').then((m) => ({ default: m.SetupTab })))
 
 // One season: /admin/seasons/<id>/<tab>. Ported from the demo's App + CompetitionPage, with the API in place of
 // localStorage. The season (settings, teams, draw) is edited as a working copy and saved with an explicit Save;
@@ -85,6 +89,8 @@ export function SeasonPage({ me, id, tab: requested }: { me: Me; id: string; tab
   const [resets, setResets] = useState<Record<string, number> & { all: number }>({ all: 0 })
   const [busy, setBusy] = useState<'save' | 'status' | 'generate' | 'delete' | null>(null)
   const [busyDay, setBusyDay] = useState<string | null>(null)
+  /** Per match day: what the last save did (autosave, offline, failed), shown beside its buttons. */
+  const [dayNotes, setDayNotes] = useState<Record<string, DayNote>>({})
   const [problem, setProblem] = useState<Problem | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [conflict, setConflict] = useState(false)
@@ -140,7 +146,7 @@ export function SeasonPage({ me, id, tab: requested }: { me: Me; id: string; tab
     })
     return () => setLeaveBlocker(null)
   }, [id])
-  useUnsavedWarning(dirty)
+  useUnsavedWarning(dirty, { inApp: false })
 
   const fail = (e: unknown) => {
     if (isConflict(e)) setConflict(true)
@@ -221,10 +227,38 @@ export function SeasonPage({ me, id, tab: requested }: { me: Me; id: string; tab
   }
 
   // ── Results, per match day ──
-  const savedWeek = (weekId: string) => view?.competition.weeks?.find((w) => w.id === weekId)
+  // Saves of one match day run one after another (an autosave can still be in flight when Publish is pressed), so
+  // each reads the latest token and typing from these refs rather than from the render it was started in.
+  const viewRef = useRef(view)
+  const editsRef = useRef(edits)
+  const tokens = useRef<Record<string, string>>({})
+  useLayoutEffect(() => {
+    viewRef.current = view
+    editsRef.current = edits
+  })
+  useLayoutEffect(() => {
+    if (view) tokens.current = Object.fromEntries(Object.entries(view.matchDays).map(([k, d]) => [k, d.updatedAt]))
+  }, [view])
+  const tokenOf = (weekId: string) => tokens.current[weekId] ?? viewRef.current!.matchDays[weekId]!.updatedAt
+  const queue = useRef<Record<string, Promise<unknown>>>({})
+  const enqueue = <T,>(weekId: string, fn: () => Promise<T>): Promise<T> => {
+    const p = (queue.current[weekId] ?? Promise.resolve()).catch(() => undefined).then(fn)
+    queue.current[weekId] = p
+    return p
+  }
+  const setNote = (weekId: string, n: DayNote | null) =>
+    setDayNotes((all) => {
+      const next = { ...all }
+      if (n) next[weekId] = n
+      else delete next[weekId]
+      return next
+    })
+
+  const savedWeek = (weekId: string) => viewRef.current?.competition.weeks?.find((w) => w.id === weekId)
 
   /** Updates one match day in the view: its token, and its weeks via `fn`. */
-  const applyDay = (weekId: string, day: MatchDayState, fn: (weeks: Week[]) => Week[] = (w) => w) =>
+  const applyDay = (weekId: string, day: MatchDayState, fn: (weeks: Week[]) => Week[] = (w) => w) => {
+    tokens.current[weekId] = day.updatedAt
     setView((v) =>
       v && v.competition.weeks
         ? {
@@ -234,9 +268,18 @@ export function SeasonPage({ me, id, tab: requested }: { me: Me; id: string; tab
           }
         : v,
     )
+  }
 
   const dropEdit = (weekId: string) =>
     setEdits((all) => {
+      const next = { ...all }
+      delete next[weekId]
+      return next
+    })
+  /** Drops a day's unsaved changes only if they're still `e` (nothing typed since). */
+  const dropEditIf = (weekId: string, e: DayEdit) =>
+    setEdits((all) => {
+      if (all[weekId] !== e) return all
       const next = { ...all }
       delete next[weekId]
       return next
@@ -245,13 +288,13 @@ export function SeasonPage({ me, id, tab: requested }: { me: Me; id: string; tab
 
   /** Saves a day's unsaved results (if any) and returns the day's new token. */
   const saveDay = async (weekId: string): Promise<string> => {
-    const token = view!.matchDays[weekId]!.updatedAt
-    const e = edits[weekId]
+    const token = tokenOf(weekId)
+    const e = editsRef.current[weekId]
     const before = savedWeek(weekId)
     if (!e || !before) return token
     const results = changedResults(before, e.week)
     if (Object.keys(results).length === 0) {
-      dropEdit(weekId)
+      dropEditIf(weekId, e)
       return token
     }
     const r = await api<{ matchDay: MatchDayState }>(`/api/admin/seasons/${id}/match-days/${weekId}/results`, {
@@ -262,21 +305,67 @@ export function SeasonPage({ me, id, tab: requested }: { me: Me; id: string; tab
     applyDay(weekId, r.matchDay, (weeks) =>
       weeks.map((w) => (w.id !== weekId ? w : { ...w, games: w.games.map((g) => ({ ...g, result: typed.get(g.id) })) })),
     )
-    dropEdit(weekId)
+    // Anything typed while this was saving stays as unsaved changes on top.
+    dropEditIf(weekId, e)
     return r.matchDay.updatedAt
   }
 
-  const dayAction = async (weekId: string, fn: () => Promise<void>) => {
-    setBusyDay(weekId)
-    start()
-    try {
-      await fn()
-    } catch (e) {
-      fail(e)
-    } finally {
-      setBusyDay(null)
+  /** Saves a day's draft quietly a moment after typing stops (no banner; the day shows "Draft saved"). */
+  const AUTOSAVE_MS = 2500
+  const autosave = (weekId: string) =>
+    enqueue(weekId, async () => {
+      const e = editsRef.current[weekId]
+      if (!e || Object.keys(e.problems).length > 0) return
+      setNote(weekId, { kind: 'saving' })
+      try {
+        await saveDay(weekId)
+        setNote(weekId, { kind: 'saved', at: new Date().toISOString() })
+      } catch (err) {
+        if (isConflict(err)) {
+          setNote(weekId, { kind: 'error', text: 'Not saved: someone else changed this season. Reload (at the top) to see their version.' })
+          setConflict(true)
+        } else if (isNetworkError(err)) setNote(weekId, { kind: 'offline' })
+        else setNote(weekId, { kind: 'error', text: `Not saved: ${errorMessage(err)}` })
+      }
+    })
+  useEffect(() => {
+    if (viewRef.current?.season.status === 'archived') return
+    const timers = Object.entries(edits)
+      .filter(([weekId, e]) => Object.keys(e.problems).length === 0 && busyDay !== weekId)
+      .map(([weekId]) => setTimeout(() => void autosave(weekId), dayNotes[weekId]?.kind === 'offline' ? 15_000 : AUTOSAVE_MS))
+    return () => timers.forEach(clearTimeout)
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- autosave reads refs; re-arm only when the typing changes
+  }, [edits, busyDay, dayNotes])
+  // Back online: save what's waiting straight away.
+  useEffect(() => {
+    const retry = () => {
+      for (const weekId of Object.keys(editsRef.current)) void autosave(weekId)
     }
-  }
+    window.addEventListener('online', retry)
+    return () => window.removeEventListener('online', retry)
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- autosave reads refs
+  }, [])
+
+  const dayAction = (weekId: string, fn: () => Promise<void>) =>
+    enqueue(weekId, async () => {
+      setBusyDay(weekId)
+      start()
+      try {
+        await fn()
+        setNote(weekId, null)
+      } catch (e) {
+        if (isNetworkError(e)) {
+          setNote(weekId, { kind: 'offline' })
+          toast('Couldn’t reach the server. Your scores are still here; try again when you have signal.', 'error')
+        } else {
+          fail(e)
+          if (!isConflict(e)) toast(errorMessage(e), 'error')
+          setNote(weekId, { kind: 'error', text: errorMessage(e) })
+        }
+      } finally {
+        setBusyDay(null)
+      }
+    })
 
   const results: ResultsActions = {
     onResult: (weekId, gameId, result, p) =>
@@ -296,7 +385,7 @@ export function SeasonPage({ me, id, tab: requested }: { me: Me; id: string; tab
     onSave: (weekId) =>
       void dayAction(weekId, async () => {
         await saveDay(weekId)
-        setMessage('Saved. Publish the match day when it’s ready.')
+        toast('Saved. Publish the match day when it’s ready.')
       }),
     onPublish: (weekId) =>
       void dayAction(weekId, async () => {
@@ -314,7 +403,7 @@ export function SeasonPage({ me, id, tab: requested }: { me: Me; id: string; tab
             if (ids.has(mid) && m.status === 'scheduled') matches[mid] = { ...m, status: 'played' }
           return { ...v, matches }
         })
-        setMessage(`Published: the ladder and website are updated.${purgeNote(r.cache)}`)
+        toast(`Published: the ladder and website are updated.${purgeNote(r.cache)}`)
       }),
     onDiscard: (weekId) => {
       dropEdit(weekId)
@@ -323,7 +412,7 @@ export function SeasonPage({ me, id, tab: requested }: { me: Me; id: string; tab
     onUndo: (weekId) =>
       void dayAction(weekId, async () => {
         const r = await api<{ matchDay: MatchDayState }>(`/api/admin/seasons/${id}/match-days/${weekId}/undo`, {
-          body: { baseUpdatedAt: view!.matchDays[weekId]!.updatedAt },
+          body: { baseUpdatedAt: tokenOf(weekId) },
         })
         const cancelled = cancelledIds(view!)
         applyDay(weekId, r.matchDay, (weeks) =>
@@ -333,7 +422,7 @@ export function SeasonPage({ me, id, tab: requested }: { me: Me; id: string; tab
         )
         dropEdit(weekId)
         resetDay(weekId)
-        setMessage('Back to the published results.')
+        toast('Back to the published results.')
       }),
     onStatus: (weekId, gameId, status: GameStatus) =>
       status === 'cancelled' || status === 'postponed' || status === 'tbd'
@@ -341,23 +430,26 @@ export function SeasonPage({ me, id, tab: requested }: { me: Me; id: string; tab
         : status === 'forfeit'
           ? setPending({ kind: 'forfeit', weekId, gameId })
           : setGameStatus(weekId, gameId, status),
-    onReferee: async (weekId, gameId, referee) => {
-      start()
-      try {
-        const r = await api<{ matchDay: MatchDayState; match: { id: string; referee: string | null }; cache: PurgeResult }>(
-          `/api/admin/seasons/${id}/match-days/${weekId}/matches/${gameId}`,
-          { method: 'PATCH', body: { baseUpdatedAt: view!.matchDays[weekId]!.updatedAt, referee } },
-        )
-        const setRef = (w: Week) =>
-          w.id !== weekId ? w : { ...w, games: w.games.map((g) => (g.id !== gameId ? g : { ...g, referee: r.match.referee ?? undefined })) }
-        applyDay(weekId, r.matchDay, (weeks) => weeks.map(setRef))
-        setEdits((all) => (all[weekId] ? { ...all, [weekId]: { ...all[weekId], week: setRef(all[weekId].week) } } : all))
-        if (r.cache === 'failed') setMessage(`Referee saved.${purgeNote(r.cache)}`)
-      } catch (e) {
-        fail(e)
-        throw e
-      }
-    },
+    onReferee: (weekId, gameId, referee) =>
+      enqueue(weekId, async () => {
+        start()
+        try {
+          const r = await api<{ matchDay: MatchDayState; match: { id: string; referee: string | null }; cache: PurgeResult }>(
+            `/api/admin/seasons/${id}/match-days/${weekId}/matches/${gameId}`,
+            { method: 'PATCH', body: { baseUpdatedAt: tokenOf(weekId), referee } },
+          )
+          const setRef = (w: Week) =>
+            w.id !== weekId
+              ? w
+              : { ...w, games: w.games.map((g) => (g.id !== gameId ? g : { ...g, referee: r.match.referee ?? undefined })) }
+          applyDay(weekId, r.matchDay, (weeks) => weeks.map(setRef))
+          setEdits((all) => (all[weekId] ? { ...all, [weekId]: { ...all[weekId], week: setRef(all[weekId].week) } } : all))
+          if (r.cache === 'failed') setMessage(`Referee saved.${purgeNote(r.cache)}`)
+        } catch (e) {
+          fail(e)
+          throw e
+        }
+      }),
     onMove: (weekId, gameId) => (blockedByEdits() ? undefined : setPending({ kind: 'move', weekId, gameId })),
     onUndoMove: (gameId) => (blockedByEdits() ? undefined : setPending({ kind: 'undoMove', gameId })),
     onNight: (weekId) => (blockedByEdits() ? undefined : setPending({ kind: 'night', weekId })),
@@ -391,7 +483,7 @@ export function SeasonPage({ me, id, tab: requested }: { me: Me; id: string; tab
         cache: PurgeResult
       }>(`/api/admin/seasons/${id}/match-days/${weekId}/matches/${gameId}/status`, {
         body: {
-          baseUpdatedAt: view!.matchDays[weekId]!.updatedAt,
+          baseUpdatedAt: tokenOf(weekId),
           status,
           ...(note !== undefined ? { note } : {}),
           ...(forfeitedBy ? { forfeitedBy } : {}),
@@ -630,16 +722,29 @@ export function SeasonPage({ me, id, tab: requested }: { me: Me; id: string; tab
     window.scrollTo(0, 0)
   }, [tab])
 
+  const crumbs = (current: string) => (
+    <Breadcrumbs
+      items={[
+        { label: 'Leagues', href: '/leagues' },
+        ...(view ? [{ label: view.league.name, href: `/leagues/${view.league.id}/seasons` }] : []),
+        { label: current },
+      ]}
+    />
+  )
   if (loadError)
     return (
       <div className="space-y-4">
-        <Link href={view ? `/leagues/${view.league.id}/seasons` : '/leagues'} className="text-brand text-sm underline">
-          ← {view ? view.league.name : 'Leagues'}
-        </Link>
-        <Notice kind="error">{loadError}</Notice>
+        {crumbs('Season')}
+        <LoadError
+          message={loadError}
+          onRetry={() => {
+            setLoadError(null)
+            void load().catch((e: unknown) => setLoadError(errorMessage(e)))
+          }}
+        />
       </div>
     )
-  if (!view || !working || !tab) return <p className="text-sm text-black/60">Loading…</p>
+  if (!view || !working || !tab) return <Skeleton lines={8} label="Loading the season…" />
 
   const archived = status === 'archived'
   const published = status === 'published'
@@ -651,9 +756,7 @@ export function SeasonPage({ me, id, tab: requested }: { me: Me; id: string; tab
   if (!isAdmin && status === 'draft')
     return (
       <div className="space-y-4">
-        <Link href={view ? `/leagues/${view.league.id}/seasons` : '/leagues'} className="text-brand text-sm underline">
-          ← {view ? view.league.name : 'Leagues'}
-        </Link>
+        {crumbs(view.season.name)}
         <h1 className="text-2xl font-bold">{view.season.name}</h1>
         <Notice>This season isn't published yet. Results can be entered once an admin publishes it.</Notice>
       </div>
@@ -662,9 +765,7 @@ export function SeasonPage({ me, id, tab: requested }: { me: Me; id: string; tab
   return (
     <div>
       <div className="mb-5">
-        <Link href={view ? `/leagues/${view.league.id}/seasons` : '/leagues'} className="text-brand text-sm underline">
-          ← {view ? view.league.name : 'Leagues'}
-        </Link>
+        {crumbs(s.name || view.season.name)}
         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-2">
           <h1 className="text-2xl font-bold">{s.name || view.season.name}</h1>
           <span className="text-sm text-black/60">
@@ -763,7 +864,9 @@ export function SeasonPage({ me, id, tab: requested }: { me: Me; id: string; tab
             <p>{problem.message}</p>
             {problem.issues.length > 0 && (
               <div className="mt-2 text-ink">
-                <IssueList issues={problem.issues} />
+                <Suspense fallback={null}>
+                  <IssueList issues={problem.issues} />
+                </Suspense>
               </div>
             )}
           </Notice>
@@ -772,39 +875,50 @@ export function SeasonPage({ me, id, tab: requested }: { me: Me; id: string; tab
         {archived && <Notice>This season is archived, so it's read-only. Unarchive it to make changes.</Notice>}
       </div>
 
-      {tab === 'setup' ? (
-        <SetupTab
-          view={view}
-          draft={working}
-          onChange={setDraft}
-          readOnly={readOnly}
-          generating={busy === 'generate'}
-          onGenerate={() => void generate()}
-          onTeamRenamed={onTeamRenamed}
-        />
-      ) : tab === 'fixtures' ? (
-        <FixturesTab
-          view={view}
-          draft={working}
-          onChange={setDraft}
-          readOnly={readOnly}
-          generating={busy === 'generate'}
-          onGenerate={() => void generate()}
-        />
-      ) : tab === 'publish' ? (
-        <PublishTab
-          view={view}
-          draft={working}
-          dirty={seasonDirty}
-          busy={busy === 'status' || busy === 'save'}
-          readOnly={readOnly}
-          onPublish={() => void changeStatus('published')}
-        />
-      ) : tab === 'website' ? (
-        <WebsiteTab view={view} draft={saved!} />
-      ) : (
-        <ResultsTab view={view} edits={edits} busyDay={busyDay} canEnter={!archived} isAdmin={isAdmin} resets={resets} actions={results} />
-      )}
+      <Suspense fallback={<Skeleton lines={8} />}>
+        {tab === 'setup' ? (
+          <SetupTab
+            view={view}
+            draft={working}
+            onChange={setDraft}
+            readOnly={readOnly}
+            generating={busy === 'generate'}
+            onGenerate={() => void generate()}
+            onTeamRenamed={onTeamRenamed}
+          />
+        ) : tab === 'fixtures' ? (
+          <FixturesTab
+            view={view}
+            draft={working}
+            onChange={setDraft}
+            readOnly={readOnly}
+            generating={busy === 'generate'}
+            onGenerate={() => void generate()}
+          />
+        ) : tab === 'publish' ? (
+          <PublishTab
+            view={view}
+            draft={working}
+            dirty={seasonDirty}
+            busy={busy === 'status' || busy === 'save'}
+            readOnly={readOnly}
+            onPublish={() => void changeStatus('published')}
+          />
+        ) : tab === 'website' ? (
+          <WebsiteTab view={view} draft={saved!} />
+        ) : (
+          <ResultsTab
+            view={view}
+            edits={edits}
+            notes={dayNotes}
+            busyDay={busyDay}
+            canEnter={!archived}
+            isAdmin={isAdmin}
+            resets={resets}
+            actions={results}
+          />
+        )}
+      </Suspense>
 
       {leavingTo && (
         <LeaveDialog

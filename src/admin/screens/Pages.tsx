@@ -13,19 +13,26 @@ import {
   type RevisionRow,
 } from '../api'
 import { RichText } from '../editor/LazyRichText'
+import { skipLeaveGuard, useUnsavedWarning } from '../unsaved'
 import { ImageField } from '../media/MediaLibrary'
-import { Button, Card, Dialog, Field, Notice, Select, StatusBadge, TextArea, errorMessage, purgeNote } from '../ui'
+import {
+  EmptyState,
+  Breadcrumbs,
+  Skeleton,
+  confirmAction,
+  Button,
+  Card,
+  Dialog,
+  Field,
+  Notice,
+  Select,
+  StatusBadge,
+  TextArea,
+  errorMessage,
+  purgeNote,
+} from '../ui'
 
 // Pages: the list (with search) and the editor (title, path, SEO fields, body, publish, revisions).
-
-export function useUnsavedWarning(dirty: boolean) {
-  useEffect(() => {
-    if (!dirty) return
-    const warn = (e: BeforeUnloadEvent) => e.preventDefault()
-    window.addEventListener('beforeunload', warn)
-    return () => window.removeEventListener('beforeunload', warn)
-  }, [dirty])
-}
 
 export function PageList() {
   const [q, setQ] = useState('')
@@ -63,23 +70,27 @@ export function PageList() {
           <Field label="Search" type="search" placeholder="Title or path" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
         {pages === null ? (
-          <p className="text-sm text-black/60">Loading…</p>
+          <Skeleton />
         ) : pages.length === 0 ? (
-          <p className="text-sm text-black/60">{q ? 'No pages match.' : 'No pages yet.'}</p>
+          q ? (
+            <EmptyState title="No pages match">Try part of the title or the path, like “rules” or “/where”.</EmptyState>
+          ) : (
+            <EmptyState title="No pages yet">Use “New page” to write one. It stays a draft until you publish it.</EmptyState>
+          )
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="text-xs text-black/60 uppercase">
                   <th className="pr-3 pb-2 font-semibold">Title</th>
-                  <th className="pr-3 pb-2 font-semibold">Path</th>
+                  <th className="hidden pr-3 pb-2 font-semibold sm:table-cell">Path</th>
                   <th className="pr-3 pb-2 font-semibold">Status</th>
                   {views && (
                     <th className="pr-3 pb-2 text-right font-semibold" title={`Page views in the last ${views.days} days (Stats)`}>
                       Views ({views.days} d)
                     </th>
                   )}
-                  <th className="pb-2 font-semibold">Last saved</th>
+                  <th className="hidden pb-2 font-semibold sm:table-cell">Last saved</th>
                 </tr>
               </thead>
               <tbody>
@@ -90,13 +101,16 @@ export function PageList() {
                         {p.title}
                       </Link>
                       {p.template !== 'content' && <span className="ml-2 text-xs text-black/60">({p.template})</span>}
+                      {/* Phones: the path and date under the title rather than in narrow columns. */}
+                      <span className="block font-mono text-xs break-all text-black/60 sm:hidden">{p.path}</span>
+                      <span className="block text-xs text-black/60 sm:hidden">Saved {formatWhen(p.updatedAt)}</span>
                     </td>
-                    <td className="py-2 pr-3 font-mono text-xs break-all">{p.path}</td>
+                    <td className="hidden py-2 pr-3 font-mono text-xs break-all sm:table-cell">{p.path}</td>
                     <td className="py-2 pr-3">
                       <StatusBadge status={p.status} />
                     </td>
                     {views && <td className="py-2 pr-3 text-right tabular-nums">{views.views[p.path]?.toLocaleString('en-AU') ?? '–'}</td>}
-                    <td className="py-2 whitespace-nowrap">{formatWhen(p.updatedAt)}</td>
+                    <td className="hidden py-2 whitespace-nowrap sm:table-cell">{formatWhen(p.updatedAt)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -240,6 +254,7 @@ export function PageEditor({ id }: { id: string | null }) {
       if (!id) {
         const r = await api<{ page: PageRow }>('/api/admin/pages', { body: { ...form, blocks: blocks.current ?? [] } })
         setDirty(false)
+        skipLeaveGuard()
         navigate(`/pages/${r.page.id}`, { replace: true })
         return r.page
       }
@@ -280,11 +295,22 @@ export function PageEditor({ id }: { id: string | null }) {
   }
 
   const remove = async () => {
-    if (!id || !page || !window.confirm(`Delete “${page.title}” and its revisions? This can't be undone.`)) return
+    if (
+      !id ||
+      !page ||
+      !(await confirmAction({
+        title: `Delete “${page.title}”?`,
+        body: 'Its revisions go too. This can’t be undone. To take it off the site but keep it, archive it instead.',
+        confirmLabel: 'Delete page',
+        danger: true,
+      }))
+    )
+      return
     setBusy('delete')
     try {
       await api(`/api/admin/pages/${id}`, { method: 'DELETE' })
       setDirty(false)
+      skipLeaveGuard()
       navigate('/pages')
     } catch (e) {
       setError(errorMessage(e))
@@ -292,15 +318,13 @@ export function PageEditor({ id }: { id: string | null }) {
     }
   }
 
-  if (id && !page && !error) return <p className="text-sm text-black/60">Loading…</p>
+  if (id && !page && !error) return <Skeleton />
 
   return (
     <form className="space-y-6" onSubmit={(e) => void submit(e)}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <Link href="/pages" className="text-brand text-sm underline">
-            ← Pages
-          </Link>
+          <Breadcrumbs items={[{ label: 'Pages', href: '/pages' }, { label: id ? page?.path || 'Page' : 'New page' }]} />
           <h1 className="text-2xl font-bold">{id ? form.title || 'Untitled page' : 'New page'}</h1>
         </div>
         <div className="flex flex-wrap items-center gap-2">

@@ -3,7 +3,7 @@ import { renderSVG } from 'uqr'
 import { useSearch } from 'wouter'
 import { api, type Me } from '../api'
 import { authClient } from '../auth-client'
-import { Button, Card, Field, Notice, errorMessage } from '../ui'
+import { Skeleton, confirmAction, Button, Card, Field, Notice, errorMessage } from '../ui'
 
 // TOTP enrolment and backup codes. Owners must enrol before they can use anything else (the server enforces this
 // too, in src/server/auth/guard.ts); everyone else can opt in.
@@ -26,9 +26,12 @@ function TrustedDevices() {
 
   const forget = async () => {
     if (
-      !window.confirm(
-        'Forget every trusted device? Each will ask for your authenticator code at its next sign-in. You stay signed in here.',
-      )
+      !(await confirmAction({
+        title: 'Forget every trusted device?',
+        body: 'Each will ask for your authenticator code at its next sign-in. You stay signed in here.',
+        confirmLabel: 'Forget devices',
+        danger: true,
+      }))
     )
       return
     setBusy(true)
@@ -48,7 +51,7 @@ function TrustedDevices() {
     <Card title="Trusted devices">
       <div className="space-y-3 text-sm">
         {!state ? (
-          <p className="text-black/60">Loading…</p>
+          <Skeleton />
         ) : days > 0 ? (
           <p>
             When you sign in you can tick “Trust this device for {days} days”, and that browser won't ask for your authenticator code until
@@ -142,7 +145,15 @@ export function Security({ me }: { me: Me }) {
 
   const disable = () =>
     run(async () => {
-      if (!window.confirm('Turn off two-factor sign-in? You will sign in with just an email code.')) return
+      if (
+        !(await confirmAction({
+          title: 'Turn off two-factor sign-in?',
+          body: 'You’ll sign in with just an email code.',
+          confirmLabel: 'Turn it off',
+          danger: true,
+        }))
+      )
+        return
       const { error } = await authClient.twoFactor.disable({})
       if (error) return setError(error.message ?? "Couldn't turn it off. Sign out and in again, then retry.")
       window.location.assign('/admin/security')

@@ -51,7 +51,7 @@ function ToolButton({
       onClick={onClick}
       className={`min-w-8 rounded px-2 py-1 text-sm font-semibold disabled:opacity-40 ${active ? 'bg-brand text-white' : 'hover:bg-black/10'}`}
     >
-      {children}
+      <span aria-hidden="true">{children}</span>
     </button>
   )
 }

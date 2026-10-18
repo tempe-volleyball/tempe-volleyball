@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'wouter'
 import { api, formatBytes, formatWhen, type MediaItem, type MediaUse } from '../api'
 import { MediaGrid, UploadForm, useMediaList } from '../media/MediaLibrary'
-import { Button, Card, Dialog, Field, Notice, errorMessage } from '../ui'
+import { confirmAction, Button, Card, Dialog, Field, Notice, errorMessage } from '../ui'
 
 // The media library: upload, search, edit descriptions, delete (refused while a page or post uses the file).
 
@@ -44,7 +44,15 @@ function Details({
   }
 
   const remove = async () => {
-    if (!window.confirm(`Delete ${item.filename}? This can't be undone.`)) return
+    if (
+      !(await confirmAction({
+        title: `Delete ${item.filename}?`,
+        body: 'This can’t be undone.',
+        confirmLabel: 'Delete file',
+        danger: true,
+      }))
+    )
+      return
     setBusy('delete')
     setError(null)
     try {

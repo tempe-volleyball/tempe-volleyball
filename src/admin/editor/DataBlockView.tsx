@@ -149,7 +149,7 @@ export function DataBlockView({ node, updateAttributes, deleteNode, selected }: 
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm">
           {/* Only the grip drags the block, so clicks on the buttons stay clicks. */}
-          <span data-drag-handle draggable className="mr-2 cursor-grab text-lg leading-none text-black/50" title="Drag to move" aria-hidden>
+          <span data-drag-handle draggable className="mr-2 cursor-grab text-lg leading-none text-black/60" title="Drag to move" aria-hidden>
             ⠿
           </span>
           <span className="bg-brand mr-2 rounded px-2 py-0.5 text-xs font-bold text-white uppercase">{LABELS[type]}</span>

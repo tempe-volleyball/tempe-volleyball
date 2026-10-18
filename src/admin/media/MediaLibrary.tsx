@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { api, formatBytes, type MediaItem } from '../api'
-import { Button, Dialog, Field, Notice, errorMessage } from '../ui'
+import { EmptyState, Button, Dialog, Field, Notice, errorMessage } from '../ui'
 import { uploadMedia, uploadMime } from './upload'
 
 // The media library's building blocks: the upload form, the searchable grid, and a picker dialog for the editor
@@ -76,7 +76,7 @@ export function MediaThumb({ m }: { m: MediaItem }) {
   if (m.urls.thumb)
     return <img src={m.urls.thumb} alt={m.alt} loading="lazy" className="aspect-[4/3] w-full rounded bg-black/5 object-cover" />
   return (
-    <div className="flex aspect-[4/3] w-full items-center justify-center rounded bg-black/5 text-sm font-bold text-black/50 uppercase">
+    <div className="flex aspect-[4/3] w-full items-center justify-center rounded bg-black/5 text-sm font-bold text-black/60 uppercase">
       {m.mime.split('/')[1] ?? 'file'}
     </div>
   )
@@ -136,7 +136,11 @@ export function MediaGrid({
       />
       {list.error && <Notice kind="error">{list.error}</Notice>}
       {list.items.length === 0 && !list.loading ? (
-        <p className="text-sm text-black/60">{list.q ? 'Nothing matches.' : 'No files yet.'}</p>
+        list.q ? (
+          <EmptyState title="Nothing matches">Try part of the file name or its description.</EmptyState>
+        ) : (
+          <EmptyState title="No files yet">Upload images or PDFs here, then pick them in the page editor.</EmptyState>
+        )
       ) : (
         <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
           {list.items.map((m) => (

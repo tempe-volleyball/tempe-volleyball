@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { canAssign, canRemove, roleLabel, type UserRole } from '../../lib/roles'
 import { api, formatWhen, type AdminUserRow, type InviteRow, type Me } from '../api'
-import { Button, Card, Field, Notice, RoleBadge, errorMessage } from '../ui'
+import { Skeleton, confirmAction, Button, Card, Field, Notice, RoleBadge, errorMessage } from '../ui'
+import { useUnsavedWarning } from '../unsaved'
 
 // Admin users: list, invite, change role, remove, revoke invites. The server (src/server/auth/roles.ts) enforces
 // every rule; the same rules from src/lib/roles.ts only decide which controls to show.
@@ -24,6 +25,8 @@ function InviteForm({ me, onDone }: { me: Me; onDone: () => void }) {
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<InviteResult | null>(null)
   const [copied, setCopied] = useState(false)
+  // A typed-in address that hasn't been invited yet.
+  useUnsavedWarning(email.trim() !== '' && !busy)
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
@@ -111,25 +114,50 @@ function UserRow({ me, row, ownerCount, onChange }: { me: Me; row: AdminUserRow;
     }
   }
 
-  const changeRole = (role: UserRole) => {
+  const changeRole = async (role: UserRole) => {
     const self = row.id === me.user.id
-    if (self && !window.confirm(`Change your own role to ${roleLabel[role]}? You may lose access to this page.`)) return
+    if (
+      self &&
+      !(await confirmAction({
+        title: `Change your own role to ${roleLabel[role]}?`,
+        body: 'You may lose access to this page.',
+        confirmLabel: 'Change my role',
+        danger: true,
+      }))
+    )
+      return
     void act(async () => {
       await api(`/api/admin/users/${row.id}`, { method: 'PATCH', body: { role } })
       if (self) window.location.assign('/admin')
     })
   }
 
-  const remove = () => {
-    if (!window.confirm(`Remove ${row.email} from the admin? They will be signed out.`)) return
+  const remove = async () => {
+    if (
+      !(await confirmAction({
+        title: `Remove ${row.email} from the admin?`,
+        body: 'They’ll be signed out.',
+        confirmLabel: 'Remove',
+        danger: true,
+      }))
+    )
+      return
     void act(async () => {
       await api(`/api/admin/users/${row.id}`, { method: 'DELETE' })
       if (row.id === me.user.id) window.location.assign('/admin/sign-in')
     })
   }
 
-  const forgetDevices = () => {
-    if (!window.confirm(`Forget ${row.email}'s trusted devices? Their next sign-in on each will ask for their authenticator code.`)) return
+  const forgetDevices = async () => {
+    if (
+      !(await confirmAction({
+        title: `Forget ${row.email}’s trusted devices?`,
+        body: 'Their next sign-in on each will ask for their authenticator code.',
+        confirmLabel: 'Forget devices',
+        danger: true,
+      }))
+    )
+      return
     void act(() => api(`/api/admin/users/${row.id}/trusted-devices`, { method: 'DELETE' }))
   }
 
@@ -162,7 +190,7 @@ function UserRow({ me, row, ownerCount, onChange }: { me: Me; row: AdminUserRow;
           <RoleBadge role={row.role} />
         )}
       </td>
-      <td className="py-2 pr-3 text-sm">{row.twoFactorEnabled ? 'On' : <span className="text-black/50">Off</span>}</td>
+      <td className="py-2 pr-3 text-sm">{row.twoFactorEnabled ? 'On' : <span className="text-black/60">Off</span>}</td>
       <td className="space-x-2 py-2 text-right whitespace-nowrap">
         {row.twoFactorEnabled && canRemove(actor, row.role) && (
           <Button variant="secondary" className="px-2 py-1 text-xs" onClick={forgetDevices} disabled={busy} title="Forget trusted devices">
@@ -191,7 +219,7 @@ export function Users({ me }: { me: Me }) {
   useEffect(load, [load])
 
   const revoke = async (invite: InviteRow) => {
-    if (!window.confirm(`Cancel the invite for ${invite.email}?`)) return
+    if (!(await confirmAction({ title: `Cancel the invite for ${invite.email}?`, confirmLabel: 'Cancel invite', danger: true }))) return
     try {
       await api(`/api/admin/invites/${invite.id}`, { method: 'DELETE' })
       load()
@@ -209,7 +237,7 @@ export function Users({ me }: { me: Me }) {
       {error && <Notice kind="error">{error}</Notice>}
       <Card title="People">
         {!data ? (
-          <p className="text-sm text-black/60">Loading…</p>
+          <Skeleton />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">

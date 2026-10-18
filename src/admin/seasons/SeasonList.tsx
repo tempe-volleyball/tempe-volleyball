@@ -3,7 +3,7 @@ import { Link, useLocation } from 'wouter'
 import { formatLong } from '../../lib/fixtures'
 import { sydneyDateTime } from '../../lib/time'
 import { api, type LeagueListItem, type Me, type SeasonView } from '../api'
-import { Button, Card, Dialog, Field, Notice, Select, StatusBadge, errorMessage } from '../ui'
+import { Skeleton, Button, Card, Dialog, Field, Notice, Select, StatusBadge, errorMessage } from '../ui'
 import { nextQuarter } from './draft'
 import { NewProgrammeDialog } from '../programmes/ProgrammeList'
 
@@ -39,7 +39,7 @@ export function SeasonList({ me }: { me: Me }) {
         {isAdmin && <Button onClick={() => setNewLeague(true)}>New league</Button>}
       </div>
       {error && <Notice kind="error">{error}</Notice>}
-      {leagues === null && !error && <p className="text-sm text-black/60">Loading…</p>}
+      {leagues === null && !error && <Skeleton />}
       <div className="grid gap-5 md:grid-cols-2">
         {leagues
           ?.filter((l) => (isAdmin ? l.status !== 'retired' : l.status === 'active') || l.seasons.length > 0)
