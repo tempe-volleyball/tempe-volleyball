@@ -25,10 +25,8 @@ const { upcoming, played } = splitFixtures(rows, competition.weeks, today)
 const hasFinals = competition.weeks.some((w) => w.kind === 'semi' || w.kind === 'final')
 const initial: LeagueTab = current ? defaultLeagueTab(competition.weeks, today) : 'ladder'
 const showDuty = view.data.season.dutyEnabled
-// Results read newest night first (players look for last night's scores); games within a night keep their order.
-const nights = new Map<string, typeof played>()
-for (const r of played) nights.set(r.date, [...(nights.get(r.date) ?? []), r])
-const playedNewestFirst = [...nights.values()].reverse().flat()
+// splitFixtures already returns Results newest night first, each night's games in their usual order.
+const playedNewestFirst = played
 ---
 
 <slot name="before" />
