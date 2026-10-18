@@ -19,8 +19,8 @@ Astro.response.headers.set('X-Robots-Tag', 'noindex, nofollow')
   site={site}
   seo={{ noindex: true }}
 >
-  <article class="mx-auto max-w-2xl space-y-4 py-6">
-    <h1 class="font-display text-brand text-2xl font-bold">Your waitlist offer</h1>
+  <article class="max-w-2xl space-y-4">
+    <h1 class="page-title">Your waitlist offer</h1>
     <OfferResponse client:only="react" />
     <noscript>
       <p>This page needs JavaScript. Reply to your offer email and we'll sort it out.</p>

@@ -60,8 +60,11 @@ src/pages/           Routes. api/health.ts is the deploy smoke test. robots.txt.
                      → 301, else 404), leagues/ (index, [league] = current season #ladder/#fixtures, [league]/[season]
                      archive), news/, media/[id]/[file].ts (R2 MEDIA, immutable caching). Each calls cachePublic().
 src/layouts/         BaseLayout.astro: the public shell (hero header + <details> menu, optional ladder sidebar, footer).
-src/components/      Public Astro components: SiteHeader, SiteFooter, LadderTable/Widget, FixturesTable, SeasonView.
-src/lib/             Pure logic with tests. No bindings, no `cloudflare:*` imports, no DOM. time.ts, indexing.ts.
+src/components/      Public Astro components: SiteHeader, SiteFooter, LadderTable/Widget, FixturesTable, SeasonView. Design
+                     system: docs/public-site.md; styles in src/styles/ (tokens.css shared, site.css components,
+                     global.css = public entry, inlined; admin.css = admin entry).
+src/lib/             Pure logic with tests. No bindings, no `cloudflare:*` imports, no DOM. time.ts, indexing.ts,
+                     tables.ts (fixtures + ladder HTML for league pages and data blocks), brand.ts (header images).
 src/lib/fixtures/    The demo's fixtures logic, ported (Phase 4): types, scheduler (+ rng, dates, holidays),
                      analysis (validate, teamStats), results (ladder, ratio, set scores, finals resolver, ladder
                      heading), edit, competition, export, clashes (court clashes across leagues), demo (sample

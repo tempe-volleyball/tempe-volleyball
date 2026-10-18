@@ -21,8 +21,8 @@ Astro.response.headers.set('X-Robots-Tag', 'noindex, nofollow')
   site={site}
   seo={{ noindex: true }}
 >
-  <article class="mx-auto max-w-2xl space-y-4 py-6">
-    <h1 class="font-display text-brand text-2xl font-bold">Confirm your enrolment</h1>
+  <article class="max-w-2xl space-y-4">
+    <h1 class="page-title">Confirm your enrolment</h1>
     <ConfirmResponse client:only="react" />
     <noscript>
       <p>This page needs JavaScript. Reply to the email and we'll confirm your enrolment by hand.</p>

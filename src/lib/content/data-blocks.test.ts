@@ -322,9 +322,10 @@ describe('ladder and fixtures blocks', () => {
 
   it('renders fixtures with optional columns and an empty message', () => {
     const html = renderFixtures({ ...DEFAULT_FIXTURES_ATTRS, leagueId: 'l1', display: 'full' }, league, '2026-10-15')
-    expect(html).toContain('<th scope="col">Duty</th>')
-    expect(html).toContain('<th scope="col">Court</th>')
-    expect(html).toContain('15/10/2026')
+    expect(html).toContain('scope="col" class="fx-h-duty">Duty</th>')
+    expect(html).toContain('scope="col" class="fx-h-court">Court</th>')
+    expect(html).toContain('Thursday 15 October 2026')
+    expect(html).toContain('<dt>Duty</dt>')
     const noCourt = renderFixtures({ ...DEFAULT_FIXTURES_ATTRS, leagueId: 'l1', showCourt: false }, league, '2026-10-15')
     expect(noCourt).not.toContain('Court')
     expect(noCourt).not.toContain('Duty')

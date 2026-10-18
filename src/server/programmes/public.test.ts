@@ -26,6 +26,7 @@ import {
   programmeSeo,
   publicTargetSpots,
   programmeCard,
+  spotsMeter,
   spotsText,
 } from './public'
 
@@ -304,7 +305,11 @@ describe('text helpers', () => {
       null,
       { targets: [{ label: 'Thu 29 Oct', startsOn: '2026-10-29', ...c(1, null, 1), waitlistEnabled: false } as never] },
     )
-    expect(card.targets[0]!.spots).toBe('Full')
+    expect(card.targets[0]).toMatchObject({ spots: 'Full', state: 'full', meter: { left: 0, cap: 1 } })
+    expect(spotsMeter(c(10, null, 7))).toEqual({ state: 'open', meter: { left: 3, cap: 10 } })
+    expect(spotsMeter(c(40, 8, 3))).toEqual({ state: 'open', meter: { left: 8, cap: 8 } })
+    expect(spotsMeter(c(10, null, 3, 1))).toEqual({ state: 'waitlist', meter: { left: 0, cap: 10 } })
+    expect(spotsMeter(c(null, null))).toEqual({ state: 'open', meter: null })
     expect(publicTargetSpots({ full: false, waitlistOnly: false, spotsLeft: null, teamSpotsLeft: null })).toBe('Open')
     expect(publicTargetSpots({ full: true, waitlistOnly: false, spotsLeft: 0, teamSpotsLeft: null })).toBe('Full')
   })

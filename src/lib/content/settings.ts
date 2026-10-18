@@ -3,7 +3,8 @@ import { isMediaId } from './media'
 import { safeHref } from './render'
 
 // Site settings (the site_settings table, one JSON value per key): contact details, PayID, social links, the
-// Revolutionise URL and the announcement banner. The public site reads them through readSettings(); the admin
+// Revolutionise URL, the announcement banner, the home page hero, where the ladder widgets go and the footer
+// links (docs/public-site.md). The public site reads them through readSettings(); the admin
 // edits them through checkSetting(). Missing keys fall back to DEFAULT_SETTINGS (the old site's details).
 
 export type ContactSettings = { name: string; phone: string; email: string }
@@ -124,6 +125,41 @@ export type SeoSettings = {
   sameAs: string[]
 }
 
+/** A labelled link set in the admin (home page buttons, footer links). Empty label or URL = not shown. */
+export type LinkSetting = { label: string; url: string }
+
+/**
+ * The home page's hero (docs/public-site.md, "Home page"): the H1 over the photo, a sentence or two on what Tempe
+ * Volleyball is and how to join, and up to two buttons. An empty heading uses the home page's own title.
+ */
+export type HomeSettings = {
+  heading: string
+  intro: string
+  primary: LinkSetting
+  secondary: LinkSetting
+  /** The "Leagues this season" cards under the hero (each league's night, place, fixtures and ladder links). */
+  showLeagues: boolean
+}
+
+/** Where the league ladder widgets go (docs/public-site.md, "Ladders"). */
+export const ladderPlacements = ['sidebar', 'footer', 'off'] as const
+export type LadderPlacement = (typeof ladderPlacements)[number]
+export type LadderSettings = {
+  /**
+   * sidebar: beside the content of the home page, content pages, news and the league list (the footer then just
+   * links each ladder); footer: across the footer on every page instead; off: neither (league pages still have
+   * their full ladders).
+   */
+  placement: LadderPlacement
+  /** Teams shown in each widget (the top N). */
+  rows: number
+}
+
+/** The footer: a line about the club under the logo, and the "Explore" links. */
+export type FooterSettings = { blurb: string; links: LinkSetting[] }
+
+export const MAX_FOOTER_LINKS = 16
+
 /** The longest a device can be trusted (the trust cookie's own lifetime). */
 export const MAX_TRUST_DEVICE_DAYS = 90
 
@@ -139,6 +175,9 @@ export type SiteSettings = {
   contactForm: ContactFormSettings
   privacy: PrivacySettings
   seo: SeoSettings
+  home: HomeSettings
+  ladders: LadderSettings
+  footer: FooterSettings
 }
 
 export type SettingKey = keyof SiteSettings
@@ -154,6 +193,9 @@ export const settingKeys = [
   'contactForm',
   'privacy',
   'seo',
+  'home',
+  'ladders',
+  'footer',
 ] as const satisfies readonly SettingKey[]
 
 /** Who may change each key. PayID is where players send money, so it's admin+ like other payment settings. */
@@ -170,6 +212,9 @@ export const settingMinRole: Record<SettingKey, UserRole> = {
   contactForm: 'admin',
   privacy: 'editor',
   seo: 'editor',
+  home: 'editor',
+  ladders: 'editor',
+  footer: 'editor',
 }
 
 /** Keys the public site never reads, so saving them doesn't purge the edge cache. */
@@ -210,6 +255,31 @@ export const DEFAULT_SETTINGS: SiteSettings = {
   },
   privacy: { pagePath: '/privacy' },
   seo: { description: '', imageId: '', alternateName: 'Tempe VB', foundingYear: '2005', sameAs: [] },
+  home: {
+    heading: "Social volleyball in Sydney's inner west",
+    intro:
+      'Mixed social leagues from Thursday to Sunday, the Super League, and training and development programs for adults and juniors, in Tempe, Burwood and Five Dock. Come on your own or bring a team: every level is welcome.',
+    primary: { label: 'Enrol now', url: '/enrol' },
+    secondary: { label: 'Fixtures and ladders', url: '/leagues' },
+    showLeagues: true,
+  },
+  ladders: { placement: 'sidebar', rows: 4 },
+  footer: {
+    blurb: 'Social volleyball in Sydney since 2005, with the Sydney Uni Volleyball Club.',
+    links: [
+      { label: 'Leagues', url: '/leagues' },
+      { label: "This week's games", url: '/leagues/fixtures' },
+      { label: 'Enrol', url: '/enrol' },
+      { label: 'Training', url: '/training' },
+      { label: 'Programs', url: '/programs' },
+      { label: 'Events', url: '/events' },
+      { label: 'News', url: '/news' },
+      { label: 'Where we play', url: '/where-we-play' },
+      { label: 'Rules', url: '/rules' },
+      { label: 'FAQ', url: '/faq' },
+      { label: 'Contact', url: '/contact' },
+    ],
+  },
 }
 
 /** Bounds for the contact form settings. */
@@ -266,6 +336,16 @@ const intIn = (v: unknown, label: string, min: number, max: number, fallback: nu
 const upper = (v: unknown) => (typeof v === 'string' ? v.toUpperCase() : v)
 
 const HEX32 = /^[0-9a-f]{32}$/i
+
+/** A link from the admin: label and URL both set (a relative path, https:// or mailto:), or both empty. */
+const link = (v: unknown, label: string): LinkSetting => {
+  const o = v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {}
+  const text = str(o.label, `${label} text`, 60)
+  const url = str(o.url, `${label} link`, 500)
+  if (url && !safeHref(url)) throw new Invalid(`${label}: the link must start with https://, / or mailto:.`)
+  if (!!text !== !!url) throw new Invalid(`${label}: give both the text and the link, or leave both empty.`)
+  return { label: text, url }
+}
 
 const checkers: { [K in SettingKey]: (v: unknown) => SiteSettings[K] } = {
   contact: (v) => {
@@ -424,6 +504,31 @@ const checkers: { [K in SettingKey]: (v: unknown) => SiteSettings[K] } = {
       foundingYear,
       sameAs,
     }
+  },
+  home: (v) => {
+    const o = obj(v, 'Home page')
+    return {
+      heading: str(o.heading, 'Heading', 90),
+      intro: str(o.intro, 'Intro', 400),
+      primary: link(o.primary, 'First button'),
+      secondary: link(o.secondary, 'Second button'),
+      showLeagues: o.showLeagues !== false,
+    }
+  },
+  ladders: (v) => {
+    const o = obj(v, 'Ladders')
+    const d = DEFAULT_SETTINGS.ladders
+    return {
+      placement: ladderPlacements.includes(o.placement as LadderPlacement) ? (o.placement as LadderPlacement) : d.placement,
+      rows: intIn(o.rows, 'Teams in each ladder', 1, 12, d.rows),
+    }
+  },
+  footer: (v) => {
+    const o = obj(v, 'Footer')
+    if (o.links !== undefined && !Array.isArray(o.links)) throw new Invalid('The footer links are malformed.')
+    const links = ((o.links as unknown[] | undefined) ?? []).map((l, i) => link(l, `Footer link ${i + 1}`)).filter((l) => l.url)
+    if (links.length > MAX_FOOTER_LINKS) throw new Invalid(`The footer has room for ${MAX_FOOTER_LINKS} links at most.`)
+    return { blurb: str(o.blurb, 'Footer text', 200), links }
   },
 }
 

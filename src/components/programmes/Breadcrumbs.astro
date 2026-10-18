@@ -15,20 +15,18 @@ const crumbs = all.flatMap((item, i) =>
 )
 ---
 
-<nav aria-label="Breadcrumb" class="mb-4 text-sm">
-  <ol class="flex flex-wrap items-center gap-x-2 gap-y-1">
+<nav aria-label="Breadcrumb" class="crumbs">
+  <ol>
     {all.map((item, i) => {
       const last = i === all.length - 1
       return (
-        <li class="flex items-center gap-2">
-          {last || !item.href ? (
-            <span aria-current={last ? 'page' : undefined}>{item.label}</span>
-          ) : (
-            <a class="text-link decoration-accent underline decoration-2 underline-offset-2" href={item.href}>
-              {item.label}
-            </a>
+        <li>
+          {last || !item.href ? <span aria-current={last ? 'page' : undefined}>{item.label}</span> : <a href={item.href}>{item.label}</a>}
+          {!last && (
+            <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.75">
+              <path d="m4.5 2.5 3.5 3.5-3.5 3.5" />
+            </svg>
           )}
-          {!last && <span aria-hidden="true">›</span>}
         </li>
       )
     })}

@@ -80,8 +80,8 @@ const description =
   q.view === 'week'
     ? `This week's ${subject ? `${subject} ` : ''}volleyball games at Tempe Volleyball: times, courts and duty teams for every league.`
     : `Upcoming ${subject ? `${subject} ` : ''}volleyball games at Tempe Volleyball: dates, times, courts and duty teams.`
-const linkClass = 'text-link decoration-accent font-semibold underline decoration-2 underline-offset-2'
-const select = 'border-ink/30 block w-full border bg-white px-3 py-2'
+const linkClass = 'link'
+const select = 'border-ink/30 hover:border-ink/50 focus:border-brand block min-h-11 w-full rounded-lg border bg-white px-3 py-2'
 const feedLeague = teamHit?.view ?? leagueView
 const feed = (path: string) => ({ webcal: webcalUrl(new URL(path, Astro.url)), https: path })
 const calendar = feedLeague
@@ -102,7 +102,7 @@ cachePublic(Astro.cache, tags.page(FIXTURE_LIST_ROUTE), ...seasons.map((c) => ta
   <Breadcrumbs items={[{ label: 'Leagues', href: '/leagues' }, { label: 'Fixtures' }]} />
   <h1 class="page-title">{heading}</h1>
 
-  <form method="get" action={FIXTURE_LIST_ROUTE} class="mb-10 grid gap-4 bg-white/60 p-4 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end">
+  <form method="get" action={FIXTURE_LIST_ROUTE} class="card mb-8 grid gap-4 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end">
     <div>
       <label for="fx-view" class="mb-1 block text-sm font-semibold">
         Show
@@ -148,7 +148,7 @@ cachePublic(Astro.cache, tags.page(FIXTURE_LIST_ROUTE), ...seasons.map((c) => ta
         ))}
       </select>
     </div>
-    <button type="submit" class="bg-brand hover:bg-brand-dark px-5 py-2 font-semibold text-white">
+    <button type="submit" class="btn btn-brand">
       Show games
     </button>
   </form>
@@ -166,7 +166,7 @@ cachePublic(Astro.cache, tags.page(FIXTURE_LIST_ROUTE), ...seasons.map((c) => ta
           Subscribe in your calendar
         </a>
         {' · '}
-        <a class="underline underline-offset-2" href={calendar.https}>
+        <a class="text-muted underline underline-offset-2" href={calendar.https}>
           .ics file
         </a>
       </span>
@@ -179,8 +179,8 @@ cachePublic(Astro.cache, tags.page(FIXTURE_LIST_ROUTE), ...seasons.map((c) => ta
   </p>
 
   {dates.length === 0 ? (
-    <div class="space-y-2">
-      <p class="text-lg font-semibold">{q.view === 'week' ? 'No games this week.' : 'No more games are scheduled.'}</p>
+    <div class="empty max-w-2xl">
+      <p>{q.view === 'week' ? 'No games this week.' : 'No more games are scheduled.'}</p>
       {nextDate && (
         <p>
           The next games are on {formatDateLong(nextDate)}.{' '}
@@ -193,12 +193,12 @@ cachePublic(Astro.cache, tags.page(FIXTURE_LIST_ROUTE), ...seasons.map((c) => ta
   ) : (
     dates.map((date) => (
       <section aria-labelledby={`d-${date}`} class="mb-12">
-        <h2 id={`d-${date}`} class="mb-4 text-2xl font-bold sm:text-3xl">
+        <h2 id={`d-${date}`} class="section-title">
           {formatDateLong(date)}
         </h2>
         <div class="space-y-6">
           {(byDate.get(date) ?? []).map((b) => (
-            <FixturesTable rows={b.rows} caption={b.view.league.name} showDuty={b.view.data.season.dutyEnabled} />
+            <FixturesTable rows={b.rows} caption={b.view.league.name} showDuty={b.view.data.season.dutyEnabled} showDate={false} />
           ))}
         </div>
       </section>

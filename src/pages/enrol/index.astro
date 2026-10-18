@@ -5,6 +5,7 @@
 // Admin → Pages and its body shows above the list (its title becomes the H1). The old year-stamped enrolment pages
 // 301 here once the content map archives them (src/lib/wp-import/routes.ts ENROL_REDIRECTS).
 import PageBody from '../../components/PageBody.astro'
+import Breadcrumbs from '../../components/programmes/Breadcrumbs.astro'
 import ProgrammeCards from '../../components/programmes/ProgrammeCards.astro'
 import BaseLayout from '../../layouts/BaseLayout.astro'
 import { documentTitle, metaDescription } from '../../lib/content'
@@ -42,48 +43,54 @@ const generated =
   canonicalPath="/enrol"
 >
   <PageBody title={title} html={body?.html ?? ''} titles={found.titles}>
+    <Breadcrumbs slot="before" items={[{ label: title }]} />
     {!page && (
-      <p class="mb-8 max-w-3xl">
+      <p class="page-lead mb-10">
         Pick a league, training session or program below and fill in its form. Full sessions and seasons take a waitlist, and we'll email
         you if a spot comes up.
       </p>
     )}
-    {groups.length > 0 ? (
-      groups.map((g) => (
-        <section aria-labelledby={`enrol-${g.category?.slug ?? 'other'}`} class="mb-12">
-          <h2 id={`enrol-${g.category?.slug ?? 'other'}`} class="mb-4 text-2xl font-bold sm:text-3xl">
-            {g.category ? (
-              <a class="hover:underline" href={`/${g.category.slug}`}>
-                {g.category.name}
-              </a>
-            ) : (
-              'More'
-            )}
-          </h2>
-          <ProgrammeCards cards={g.cards} headingLevel={3} showTargets />
-        </section>
-      ))
-    ) : (
-      <p class="mb-8 text-lg font-semibold">Nothing is open for enrolment right now. Here's what runs and when it starts next.</p>
-    )}
-    {later.length > 0 && (
-      <section aria-labelledby="enrol-later" class="mt-4">
-        <h2 id="enrol-later" class="mb-4 text-2xl font-bold sm:text-3xl">
-          {groups.length > 0 ? 'Not open yet' : 'Our programmes'}
-        </h2>
-        <ul class="space-y-2">
-          {later.flatMap((g) =>
-            g.cards.map((c) => (
-              <li>
-                <a class="text-link decoration-accent font-semibold underline decoration-2 underline-offset-2" href={c.path}>
-                  {c.name}
+    <div class:list={[page && 'mt-10']}>
+      {groups.length > 0 ? (
+        groups.map((g) => (
+          <section aria-labelledby={`enrol-${g.category?.slug ?? 'other'}`} class="mb-12">
+            <h2 id={`enrol-${g.category?.slug ?? 'other'}`} class="section-title">
+              {g.category ? (
+                <a class="hover:text-link hover:underline" href={`/${g.category.slug}`}>
+                  {g.category.name}
                 </a>
-                {c.nextStarts ? ` – ${c.nextStarts}` : c.schedule ? ` – ${c.schedule}` : ''}
-              </li>
-            )),
-          )}
-        </ul>
-      </section>
-    )}
+              ) : (
+                'More'
+              )}
+            </h2>
+            <ProgrammeCards cards={g.cards} headingLevel={3} showTargets />
+          </section>
+        ))
+      ) : (
+        <div class="empty mb-10 max-w-2xl">
+          <p>Nothing is open for enrolment right now.</p>
+          <p>Here's what runs and when each starts next.</p>
+        </div>
+      )}
+      {later.length > 0 && (
+        <section aria-labelledby="enrol-later" class="mt-4">
+          <h2 id="enrol-later" class="section-title">
+            {groups.length > 0 ? 'Not open yet' : 'Our programs'}
+          </h2>
+          <ul class="card divide-line divide-y p-0 sm:p-0">
+            {later.flatMap((g) =>
+              g.cards.map((c) => (
+                <li class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-5 py-3.5">
+                  <a class="link" href={c.path}>
+                    {c.name}
+                  </a>
+                  <span class="text-muted text-sm">{c.nextStarts || c.schedule}</span>
+                </li>
+              )),
+            )}
+          </ul>
+        </section>
+      )}
+    </div>
   </PageBody>
 </BaseLayout>

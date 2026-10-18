@@ -17,7 +17,7 @@ const candidates: Candidate[] = [
   ...[...(titles ?? new Map<string, string>())].map(([path, title]) => ({ path, title: prettyTitle(title) })),
 ]
 const suggestions = suggestPages(Astro.url.pathname, candidates)
-const linkClass = 'text-link decoration-accent underline decoration-2 underline-offset-2'
+const linkClass = 'link'
 ---
 
 <h1 class="page-title">Page not found</h1>
@@ -26,7 +26,7 @@ const linkClass = 'text-link decoration-accent underline decoration-2 underline-
 </div>
 {suggestions.length > 0 && (
   <section aria-labelledby="nf-suggestions" class="mt-6">
-    <h2 id="nf-suggestions" class="mb-3 text-2xl font-bold">
+    <h2 id="nf-suggestions" class="section-title">
       Were you looking for…
     </h2>
     <ul class="list-disc space-y-1 pl-6">
@@ -42,7 +42,7 @@ const linkClass = 'text-link decoration-accent underline decoration-2 underline-
 )}
 <SearchForm value={pathWords(Astro.url.pathname).join(' ')} id="nf-search" />
 <section aria-labelledby="nf-links" class="mt-6">
-  <h2 id="nf-links" class="mb-3 text-2xl font-bold">
+  <h2 id="nf-links" class="section-title">
     Popular pages
   </h2>
   <ul class="list-disc space-y-1 pl-6">

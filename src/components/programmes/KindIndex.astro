@@ -3,6 +3,7 @@ import BaseLayout from '../../layouts/BaseLayout.astro'
 import { metaDescription, documentTitle } from '../../lib/content'
 import { KIND_INDEX, type KindIndexRoute } from '../../server/programmes/route'
 import PageBody from '../PageBody.astro'
+import Breadcrumbs from './Breadcrumbs.astro'
 import ProgrammeCards from './ProgrammeCards.astro'
 
 // /training, /programs and /events (docs/admin.md §3.13): the active programmes of one kind, grouped by category,
@@ -14,7 +15,6 @@ const words = KIND_INDEX[kind]
 const title = intro?.title ?? words.title
 const names = groups.flatMap((g) => g.cards.map((c) => c.name))
 const generated = names.length > 0 ? `${words.description} ${names.join(', ')}.` : words.description
-const linkClass = 'text-link decoration-accent font-semibold underline decoration-2 underline-offset-2'
 ---
 
 <BaseLayout
@@ -24,39 +24,41 @@ const linkClass = 'text-link decoration-accent font-semibold underline decoratio
   canonicalPath={path}
 >
   <PageBody title={title} html={intro?.html ?? ''} titles={titles}>
-    {!intro && <p class="mb-8 max-w-3xl">{words.intro}</p>}
-    {groups.length > 0 ? (
-      groups.map((g) =>
-        groups.length === 1 && !g.category ? (
-          <ProgrammeCards cards={g.cards} />
-        ) : (
-          <section aria-labelledby={`kind-${g.category?.slug ?? 'other'}`} class="mb-12">
-            <h2 id={`kind-${g.category?.slug ?? 'other'}`} class="mb-4 text-2xl font-bold sm:text-3xl">
-              {g.category ? (
-                <a class="hover:underline" href={`/${g.category.slug}`}>
-                  {g.category.name}
-                </a>
-              ) : (
-                'More'
-              )}
-            </h2>
-            <ProgrammeCards cards={g.cards} headingLevel={3} showTargets />
-          </section>
-        ),
-      )
-    ) : (
-      <>
-        <p class="mb-2 text-lg font-semibold">{words.empty}</p>
-        <p class="mb-8">
-          <a class={linkClass} href="/enrol">
-            See what’s open for enrolment
-          </a>
-          {' · '}
-          <a class={linkClass} href="/leagues">
-            Our leagues
-          </a>
-        </p>
-      </>
-    )}
+    <Breadcrumbs slot="before" items={[{ label: title }]} />
+    {!intro && <p class="page-lead mb-10">{words.intro}</p>}
+    <div class:list={[intro && 'mt-10']}>
+      {groups.length > 0 ? (
+        groups.map((g) =>
+          groups.length === 1 && !g.category ? (
+            <ProgrammeCards cards={g.cards} showTargets />
+          ) : (
+            <section aria-labelledby={`kind-${g.category?.slug ?? 'other'}`} class="mb-12">
+              <h2 id={`kind-${g.category?.slug ?? 'other'}`} class="section-title">
+                {g.category ? (
+                  <a class="hover:text-link hover:underline" href={`/${g.category.slug}`}>
+                    {g.category.name}
+                  </a>
+                ) : (
+                  'More'
+                )}
+              </h2>
+              <ProgrammeCards cards={g.cards} headingLevel={3} showTargets />
+            </section>
+          ),
+        )
+      ) : (
+        <div class="empty max-w-2xl">
+          <p>{words.empty}</p>
+          <p class="flex flex-wrap gap-x-6 gap-y-2">
+            <a class="link" href="/enrol">
+              See what's open for enrolment
+            </a>
+            <a class="link" href="/leagues">
+              Our leagues
+            </a>
+          </p>
+        </div>
+      )}
+    </div>
   </PageBody>
 </BaseLayout>

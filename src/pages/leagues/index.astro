@@ -1,9 +1,11 @@
 ---
 // The league index: each league's night, place and current season, with links to its ladder and fixtures.
+import Breadcrumbs from '../../components/programmes/Breadcrumbs.astro'
 import BaseLayout from '../../layouts/BaseLayout.astro'
 import { documentTitle } from '../../lib/content'
 import { FIXTURE_LIST_ROUTE } from '../../lib/fixture-lists'
-import { leagueFixturesRoute, leagueLadderRoute } from '../../lib/wp-import/routes'
+import { scheduleText } from '../../lib/programme-text'
+import { leagueFixturesRoute, leagueLadderRoute, leagueRoute } from '../../lib/wp-import/routes'
 import { cachePublic, tags } from '../../server/cache'
 import { publicDb, publicSite } from '../../server/public'
 
@@ -19,35 +21,44 @@ const venueName = (id: string | null) => site.venues.find((v) => v.id === id)?.n
   site={site}
   sidebar
 >
+  <Breadcrumbs items={[{ label: 'Leagues' }]} />
   <h1 class="page-title">Leagues</h1>
-  <p class="mb-8">
-    <a class="text-link decoration-accent font-semibold underline decoration-2 underline-offset-2" href={FIXTURE_LIST_ROUTE}>
+  <p class="page-lead mb-8">
+    Ladders, fixtures and results for every league this season.{' '}
+    <a class="link" href={FIXTURE_LIST_ROUTE}>
       This week's games in every league
     </a>
   </p>
-  <ul class="space-y-6">
+  <ul class="grid gap-4 sm:grid-cols-2">
     {site.leagues
       .filter((l) => l.status === 'active')
       .map((l) => {
         const c = site.current.find((x) => x.league.id === l.id)
         const venue = venueName(l.defaultVenueId)
         return (
-          <li class="bg-white/60 p-5">
-            <h2 class="text-2xl font-bold">{l.name}</h2>
-            <p class="mt-1">
-              {DAYS[l.weekday]}
-              {venue ? ` at ${venue}` : ''}
-              {c ? ` · ${c.summary.name}` : ''}
-            </p>
+          <li class="card flex flex-col">
+            <h2 class="font-display text-xl leading-snug font-bold">
+              <a class="text-ink hover:text-link hover:underline" href={leagueRoute(l.slug)}>
+                {l.name}
+              </a>
+            </h2>
+            <p class="text-muted mt-1">{[scheduleText(l) || DAYS[l.weekday], venue].filter(Boolean).join(', ')}</p>
             {c && (
-              <p class="mt-3 flex flex-wrap gap-4">
-                <a class="bg-brand hover:bg-brand-dark px-3 py-2 text-white" href={leagueLadderRoute(l.slug)}>
+              <p class="mt-3">
+                <span class="badge badge-info">{c.summary.name}</span>
+              </p>
+            )}
+            {c ? (
+              <p class="mt-auto flex flex-wrap gap-2 pt-5">
+                <a class="btn btn-brand btn-sm" href={leagueFixturesRoute(l.slug)}>
+                  {l.code} fixtures<span class="sr-only"> and results</span>
+                </a>
+                <a class="btn btn-outline btn-sm" href={leagueLadderRoute(l.slug)}>
                   {l.code} ladder
                 </a>
-                <a class="bg-brand hover:bg-brand-dark px-3 py-2 text-white" href={leagueFixturesRoute(l.slug)}>
-                  {l.code} fixtures and results
-                </a>
               </p>
+            ) : (
+              <p class="text-muted mt-auto pt-5 text-sm">No season published yet.</p>
             )}
           </li>
         )

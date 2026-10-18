@@ -39,7 +39,7 @@ else Astro.response.status = 404
 const categoryDescription = category
   ? metaDescription(category.category.seoDescription, {
       bodyHtml: category.category.intro?.html ?? '',
-      fallback: `${category.category.name} at Tempe Volleyball: ${category.cards.map((c) => c.name).join(', ') || 'programmes in Sydney'}.`,
+      fallback: `${category.category.name} at Tempe Volleyball: ${category.cards.map((c) => c.name).join(', ') || 'programs in Sydney'}.`,
     })
   : ''
 ---

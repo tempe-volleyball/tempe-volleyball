@@ -165,6 +165,35 @@ describe('settings', () => {
     expect(announcementActive(res.value, new Date('2026-10-19T12:00:00Z'))).toBe(true)
     expect(announcementActive(res.value, new Date('2026-10-19T14:00:00Z'))).toBe(false)
   })
+  it('home, ladders and footer', () => {
+    // The defaults pass their own checks, so a saved default reads back unchanged.
+    for (const k of ['home', 'ladders', 'footer'] as const)
+      expect(checkSetting(k, DEFAULT_SETTINGS[k])).toEqual({ ok: true, value: DEFAULT_SETTINGS[k] })
+    const home = checkSetting('home', { heading: ' Play volleyball ', intro: '', primary: { label: 'Join', url: '/enrol' }, secondary: {} })
+    expect(home.ok && home.value).toEqual({
+      heading: 'Play volleyball',
+      intro: '',
+      primary: { label: 'Join', url: '/enrol' },
+      secondary: { label: '', url: '' },
+      showLeagues: true,
+    })
+    expect(checkSetting('home', { primary: { label: 'Join', url: '' } }).ok).toBe(false)
+    expect(checkSetting('home', { primary: { label: 'Join', url: 'javascript:alert(1)' } }).ok).toBe(false)
+    expect(checkSetting('ladders', { placement: 'footer', rows: 6 })).toEqual({ ok: true, value: { placement: 'footer', rows: 6 } })
+    expect(checkSetting('ladders', { placement: 'nowhere' })).toEqual({ ok: true, value: { placement: 'sidebar', rows: 4 } })
+    expect(checkSetting('ladders', { rows: 40 }).ok).toBe(false)
+    // Rows left empty in the editor are dropped; half-filled ones are an error.
+    const footer = checkSetting('footer', {
+      blurb: 'Hi',
+      links: [
+        { label: 'News', url: '/news' },
+        { label: '', url: '' },
+      ],
+    })
+    expect(footer.ok && footer.value.links).toEqual([{ label: 'News', url: '/news' }])
+    expect(checkSetting('footer', { links: [{ label: 'News' }] }).ok).toBe(false)
+    expect(checkSetting('footer', { links: Array.from({ length: 17 }, () => ({ label: 'x', url: '/x' })) }).ok).toBe(false)
+  })
   it('readSettings falls back to defaults for missing or bad rows', () => {
     const s = readSettings([
       { key: 'contact', value: { name: 'M', phone: '', email: 'm@x.com' } },

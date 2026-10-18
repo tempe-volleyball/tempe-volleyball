@@ -1,4 +1,5 @@
 ---
+import Breadcrumbs from '../../components/programmes/Breadcrumbs.astro'
 import BaseLayout from '../../layouts/BaseLayout.astro'
 import { documentTitle, formatPostDate } from '../../lib/content'
 import { postRoute } from '../../lib/wp-import/routes'
@@ -17,19 +18,34 @@ cachePublic(Astro.cache, tags.news)
   site={site}
   sidebar
 >
+  <Breadcrumbs items={[{ label: 'News' }]} />
   <h1 class="page-title">News</h1>
-  {posts.length === 0 && <p>No news yet.</p>}
-  <ul class="space-y-8">
-    {posts.map((p) => (
-      <li>
-        <h2 class="text-2xl leading-tight font-bold">
-          <a class="hover:text-link hover:decoration-accent hover:underline" href={postRoute(p.slug)}>
-            {p.title}
-          </a>
-        </h2>
-        {p.publishedAt && <p class="mt-1 text-sm text-neutral-700">{formatPostDate(p.publishedAt)}</p>}
-        {p.excerpt && <p class="mt-2">{p.excerpt}</p>}
-      </li>
-    ))}
-  </ul>
+  {posts.length === 0 ? (
+    <div class="empty max-w-2xl">
+      <p>No news yet.</p>
+      <p>
+        <a class="link" href="/leagues">
+          See this season's ladders and fixtures
+        </a>
+      </p>
+    </div>
+  ) : (
+    <ul class="space-y-4">
+      {posts.map((p) => (
+        <li class="card">
+          {p.publishedAt && (
+            <p class="text-muted mb-1 text-sm font-semibold">
+              <time datetime={p.publishedAt}>{formatPostDate(p.publishedAt)}</time>
+            </p>
+          )}
+          <h2 class="font-display text-xl leading-snug font-bold sm:text-2xl">
+            <a class="text-ink hover:text-link hover:underline" href={postRoute(p.slug)}>
+              {p.title}
+            </a>
+          </h2>
+          {p.excerpt && <p class="text-muted mt-2 max-w-[70ch]">{p.excerpt}</p>}
+        </li>
+      ))}
+    </ul>
+  )}
 </BaseLayout>

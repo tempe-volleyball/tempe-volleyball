@@ -49,7 +49,34 @@ export type ProgrammeCard = {
   targets: CardTarget[]
 }
 
-export type CardTarget = { label: string; startsOn: string | null; spots: string }
+export type CardTarget = {
+  label: string
+  startsOn: string | null
+  /** spotsText(): "12 spots left", "Waitlist only", "Full" or '' (no cap). */
+  spots: string
+  /** For the spots-left meter: open, only the waitlist, or full (no waitlist). */
+  state: 'open' | 'waitlist' | 'full'
+  /** How many places are left of how many (team places when teams are capped, else players); null with no cap. */
+  meter: { left: number; cap: number } | null
+}
+
+/** The spots-left meter's numbers and state for a target (the same rules as spotsText). */
+export function spotsMeter(
+  t: Pick<TargetSummary, 'caps' | 'counts'> & { waitlistEnabled?: boolean },
+  waitlist = t.waitlistEnabled ?? true,
+): Pick<CardTarget, 'state' | 'meter'> {
+  const players = t.caps.players === null ? null : Math.max(0, t.caps.players - t.counts.players)
+  const teams = t.caps.teams === null ? null : Math.max(0, t.caps.teams - t.counts.teams)
+  const waiting = t.counts.waitlist > 0 || t.counts.teamsWaitlist > 0
+  const state = players === 0 || teams === 0 || waiting ? (waitlist ? 'waitlist' : 'full') : 'open'
+  const meter =
+    teams !== null && t.caps.teams
+      ? { left: state === 'open' ? teams : 0, cap: t.caps.teams }
+      : players !== null && t.caps.players
+        ? { left: state === 'open' ? players : 0, cap: t.caps.players }
+        : null
+  return { state, meter }
+}
 
 /**
  * "12 spots left", "3 team spots left", "Waitlist only", "Full" or '' (no cap), from a target's caps and live counts.
@@ -101,7 +128,12 @@ export function programmeCard(
     venue: venueText(venue),
     nextStarts: nextStartsLine(p, nextDate),
     enrolmentOpen: !!open && open.targets.length > 0,
-    targets: (open?.targets ?? []).map((t) => ({ label: t.label, startsOn: t.startsOn, spots: spotsText(t, t.waitlistEnabled) })),
+    targets: (open?.targets ?? []).map((t) => ({
+      label: t.label,
+      startsOn: t.startsOn,
+      spots: spotsText(t, t.waitlistEnabled),
+      ...spotsMeter(t, t.waitlistEnabled),
+    })),
   }
 }
 

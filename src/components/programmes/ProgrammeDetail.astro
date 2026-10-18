@@ -90,44 +90,43 @@ const details = (i: ProgrammeInstance) =>
       .filter((s) => s.upcoming || s.list.length > 0)
       .map((s) => (
         <section aria-labelledby={`${s.id}-heading`} class="mt-12">
-          <h2 id={`${s.id}-heading`} class="mb-4 text-2xl font-bold sm:text-3xl">
+          <h2 id={`${s.id}-heading`} class="section-title">
             {s.heading}
           </h2>
           {s.list.length === 0 ? (
-            <p>{nextStarts ? `No dates are listed yet. ${nextStarts}.` : 'No dates are listed yet. Check back soon.'}</p>
-          ) : (
-            <div class="table-scroll" tabindex="0" role="region" aria-label={s.heading}>
-              <table class="data-table">
-                <caption>{`${p.name}: ${s.heading.toLowerCase()}`}</caption>
-                <thead>
-                  <tr>
-                    <th scope="col">Date</th>
-                    <th scope="col">Time</th>
-                    {showWhere && <th scope="col">Where</th>}
-                    <th scope="col">Details</th>
-                    {s.upcoming && enrolmentOpen && <th scope="col">Spots</th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {s.list.map((i) => {
-                    const target = targets.get(`${i.kind}:${i.id}`)
-                    const status = STATUS[i.status]
-                    return (
-                      <tr>
-                        <td class="whitespace-nowrap">
-                          {when(i)}
-                          {status && <strong class="block text-xs uppercase">{status}</strong>}
-                        </td>
-                        <td class="whitespace-nowrap">{times(i)}</td>
-                        {showWhere && <td>{venueText(venueOf(i.venueId))}</td>}
-                        <td>{details(i)}</td>
-                        {s.upcoming && enrolmentOpen && <td class="whitespace-nowrap">{target ? publicTargetSpots(target) : '–'}</td>}
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
+            <div class="empty max-w-2xl">
+              <p>No dates are listed yet.</p>
+              <p>{nextStarts ? `${nextStarts}.` : 'Check back soon.'}</p>
             </div>
+          ) : (
+            <ul class="card divide-line max-w-3xl divide-y p-0 sm:p-0">
+              {s.list.map((i) => {
+                const target = targets.get(`${i.kind}:${i.id}`)
+                const status = STATUS[i.status]
+                const spots = s.upcoming && enrolmentOpen && target ? publicTargetSpots(target) : ''
+                const where = showWhere ? venueText(venueOf(i.venueId)) : ''
+                const more = details(i)
+                return (
+                  <li class="flex flex-wrap items-start justify-between gap-x-6 gap-y-2 px-5 py-4">
+                    <div class="min-w-0">
+                      <p class="font-display text-lg leading-snug font-bold">{when(i)}</p>
+                      <p class="text-muted text-sm">{[times(i), where].filter(Boolean).join(', ')}</p>
+                      {more && <p class="mt-1 text-sm">{more}</p>}
+                    </div>
+                    {(status || spots) && (
+                      <p class="flex flex-wrap gap-2">
+                        {status && <span class={`badge ${i.status === 'cancelled' ? 'badge-full' : 'badge-info'}`}>{status}</span>}
+                        {spots && (
+                          <span class={`badge ${target?.full ? 'badge-full' : target?.waitlistOnly ? 'badge-info' : 'badge-ok'}`}>
+                            {spots}
+                          </span>
+                        )}
+                      </p>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
           )}
         </section>
       ))}

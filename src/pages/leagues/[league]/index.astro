@@ -109,16 +109,21 @@ if (league && page)
           noun="league"
           hasHistory={archive.length > 0}
         />
-        {league.status === 'active' && <p class="mt-6">No season has been published for this league yet.</p>}
+        {league.status === 'active' && (
+          <div class="empty mt-8 max-w-2xl">
+            <p>No season has been published for this league yet.</p>
+            <p>The fixtures and ladder appear here as soon as the draw is out.</p>
+          </div>
+        )}
         {archive.length > 0 && (
           <section aria-labelledby="seasons-heading" class="mt-10">
-            <h2 id="seasons-heading" class="mb-4 text-2xl font-bold">
+            <h2 id="seasons-heading" class="section-title">
               {league.code} seasons
             </h2>
-            <ul class="flex flex-wrap gap-3">
+            <ul class="flex flex-wrap gap-2">
               {archive.map((s) => (
                 <li>
-                  <a href={seasonRoute(league.slug, s.slug)} class="bg-brand hover:bg-brand-dark inline-block px-3 py-2 text-white">
+                  <a href={seasonRoute(league.slug, s.slug)} class="btn btn-outline btn-sm">
                     {s.name}
                   </a>
                 </li>

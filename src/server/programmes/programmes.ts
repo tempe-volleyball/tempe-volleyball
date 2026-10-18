@@ -88,8 +88,8 @@ export const PROGRAMME_LIMITS = {
 
 export const KIND_LABEL: Record<ProgrammeKind, string> = {
   league: 'league',
-  training: 'training programme',
-  development: 'development programme',
+  training: 'training program',
+  development: 'development program',
   event: 'event',
 }
 

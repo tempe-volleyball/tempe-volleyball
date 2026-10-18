@@ -1,6 +1,7 @@
 ---
 import NotFound from '../../components/NotFound.astro'
 import PageBody from '../../components/PageBody.astro'
+import Breadcrumbs from '../../components/programmes/Breadcrumbs.astro'
 import BaseLayout from '../../layouts/BaseLayout.astro'
 import { DEFAULT_DESCRIPTION, documentTitle, formatPostDate, metaDescription } from '../../lib/content'
 import { breadcrumbLd, newsArticleLd } from '../../lib/seo/jsonld'
@@ -60,13 +61,14 @@ const seo = post
     seo={seo}
   >
     <PageBody title={post.title} html={post.body.html} titles={titles}>
+      <Breadcrumbs slot="before" items={[{ label: 'News', href: '/news' }, { label: post.title }]} />
       {post.publishedAt && (
-        <p slot="meta" class="-mt-4 mb-6 text-sm text-neutral-700">
+        <p slot="meta" class="text-muted -mt-3 mb-6 text-sm font-semibold">
           <time datetime={post.publishedAt}>{formatPostDate(post.publishedAt)}</time>
         </p>
       )}
-      <p class="mt-10">
-        <a class="text-link decoration-accent font-semibold underline decoration-2 underline-offset-2" href="/news">
+      <p class="mt-12">
+        <a class="btn btn-outline btn-sm" href="/news">
           All news
         </a>
       </p>

@@ -42,7 +42,7 @@ export type IndexKind = Exclude<ProgrammeKind, 'league'>
 export const KIND_INDEX: Record<IndexKind, { title: string; intro: string; empty: string; description: string }> = {
   training: {
     title: 'Training',
-    intro: 'Coached and casual volleyball training. Pick a programme for its sessions, times and how to enrol.',
+    intro: 'Coached and casual volleyball training. Pick a program for its sessions, times and how to enrol.',
     empty: 'No training is running right now.',
     description: 'Volleyball training at Tempe Volleyball in Sydney: coached and casual sessions, with dates, times and enrolment.',
   },

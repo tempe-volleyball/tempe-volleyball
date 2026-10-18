@@ -198,9 +198,9 @@ describe('data blocks on pages', () => {
     expect(html).not.toContain('Scrim')
     // Ladder: one row; fixtures: this week's (15 Oct) game only.
     expect(html).toContain('<h2>Thursday Night League Ladder</h2>')
-    expect(html.match(/<th scope="row" class="team">/g)).toHaveLength(1)
-    expect(html).toContain('15/10/2026')
-    expect(html).not.toContain('08/10/2026')
+    expect(html.match(/<th scope="row" class="lt-team team">/g)).toHaveLength(1)
+    expect(html).toContain('Thursday 15 October 2026')
+    expect(html).not.toContain('8 October 2026')
     expect(html.startsWith('<p>Our leagues:</p>')).toBe(true)
     expect(body.tags.toSorted()).toEqual(['league:tnl', 'programmes', 'venues'])
   })
