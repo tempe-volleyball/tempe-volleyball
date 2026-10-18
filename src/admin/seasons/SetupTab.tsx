@@ -195,7 +195,12 @@ export function SetupTab({
           </div>
         </Card>
 
-        <LadderRulesCard settings={s} set={set} />
+        <LadderRulesCard
+          settings={s}
+          setsPerMatch={draft.setsPerMatch}
+          imported={view.adjustments.some((a) => a.reason === 'wp-import reconciliation')}
+          set={set}
+        />
 
         <Card title="Game night">
           <p className="-mt-2 mb-4 text-sm text-black/60">Session times × courts = the game slots each night.</p>

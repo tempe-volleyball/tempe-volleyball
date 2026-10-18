@@ -2,6 +2,7 @@ import {
   byesForWeek,
   completeResult,
   courtName,
+  formatAU,
   formatRatio,
   isTeam,
   makeResolver,
@@ -58,6 +59,8 @@ export const toResult = (r: MatchResult | undefined): Result | undefined =>
         homePoints: r.homePoints,
         awayPoints: r.awayPoints,
         ...(r.setScores && r.setScores.length > 0 ? { sets: r.setScores } : {}),
+        ...(r.outcome ? { outcome: r.outcome } : {}),
+        ...(r.outcome && r.note ? { note: r.note } : {}),
       }
     : undefined
 
@@ -84,6 +87,8 @@ export function toCompetition(d: SeasonData): SeasonCompetition {
     seed: s.settings.seed ?? 0,
     ...(s.settings.tieBreaks ? { tieBreaks: s.settings.tieBreaks } : {}),
     ...(s.settings.withdrawn ? { withdrawn: s.settings.withdrawn } : {}),
+    ...(s.settings.levelSets ? { levelSets: s.settings.levelSets } : {}),
+    ...(s.settings.forfeit ? { forfeit: s.settings.forfeit } : {}),
   }
 
   const results = new Map(d.results.map((r) => [`${r.matchId}:${r.kind}`, r]))
@@ -125,6 +130,8 @@ export function toCompetition(d: SeasonData): SeasonCompetition {
           publishedResult: toResult(results.get(`${m.id}:published`)),
           ...(m.status !== 'scheduled' ? { status: m.status } : {}),
           ...(m.statusNote ? { statusNote: m.statusNote } : {}),
+          ...(m.referee ? { referee: m.referee } : {}),
+          ...(m.originalMatchDayId && m.originalMatchDayId !== m.matchDayId ? { originalWeekId: m.originalMatchDayId } : {}),
         })),
       }
       if (day.note) week.note = day.note
@@ -163,20 +170,30 @@ export type FixtureRow = {
   time: string
   /** "HOME vs AWAY", "SEMI FINAL 1 - (2ND) vs (3RD)", "BYE - TEAM" or a skipped week's note. */
   match: string
-  /** "2 - 0" once published, "Cancelled" / "Postponed" / "TBD" for games that are off, '-' for byes, '' before. */
+  /**
+   * "2 - 0" once published ("W - L", "L - W" or "Draw" for an outcome decided by hand with no sets), "Cancelled" /
+   * "Postponed" / "TBD" for games that are off, "Moved" on the night a moved game left, '-' for byes, '' before.
+   */
   result: string
+  /** Why the outcome was decided by hand, as shown under the result ("Aces awarded the win: Blockers short of players"), or ''. */
+  resultNote: string
+  /** matches.referee, or ''. */
+  referee: string
   /** Set scores, "25-21, 19-25", when recorded. */
   sets: string
   court: string
   duty: string
-  kind: 'game' | 'bye' | 'skip'
+  /** `moved`: a game moved from this night to another on its own, listed where it was ("moved to …"). Not an event. */
+  kind: 'game' | 'bye' | 'skip' | 'moved'
   forfeit: boolean
   /** matches.status for games ('scheduled' for byes and weeks off). */
   status: Match['status']
   /** A public reason for the status ("Venue unavailable"), or ''. */
   note: string
-  /** The date the night was first scheduled for, when it has moved; ''. */
+  /** The date the night (or this game, moved on its own) was first scheduled for, when it has moved; ''. */
   movedFrom: string
+  /** `moved` rows: the date the game moved to; ''. */
+  movedTo: string
   /** Resolved team ids (null for an unresolved finals placeholder, or none): for team filters and team calendars. */
   teamIds: { home: string | null; away: string | null; duty: string | null }
   /** The match as written for people rather than tables: "Hit For Brains vs Ice Cold", "Semi Final 1: (2nd) vs (3rd)". */
@@ -208,7 +225,37 @@ export function fixtureRows(c: SeasonCompetition, matches: Pick<Match, 'id' | 's
     return t && isTeam(t) ? t.team : null
   }
   const rows: FixtureRow[] = []
-  const base = { sets: '', court: '', duty: '', forfeit: false, status: 'scheduled' as const, note: '', teamIds: noTeams }
+  const base = {
+    sets: '',
+    court: '',
+    duty: '',
+    forfeit: false,
+    status: 'scheduled' as const,
+    note: '',
+    teamIds: noTeams,
+    resultNote: '',
+    referee: '',
+    movedTo: '',
+  }
+  const weekById = new Map(weeks.map((w) => [w.id, w]))
+  // Games moved on their own, listed again on the night they left.
+  const movedOut = new Map<string, { g: Game; to: Week }[]>()
+  for (const to of weeks)
+    for (const g of to.games)
+      if (g.originalWeekId && weekById.has(g.originalWeekId))
+        movedOut.set(g.originalWeekId, [...(movedOut.get(g.originalWeekId) ?? []), { g, to }])
+  const decidedText = (g: Game) => {
+    const p = g.publishedResult
+    if (!p?.outcome || !p.note || (p.note === 'Forfeit' && g.status === 'forfeit')) return ''
+    if (p.outcome === 'draw') return `Declared a draw: ${p.note}`
+    return `${plain(p.outcome === 'home' ? g.home : g.away)} awarded the win: ${p.note}`
+  }
+  const resultText = (g: Game, r: ReturnType<typeof completeResult>) => {
+    if (!r) return ''
+    const o = g.publishedResult?.outcome
+    if (o && r.home + r.away === 0) return o === 'draw' ? 'Draw' : o === 'home' ? 'W - L' : 'L - W'
+    return `${r.home} - ${r.away}`
+  }
   for (const w of weeks) {
     const movedFrom = w.originalDate && w.originalDate !== w.date ? w.originalDate : ''
     if (w.kind === 'skip') {
@@ -229,7 +276,7 @@ export function fixtureRows(c: SeasonCompetition, matches: Pick<Match, 'id' | 's
     const games = w.games
       .map((g) => ({ g, time: byId.get(g.id)?.startTime ?? s.sessions[g.session] ?? '' }))
       .toSorted((a, b) => a.time.localeCompare(b.time) || a.g.session - b.g.session || a.g.court - b.g.court)
-    const byes: { teamId: string; note: string }[] = byesForWeek(s, w).map((teamId) => ({ teamId, note: '' }))
+    const byes: { teamId: string; note: string }[] = byesForWeek(s, w, weeks).map((teamId) => ({ teamId, note: '' }))
     for (const { g, time } of games) {
       const status = g.status ?? byId.get(g.id)?.status ?? 'scheduled'
       const out = [g.home, g.away].filter(isTeam).find((r) => withdrawn.has(r.team))
@@ -251,7 +298,9 @@ export function fixtureRows(c: SeasonCompetition, matches: Pick<Match, 'id' | 's
         match: g.title ? `${g.title.toUpperCase()} - ${vs}` : vs,
         label: g.title ? `${g.title}: ${plainVs}` : plainVs,
         teamIds: { home: resolvedTeam(g.home), away: resolvedTeam(g.away), duty: resolvedTeam(g.duty) },
-        result: r ? `${r.home} - ${r.away}` : (OFF_RESULT[status] ?? ''),
+        result: r ? resultText(g, r) : (OFF_RESULT[status] ?? ''),
+        resultNote: r ? decidedText(g) : '',
+        referee: g.referee ?? '',
         sets: (g.publishedResult?.sets ?? []).map(([h, a]) => `${h}-${a}`).join(', '),
         court: courtName(s, w, g.session, g.court),
         duty: name(g.duty),
@@ -259,7 +308,27 @@ export function fixtureRows(c: SeasonCompetition, matches: Pick<Match, 'id' | 's
         forfeit: status === 'forfeit',
         status,
         note: g.statusNote ?? '',
+        movedFrom: (g.originalWeekId && weekById.get(g.originalWeekId)?.date) || movedFrom,
+        movedTo: '',
+      })
+    }
+    for (const { g, to } of movedOut.get(w.id) ?? []) {
+      const plainVs = `${plain(g.home)} vs ${plain(g.away)}`
+      const vs = `${name(g.home).toUpperCase()} vs ${name(g.away).toUpperCase()}`
+      rows.push({
+        ...base,
+        key: `${w.id}:moved:${g.id}`,
+        date: w.date,
+        matchDay: w.matchDay,
+        time: '',
+        match: g.title ? `${g.title.toUpperCase()} - ${vs}` : vs,
+        label: g.title ? `${g.title}: ${plainVs}` : plainVs,
+        teamIds: { home: resolvedTeam(g.home), away: resolvedTeam(g.away), duty: resolvedTeam(g.duty) },
+        result: 'Moved',
+        note: `Moved to ${formatAU(to.date)}`,
+        kind: 'moved',
         movedFrom,
+        movedTo: to.date,
       })
     }
     for (const { teamId, note } of byes)

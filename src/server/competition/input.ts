@@ -2,14 +2,24 @@ import {
   effectiveResult,
   MAX_SETS,
   setScoresProblem,
+  type ForfeitRule,
   type Game,
+  type LevelSetsRule,
   type Points,
   type Ref,
   type Result,
   type SetScore,
   type Week,
 } from '../../lib/fixtures'
-import { matchDayKinds, tieBreakRules, type MatchDayKind, type TieBreakRule, type WithdrawnPolicy } from '../db/schema'
+import {
+  matchDayKinds,
+  matchOutcomes,
+  tieBreakRules,
+  type MatchDayKind,
+  type MatchOutcome,
+  type TieBreakRule,
+  type WithdrawnPolicy,
+} from '../db/schema'
 import { HttpError } from '../http'
 
 // Parsing the admin's JSON into the fixtures library's shapes. Nothing here trusts the browser: every field is
@@ -116,6 +126,10 @@ export type SettingsPatch = {
   tieBreaks?: TieBreakRule[]
   /** How withdrawn teams show. Allowed on published seasons. */
   withdrawn?: WithdrawnPolicy
+  /** The 1–1 rule. Allowed on published seasons. */
+  levelSets?: LevelSetsRule
+  /** What a forfeit counts as. Allowed on published seasons (checked against sets per match by the season code). */
+  forfeit?: ForfeitRule
 }
 
 export function parseSettingsPatch(input: unknown): SettingsPatch {
@@ -177,6 +191,20 @@ export function parseSettingsPatch(input: unknown): SettingsPatch {
       ladder: pick(w.ladder, ['mark', 'hide'] as const, 'Withdrawn teams on the ladder'),
       results: pick(w.results, ['keep', 'void'] as const, 'Withdrawn teams’ results'),
       fixtures: w.fixtures === undefined ? 'cancelled' : pick(w.fixtures, ['bye', 'cancelled'] as const, 'Withdrawn teams’ fixtures'),
+    }
+  }
+  if (o.levelSets !== undefined) {
+    if (o.levelSets !== 'draw' && o.levelSets !== 'points') throw invalid('The 1–1 rule must be draw or points.')
+    out.levelSets = o.levelSets
+  }
+  if (o.forfeit !== undefined) {
+    const f = record(o.forfeit, 'Forfeit')
+    out.forfeit = {
+      winnerSets: int(f.winnerSets, 'Forfeit: sets to the winner', 1, MAX_SETS),
+      loserSets: int(f.loserSets ?? 0, 'Forfeit: sets to the forfeiting team', 0, MAX_SETS - 1),
+      winnerSetPoints: int(f.winnerSetPoints, 'Forfeit: the winner’s points a set', 0, LIMITS.setPoints),
+      loserSetPoints: int(f.loserSetPoints ?? 0, 'Forfeit: the forfeiting team’s points a set', 0, LIMITS.setPoints),
+      lossPoints: bool(f.lossPoints, 'Forfeit: loss points for the forfeiting team'),
     }
   }
   return out
@@ -265,6 +293,9 @@ export type ResultValues = {
   setScores: SetScore[] | null
   homePoints: number | null
   awayPoints: number | null
+  /** Decided by hand (match_results.outcome), with its reason (note). */
+  outcome: MatchOutcome | null
+  note: string | null
 }
 
 /**
@@ -292,6 +323,14 @@ export function parseResult(v: unknown, setsPerMatch: number, label = 'Result'):
     awayPoints: optInt(o.awayPoints, `${label} away points`, LIMITS.totalPoints),
     ...(sets ? { sets } : {}),
   }
+  let decided: MatchOutcome | null = null
+  if (o.outcome !== undefined && o.outcome !== null) {
+    if (typeof o.outcome !== 'string' || !(matchOutcomes as readonly string[]).includes(o.outcome))
+      throw invalid(`${label}: the outcome must be ${matchOutcomes.join(', ')}.`)
+    decided = o.outcome as MatchOutcome
+  }
+  const note = text(o.note, `${label} reason`) || null
+  if (decided && !note) throw invalid(`${label}: say why the outcome was decided by hand.`)
   const e = effectiveResult(r)!
   const values: ResultValues = {
     homeSets: e.home,
@@ -299,9 +338,12 @@ export function parseResult(v: unknown, setsPerMatch: number, label = 'Result'):
     setScores: sets ?? null,
     homePoints: e.homePoints ?? null,
     awayPoints: e.awayPoints ?? null,
+    outcome: decided,
+    // The reason only means something with an outcome decided by hand.
+    note: decided ? note : null,
   }
   if (values.homeSets !== null && values.awaySets !== null && values.homeSets + values.awaySets > setsPerMatch)
     throw invalid(`${label}: a match has at most ${setsPerMatch} sets.`)
-  const blank = [values.homeSets, values.awaySets, values.homePoints, values.awayPoints].every((x) => x === null) && !sets
+  const blank = [values.homeSets, values.awaySets, values.homePoints, values.awayPoints].every((x) => x === null) && !sets && !decided
   return blank ? null : values
 }

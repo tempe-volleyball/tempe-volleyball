@@ -48,7 +48,9 @@ export function seasonCalendarEvents(
       r.matchDay ? `Match day ${r.matchDay}` : '',
       r.duty && !duty ? `Duty: ${r.duty}` : '',
       r.result && r.result !== '-' && !off ? `Result: ${r.result}${r.sets ? ` (${r.sets})` : ''}` : '',
+      r.resultNote,
       r.note,
+      r.referee ? `Referee: ${r.referee}` : '',
       r.movedFrom ? `Moved from ${r.movedFrom}` : '',
     ].filter(Boolean)
     out.push({

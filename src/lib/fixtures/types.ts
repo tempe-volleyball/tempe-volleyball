@@ -1,4 +1,4 @@
-import type { MatchStatus, TieBreakRule } from '../../server/db/schema/enums'
+import type { MatchOutcome, MatchStatus, TieBreakRule } from '../../server/db/schema/enums'
 
 export type Team = {
   id: string
@@ -34,6 +34,13 @@ export type Game = {
   status?: MatchStatus
   /** Public reason for the status ("Venue unavailable"). */
   statusNote?: string
+  /** matches.referee: the referee's name(s), e.g. the Volleyball NSW referee for TVSL. Shown publicly when set. */
+  referee?: string
+  /**
+   * matches.original_match_day_id: the night (week id) this game was first scheduled on, when it has been moved to
+   * another night on its own (moveToNight). That night lists it as "moved to …", this one as "moved from …".
+   */
+  originalWeekId?: string
 }
 
 /** Rally points in one set: [home, away]. */
@@ -56,6 +63,13 @@ export type Result = {
   homePoints?: number | null
   awayPoints?: number | null
   sets?: SetScore[]
+  /**
+   * Decided by hand (match_results.outcome): who won whatever the scores say, e.g. a walkover or a forfeit. With it,
+   * missing sets and points count as 0, so a result can be just an outcome. Needs a `note`.
+   */
+  outcome?: MatchOutcome
+  /** Why the outcome was decided by hand (match_results.note). Shown with the result on the public fixtures. */
+  note?: string
 }
 
 /** Ladder points for each outcome. */
@@ -118,6 +132,28 @@ export type Settings = {
   tieBreaks?: TieBreakRule[]
   /** How withdrawn teams show. Missing = { ladder: 'mark', results: 'keep', fixtures: 'cancelled' }. */
   withdrawn?: WithdrawnPolicy
+  /**
+   * A match level on sets (1–1): `draw` (missing; the demo's rule) or `points`, decided on total rally points as
+   * SportsPress did (level on points too is still a draw). PLAN.md open question 7: the organiser confirms.
+   */
+  levelSets?: LevelSetsRule
+  /** What a forfeit counts as (forfeitRule() fills in the defaults). Missing = SportsPress's: every set 25–0, loss points kept. */
+  forfeit?: ForfeitRule
+}
+
+export type LevelSetsRule = 'draw' | 'points'
+
+/**
+ * The score a forfeit is recorded as, from the winner's side: `winnerSets` sets of winnerSetPoints–loserSetPoints,
+ * then `loserSets` the other way round. Set points both 0 records sets won with no set scores. `lossPoints`: whether
+ * the forfeiting team still gets the ladder points for a loss (false = 0).
+ */
+export type ForfeitRule = {
+  winnerSets: number
+  loserSets: number
+  winnerSetPoints: number
+  loserSetPoints: number
+  lossPoints: boolean
 }
 
 /**

@@ -26,6 +26,7 @@ import {
   refName,
   setCourt,
   setRef,
+  settingsErrors,
   teamStats,
   validate,
   type CourtClash,
@@ -36,7 +37,7 @@ import {
   type Week,
 } from '../../lib/fixtures'
 import { api, type ClashDraws, type SeasonView } from '../api'
-import { Button } from '../ui'
+import { Button, Card, Notice } from '../ui'
 import { CourtDialog } from './dialogs'
 import type { Draft } from './draft'
 import { ImportCsvButton } from './ImportCsv'
@@ -50,14 +51,7 @@ const PLACEHOLDERS = ['1st', '2nd', '3rd', '4th', 'Winner SF1', 'Winner SF2', 'L
 
 type Mode = 'edit' | 'courts' | 'view'
 
-export function FixturesTab({
-  view,
-  draft,
-  onChange,
-  readOnly,
-  generating,
-  onGenerate,
-}: {
+type FixturesProps = {
   view: SeasonView
   draft: Draft
   onChange: (d: Draft) => void
@@ -65,7 +59,50 @@ export function FixturesTab({
   generating: boolean
   /** Regenerate with a new seed. */
   onGenerate: () => void
-}) {
+}
+
+/** The draw editor, or (a draft with no draw yet) the two ways to make one: generate it, or import it from a CSV. */
+export function FixturesTab(props: FixturesProps) {
+  if (props.draft.competition.weeks) return <DrawEditor {...props} />
+  const { view, draft, onChange, readOnly, generating, onGenerate } = props
+  const problems = settingsErrors(draft.competition.settings)
+  return (
+    <Card title="No draw yet">
+      <div className="space-y-3 text-sm">
+        <p>
+          Make the draw with the generator, which works it out in your browser from the teams and settings on the Setup tab, or import it
+          from a CSV file when you need one the generator can’t make.
+        </p>
+        {problems.length > 0 && (
+          <Notice kind="warning">
+            <p>
+              Before generating, fix these on the{' '}
+              <Link href={`/seasons/${view.season.id}/setup`} className="text-brand underline">
+                Setup tab
+              </Link>
+              :
+            </p>
+            <ul className="mt-1 list-disc pl-5">
+              {problems.map((p) => (
+                <li key={p}>{p}</li>
+              ))}
+            </ul>
+          </Notice>
+        )}
+        {!readOnly && (
+          <div className="flex flex-wrap gap-2">
+            <Button disabled={problems.length > 0 || generating} busy={generating} onClick={onGenerate}>
+              Generate draw
+            </Button>
+            <ImportCsvButton view={view} draft={draft} onChange={onChange} />
+          </div>
+        )}
+      </div>
+    </Card>
+  )
+}
+
+function DrawEditor({ view, draft, onChange, readOnly, generating, onGenerate }: FixturesProps) {
   const c = draft.competition
   const s = c.settings
   const weeks = c.weeks!
@@ -389,7 +426,7 @@ function WeekCard({
       </div>
     )
 
-  const byes = byesForWeek(s, w)
+  const byes = byesForWeek(s, w, weeks)
   // one column per default court, plus any extra positions games already use
   const positions = Math.max(1, s.courts.length, ...w.games.map((g) => g.court + 1))
   const hasError = issues.some((i) => i.level === 'error')

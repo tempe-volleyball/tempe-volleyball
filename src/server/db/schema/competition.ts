@@ -45,7 +45,14 @@ export type SeasonSettings = {
   tieBreaks?: TieBreakRule[]
   /** How withdrawn teams (season_teams.withdrawn_at) show. Missing = { ladder: 'mark', results: 'keep' }. */
   withdrawn?: WithdrawnPolicy
+  /** The 1–1 rule: a match level on sets is a `draw` (missing) or decided on total `points` (SportsPress). */
+  levelSets?: 'draw' | 'points'
+  /** What a game marked forfeit counts as (the lib's ForfeitRule). Missing = every set needed 25–0, loss points kept. */
+  forfeit?: ForfeitRule
 }
+
+/** See src/lib/fixtures/types.ts ForfeitRule: the score from the winner's side, and the forfeiting team's loss points. */
+export type ForfeitRule = { winnerSets: number; loserSets: number; winnerSetPoints: number; loserSetPoints: number; lossPoints: boolean }
 
 /**
  * `ladder`: `mark` keeps the row, flagged "Withdrawn" and sorted last; `hide` drops it. `results`: `keep` counts the

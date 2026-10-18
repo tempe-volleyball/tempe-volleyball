@@ -1,6 +1,9 @@
 import { and, asc, desc, eq, inArray } from 'drizzle-orm'
 import {
+  forfeitRule,
+  forfeitRuleProblem,
   isStale,
+  levelSetsRule,
   settingsErrors,
   tieBreakOrder,
   validate,
@@ -399,6 +402,8 @@ export async function createSeason(db: AppDb, actor: Editor, input: CreateSeason
           // The ladder rules carry over with the format.
           ...(source.season.settings.tieBreaks ? { tieBreaks: source.season.settings.tieBreaks } : {}),
           ...(source.season.settings.withdrawn ? { withdrawn: source.season.settings.withdrawn } : {}),
+          ...(source.season.settings.levelSets ? { levelSets: source.season.settings.levelSets } : {}),
+          ...(source.season.settings.forfeit ? { forfeit: source.season.settings.forfeit } : {}),
         } satisfies SeasonSettings,
         pointsWin: source.season.pointsWin,
         pointsDraw: source.season.pointsDraw,
@@ -488,9 +493,14 @@ export function mergeSettings(d: LoadedSeason, current: Settings, patch: Setting
     ...(patch.duty !== undefined ? { duty: patch.duty } : {}),
     ...(patch.tieBreaks !== undefined ? { tieBreaks: patch.tieBreaks } : {}),
     ...(patch.withdrawn !== undefined ? { withdrawn: patch.withdrawn } : {}),
+    ...(patch.levelSets !== undefined ? { levelSets: patch.levelSets } : {}),
+    ...(patch.forfeit !== undefined ? { forfeit: patch.forfeit } : {}),
     courts: defaultCourtIds.map((cid, i) => (cid ? resolver.name(cid) || (patch.courts?.[i] ?? '') : '')),
   }
   const setsPerMatch = patch.setsPerMatch ?? s.setsPerMatch
+  // A stored forfeit rule must still fit the sets per match (a default one always does: it follows them).
+  const forfeitProblem = settings.forfeit ? forfeitRuleProblem(forfeitRule(settings, setsPerMatch), setsPerMatch) : null
+  if (forfeitProblem) throw invalid(forfeitProblem)
 
   const changed: string[] = []
   const diff = (k: string, a: unknown, b: unknown) => {
@@ -510,6 +520,8 @@ export function mergeSettings(d: LoadedSeason, current: Settings, patch: Setting
   diff('setsPerMatch', s.setsPerMatch, setsPerMatch)
   diff('tieBreaks', tieBreakOrder(current), tieBreakOrder(settings))
   diff('withdrawn', withdrawnPolicy(current), withdrawnPolicy(settings))
+  diff('levelSets', levelSetsRule(current), levelSetsRule(settings))
+  diff('forfeit', forfeitRule(current, s.setsPerMatch), forfeitRule(settings, setsPerMatch))
 
   if (s.status !== 'draft') {
     const locked = changed.filter((k) =>
@@ -531,6 +543,8 @@ export function mergeSettings(d: LoadedSeason, current: Settings, patch: Setting
     // Ladder policies: missing keys keep today's behaviour, so only store them once set.
     ...(settings.tieBreaks ? { tieBreaks: settings.tieBreaks } : {}),
     ...(settings.withdrawn ? { withdrawn: settings.withdrawn } : {}),
+    ...(settings.levelSets ? { levelSets: settings.levelSets } : {}),
+    ...(settings.forfeit ? { forfeit: settings.forfeit } : {}),
   }
   return {
     settings,
@@ -677,7 +691,15 @@ export async function saveDraw(
   const merged = mergeSettings(d, stored.settings, patch, resolver)
   const at = now.toISOString()
   const published = d.season.status !== 'draft'
-  const sorted = weeks?.toSorted((a, b) => a.date.localeCompare(b.date)) ?? null
+  // Server-filled fields the checks need: which games were moved from another night (validate allows their double headers).
+  const movedFrom = new Map(stored.weeks.flatMap((w) => w.games.flatMap((g) => (g.originalWeekId ? [[g.id, g.originalWeekId]] : []))))
+  const sorted =
+    weeks
+      ?.toSorted((a, b) => a.date.localeCompare(b.date))
+      .map((w) => ({
+        ...w,
+        games: w.games.map((g) => (movedFrom.has(g.id) ? { ...g, originalWeekId: movedFrom.get(g.id)! } : g)),
+      })) ?? null
 
   let issues: Issue[] = []
   let statements

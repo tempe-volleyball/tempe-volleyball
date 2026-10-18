@@ -1,4 +1,5 @@
 import { effectiveResult, hasEntry, sameResult, type Result, type SetScore, type Week } from '../../lib/fixtures'
+import type { MatchOutcome } from '../../server/db/schema/enums'
 
 // The results entry form, as plain data: what's typed in each box (strings, so a half-typed score survives), and
 // the lib Result it makes. Set by set by default; totals for results recorded without set scores (most imported
@@ -10,6 +11,9 @@ export type ResultForm = {
   sets: [string, string][]
   /** Sets won and rally points: [home sets, away sets, home points, away points]. */
   totals: [string, string, string, string]
+  /** Decided by hand ('' = from the scores), and why. */
+  outcome: '' | MatchOutcome
+  note: string
 }
 
 const str = (v: number | null | undefined) => (typeof v === 'number' ? String(v) : '')
@@ -18,8 +22,11 @@ const str = (v: number | null | undefined) => (typeof v === 'number' ? String(v)
 export function formFromResult(r: Result | undefined, setsPerMatch: number): ResultForm {
   const sets = r?.sets ?? []
   const rows = Math.max(setsPerMatch, sets.length)
+  const scored = !!r && ([r.home, r.away, r.homePoints, r.awayPoints].some((v) => typeof v === 'number') || sets.length > 0)
   return {
-    mode: r && sets.length === 0 && hasEntry(r) ? 'totals' : 'sets',
+    mode: r && sets.length === 0 && scored && hasEntry(r) ? 'totals' : 'sets',
+    outcome: r?.outcome ?? '',
+    note: r?.outcome ? (r.note ?? '') : '',
     sets: Array.from({ length: rows }, (_, i) => {
       const s = sets[i]
       return s ? [String(s[0]), String(s[1])] : ['', '']
@@ -37,6 +44,14 @@ export type FormResult = { result: Result | undefined; problem: string | null }
  * won and point totals from the set scores, as the server does.
  */
 export function resultFromForm(f: ResultForm): FormResult {
+  const scores = scoresFromForm(f)
+  if (!f.outcome) return scores
+  // Decided by hand: the outcome stands even with no scores, but needs a reason.
+  const result: Result = { ...(scores.result ?? { home: null, away: null }), outcome: f.outcome, note: f.note.trim() }
+  return { result, problem: scores.problem ?? (f.note.trim() ? null : 'Say why the outcome was decided by hand.') }
+}
+
+function scoresFromForm(f: ResultForm): FormResult {
   if (f.mode === 'totals') {
     const [home, away, homePoints, awayPoints] = f.totals.map(num) as [number | null, number | null, number | null, number | null]
     if ([home, away, homePoints, awayPoints].every((v) => v === null)) return { result: undefined, problem: null }

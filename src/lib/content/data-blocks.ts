@@ -510,8 +510,13 @@ export type FixtureRowLike = {
   sets: string
   court: string
   duty: string
-  kind: 'game' | 'bye' | 'skip'
+  kind: 'game' | 'bye' | 'skip' | 'moved'
   forfeit: boolean
+  /** Why the outcome was decided by hand, shown under the result. */
+  resultNote?: string
+  /** The status's public note ("Moved to 30/10/2026", "Venue unavailable"). */
+  note?: string
+  referee?: string
 }
 
 /**
@@ -568,10 +573,10 @@ export function renderFixtures(attrs: FixturesAttrs, data: LeagueBlockData | und
         .map((r) => {
           if (r.kind === 'skip')
             return `<tr><td class="whitespace-nowrap">${formatAU(r.date)}</td><td colspan="${cols - 1}" class="italic">${escapeHtml(r.match)}</td></tr>`
-          const result = `${escapeHtml(r.result)}${r.forfeit ? '<span class="block text-xs">(forfeit)</span>' : ''}${full && r.sets ? `<span class="block text-xs">${escapeHtml(r.sets)}</span>` : ''}`
+          const result = `${escapeHtml(r.result)}${r.forfeit ? '<span class="block text-xs">(forfeit)</span>' : ''}${full && r.sets ? `<span class="block text-xs">${escapeHtml(r.sets)}</span>` : ''}${r.resultNote ? `<span class="block text-xs whitespace-normal">${escapeHtml(r.resultNote)}</span>` : ''}${r.note ? `<span class="block text-xs whitespace-normal">${escapeHtml(r.note)}</span>` : ''}`
           return `<tr>${[
             `<td class="whitespace-nowrap">${formatAU(r.date)}</td>`,
-            `<td class="team">${escapeHtml(r.match)}</td>`,
+            `<td class="team">${escapeHtml(r.match)}${full && r.referee ? `<span class="block text-xs">Referee: ${escapeHtml(r.referee)}</span>` : ''}</td>`,
             `<td>${escapeHtml(r.time)}</td>`,
             `<td class="whitespace-nowrap">${result}</td>`,
             ...(court ? [`<td class="whitespace-nowrap">${escapeHtml(r.court)}</td>`] : []),

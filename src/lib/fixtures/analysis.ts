@@ -41,9 +41,21 @@ export function teamStats(s: Settings, weeks: Week[]): TeamStats[] {
   return [...stats.values()]
 }
 
-export function byesForWeek(s: Settings, w: Week): string[] {
+/**
+ * Teams without a game that night. With `weeks` (the whole draw), a game moved from this night to another on its
+ * own (Game.originalWeekId) still counts as this night's, so its teams aren't on a bye, and a catch-up night made
+ * only of moved games has no byes.
+ */
+export function byesForWeek(s: Settings, w: Week, weeks?: Week[]): string[] {
   if (w.kind !== 'regular') return []
-  const playing = new Set(w.games.flatMap((g) => [teamOf(g.home), teamOf(g.away)]))
+  if (w.games.length > 0 && w.games.every((g) => g.originalWeekId && g.originalWeekId !== w.id)) return []
+  const movedOut = weeks ? weeks.flatMap((x) => (x.id === w.id ? [] : x.games.filter((g) => g.originalWeekId === w.id))) : []
+  const playing = new Set(
+    [...w.games.filter((g) => !g.originalWeekId || g.originalWeekId === w.id), ...movedOut].flatMap((g) => [
+      teamOf(g.home),
+      teamOf(g.away),
+    ]),
+  )
   return s.teams.filter((t) => !playing.has(t.id)).map((t) => t.id)
 }
 
@@ -83,17 +95,35 @@ export function validate(s: Settings, weeks: Week[]): Issue[] {
     if (w.kind !== 'regular') continue
 
     const sessionOf = new Map<string, number[]>()
+    // Games moved here from another night (a catch-up game) can make a double header, which is allowed.
+    const ownSessions = new Map<string, number[]>()
+    const movedIn = (g: Game) => !!g.originalWeekId && g.originalWeekId !== w.id
     for (const g of w.games) {
       const h = teamOf(g.home)
       const a = teamOf(g.away)
-      for (const t of [h, a]) if (t) sessionOf.set(t, [...(sessionOf.get(t) ?? []), g.session])
+      for (const t of [h, a])
+        if (t) {
+          sessionOf.set(t, [...(sessionOf.get(t) ?? []), g.session])
+          if (!movedIn(g)) ownSessions.set(t, [...(ownSessions.get(t) ?? []), g.session])
+        }
       if (h && a) {
         if (h === a) issues.push({ level: 'error', weekId: w.id, gameIds: [g.id], message: `${where}: ${name(h)} is playing itself.` })
         else meetings.set(pairKey(h, a), (meetings.get(pairKey(h, a)) ?? 0) + 1)
       }
     }
-    for (const [t, ss] of sessionOf)
+    for (const [t, ss] of ownSessions)
       if (ss.length > 1) issues.push({ level: 'error', weekId: w.id, message: `${where}: ${name(t)} is playing ${ss.length} games.` })
+    for (const [t, ss] of sessionOf) {
+      if (ss.length === (ownSessions.get(t)?.length ?? 0)) continue
+      if (new Set(ss).size < ss.length)
+        issues.push({ level: 'error', weekId: w.id, message: `${where}: ${name(t)} is playing two games at the same time.` })
+      else if (ss.length > 1)
+        issues.push({
+          level: 'warning',
+          weekId: w.id,
+          message: `${where}: ${name(t)} plays twice (one is a game moved from another night).`,
+        })
+    }
 
     const dutyNight = new Map<string, number>()
     for (const g of w.games) {
@@ -141,7 +171,7 @@ export function validate(s: Settings, weeks: Week[]): Issue[] {
     for (const [t, n] of dutyNight)
       if (n > 1) issues.push({ level: 'warning', weekId: w.id, message: `${where}: ${name(t)} has ${n} duties in one night.` })
 
-    const byes = byesForWeek(s, w)
+    const byes = byesForWeek(s, w, weeks)
     if (byes.length > s.teams.length % 2)
       issues.push({
         level: 'warning',
