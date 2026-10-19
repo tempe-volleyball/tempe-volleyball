@@ -389,8 +389,8 @@ describe('added by hand', () => {
     )
     const d = await getInterest(db, r.id)
     expect(d.interest).toMatchObject({ source: 'admin', teamName: 'Net Gains', note: 'Rang on Tuesday', depositCents: 10000 })
-    expect(d.interest.answers).toMatchObject({ playing_level: 'advanced' })
-    expect(d.interest.answers).not.toHaveProperty('unknown_key')
+    // Unknown keys and unanswered questions (unticked consents) aren't kept.
+    expect(d.interest.answers).toEqual({ playing_level: 'advanced' })
     expect(d.members[0]!.player?.id).toBe('sam')
     expect((await db.select().from(players).where(eq(players.id, 'sam')).get())!.phone).toBe('0400 000 000')
     expect(d.members[1]!.player?.pool).toBe('competition')

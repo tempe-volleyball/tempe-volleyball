@@ -117,3 +117,11 @@ year. Our league pages said "Enrolment … is closed right now" between seasons,
     and position (from their EOI), and whether they're already in a team this season; "add a new player" inline.
   - Counts: players per team, players placed this season, and open individual EOIs not yet placed.
 - Roster changes save straight away (not part of the season's Save), are audited, and work on published seasons.
+
+## Status
+
+- **Admin side: done** (2026-10-20, branch `eoi-admin`; docs/admin.md §3.16): Admin → Interest (inbox, EOI page,
+  "Add EOI", "Use these details", deposits, statuses, archive, delete, CSV, retention prune), Admin → Players
+  (Competition and Training, groups, player page, add, edit, retire, merge, delete, CSV), the programme Sign-ups tab,
+  Settings → Interest and the dashboard. APIs: [api/interest-admin.md](api/interest-admin.md),
+  [api/players.md](api/players.md).

@@ -23,6 +23,11 @@ editors get `null` / `[]` for them.
     draftPosts: { id, title }[],
   },                                   // each list at most 20
   recent: AuditRow[] | null,           // admins+: the latest 8 audit entries
+  messages: InboxSummary | null,       // admins+: the contact inbox (contact.md)
+  interest: {                          // admins+: expressions of interest (interest-admin.md)
+    newCount: number,                  // EOIs with a programme still `new` (not archived)
+    programmes: { id, code, name, new, open, openSince, since: 'YYYY-MM-DD' | null }[],  // those with open EOIs
+  } | null,
   setup: { key: 'resend' | 'turnstile' | 'analytics' | 'payid', ok: false, text, href }[],  // admins+: only what's missing
 }
 
@@ -42,5 +47,6 @@ DashboardDay = {
 
 **Cost:** one `db.batch()` of five grouped reads (match days with per-day counts from a join of matches and both result
 kinds, draft programmes, draft pages, pages to review, draft posts), plus `listTargets` and `listAudit` for admins, the
-settings read and the role check: about 15 D1 queries. Joined columns are aliased (`md_id`, `season_name` …) because D1
+settings read and the role check, plus two reads for the inbox and four for new EOIs (`interestSummary`): about 21
+D1 queries. Joined columns are aliased (`md_id`, `season_name` …) because D1
 keys batch rows by column name.

@@ -53,7 +53,8 @@ src/middleware.ts    Runs on every SSR request: admin guard (server/auth/guard.t
                      noindex unless production on www.tempevb.com.
 src/admin/           The admin React app (one client:only island at /admin/*, wouter router with base /admin):
                      sign-in, TOTP enrolment, admin users, audit log, and content: pages (+ revisions), news,
-                     menu (dnd-kit), media library, site settings. editor/ is the TipTap editor (lazy-loaded);
+                     menu (dnd-kit), media library, site settings. interest/ is Admin → Interest (EOI inbox, EOI
+                     page, Add EOI) and players/ Admin → Players (Competition/Training lists, player page, merge). editor/ is the TipTap editor (lazy-loaded);
                      media/upload.ts resizes images to WebP in the browser. src/pages/admin/[...path].astro mounts it.
 src/pages/           Routes. api/health.ts is the deploy smoke test. robots.txt.ts disallows all outside production.
                      Public: index (home page row), [...path] (content pages by pages.path, else the redirects table
@@ -95,6 +96,8 @@ src/server/          Code that touches bindings: db/schema.ts + db/index.ts (Dri
                      content/: pages, posts, menu, media (R2 streaming), settings: validation, batched writes,
                      audit, 301s on path changes. cache.ts: edge-cache tags + purge() after publishes.
                      contact/messages.ts: the contact form (POST /api/contact) and Admin → Messages (Phase 7).
+                     players/: core.ts (createInterest, matchPeople), directory.ts (competition groups), admin.ts
+                     (Admin → Players); interest/admin.ts: Admin → Interest (docs/interest.md).
                      email/: createMailer().sendEmail(to, template, data) via email_outbox + 95/day cap + Resend. db/schema.ts re-exports the tables in db/schema/ (one file per
                      area; enums.ts holds the `as const` value lists). db/testing.ts gives tests an in-memory
                      SQLite (node:sqlite) with every migration applied: `const { db } = createTestDb()`.

@@ -1292,7 +1292,10 @@ export async function addInterestByHand(db: AppDb, actor: Editor, input: AdminIn
     teamName,
     members,
     programmeIds: ids,
-    answers: checked.answers,
+    // Unanswered questions aren't kept: an unticked consent typed in by an admin isn't a "No" from the person.
+    answers: Object.fromEntries(
+      Object.entries(checked.answers).filter(([, v]) => v !== false && v !== '' && v !== null && !(Array.isArray(v) && v.length === 0)),
+    ),
     formId: form.id,
     formVersion: form.version,
     depositCents,

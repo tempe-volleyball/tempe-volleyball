@@ -679,7 +679,7 @@ function EnrolmentCard({
                 : 'People enrol on the website, with caps, a waitlist and a fee. They arrive in Admin → Enrolments.'
             }
           >
-            <option value="">Default for this kind ({modeName[g.defaultSignupMode]})</option>
+            <option value="">Default: {modeName[g.defaultSignupMode]}</option>
             <option value="interest">Expressions of interest</option>
             <option value="enrolment">Enrolment</option>
           </Select>

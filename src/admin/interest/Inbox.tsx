@@ -244,7 +244,7 @@ export function InterestInbox() {
             id="interest-filters"
             className={`w-full flex-wrap items-end gap-3 sm:flex sm:w-auto ${showFilters ? 'grid grid-cols-2' : 'hidden'}`}
           >
-            <label className="block text-sm sm:w-40">
+            <label className="block text-sm sm:w-52">
               <span className="mb-1 block font-semibold">Status</span>
               <select
                 className={selectClass}
@@ -260,7 +260,7 @@ export function InterestInbox() {
                 <option value="any">Any status</option>
               </select>
             </label>
-            <label className="block text-sm sm:w-32">
+            <label className="block text-sm sm:w-44">
               <span className="mb-1 block font-semibold">Entry</span>
               <select className={selectClass} value={get('kind')} onChange={(e) => set({ kind: e.target.value })}>
                 <option value="">Players and teams</option>
@@ -268,7 +268,7 @@ export function InterestInbox() {
                 <option value="team">Teams</option>
               </select>
             </label>
-            <label className="col-span-2 block text-sm sm:w-36">
+            <label className="col-span-2 block text-sm sm:w-40">
               <span className="mb-1 block font-semibold">Archived</span>
               <select
                 className={selectClass}
