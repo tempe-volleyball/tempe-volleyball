@@ -93,6 +93,8 @@ export type InterestSettings = {
   /** Email the contact address (and notifyEmails) about each EOI. */
   notify: boolean
   notifyEmails: string[]
+  /** At most this many EOIs a day are notified (a rolling 24 hours), so a burst of spam can't use up the day's emails. */
+  notifyPerDay: number
   /** The form's intro and the thank-you line shown after sending. */
   introText: string
   successText: string
@@ -293,6 +295,7 @@ export const DEFAULT_SETTINGS: SiteSettings = {
     acknowledge: true,
     notify: true,
     notifyEmails: [],
+    notifyPerDay: 30,
     introText:
       'Tell us you’re interested and we’ll be in touch before the next season starts. Come on your own and we’ll find you a team, or enter a whole team.',
     successText: 'Thanks, we’ve got your details. We’ll be in touch before the next season starts.',
@@ -542,6 +545,7 @@ const checkers: { [K in SettingKey]: (v: unknown) => SiteSettings[K] } = {
       acknowledge: o.acknowledge !== false,
       notify: o.notify !== false,
       notifyEmails,
+      notifyPerDay: intIn(o.notifyPerDay, 'Notification emails a day', 1, 50, d.notifyPerDay),
       introText: str(o.introText, 'The intro', CONTACT_FORM_LIMITS.text) || d.introText,
       successText: str(o.successText, 'The thank-you text', CONTACT_FORM_LIMITS.text) || d.successText,
       archivedRetentionDays: intIn(o.archivedRetentionDays, 'Days to keep archived EOIs', 0, 3650, d.archivedRetentionDays),

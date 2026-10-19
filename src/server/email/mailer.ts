@@ -119,10 +119,10 @@ export const PRIORITY_TEMPLATES: ReadonlySet<string> = new Set(['admin.invite', 
 
 /**
  * Templates an anonymous form can send to an address it names, so they're limited per mailbox unless sent as
- * priority: the enrolment emails and the contact form's automatic reply. (The contact form's notification goes to
- * the organiser's own addresses and has its own daily limit, Settings → Contact form.)
+ * priority: the enrolment emails, the contact form's automatic reply and the EOI acknowledgement. (The contact form's
+ * and the EOI form's notifications go to the organiser's own addresses and have their own daily limits in Settings.)
  */
-const isMailboxLimited = (t: string) => t.startsWith('enrolment.') || t === 'contact.ack'
+const isMailboxLimited = (t: string) => t.startsWith('enrolment.') || t === 'contact.ack' || t === 'interest.ack'
 
 /**
  * What an offer email's payload carries so a send can start the hold (`hold`). `latest` (UTC ISO) caps it: the

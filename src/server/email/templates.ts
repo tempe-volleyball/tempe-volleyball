@@ -44,6 +44,29 @@ export type TemplateData = {
   'contact.notify': ContactEmail & { url: string; receivedAt: string }
   /** The optional automatic reply to the sender (Settings → Contact form), with a copy of their message. */
   'contact.ack': ContactEmail & { text: string }
+  /** An expression of interest, to the person who sent it (Settings → Interest → acknowledge): what they sent and its reference. */
+  'interest.ack': InterestEmail & {
+    /** Settings → Interest's thank-you text, and the form's confirmation text. */
+    text: string
+    message?: string | null
+  }
+  /** A new expression of interest, to the organiser: replying goes to the contact (reply-to). */
+  'interest.notify': InterestEmail & { email: string; phone: string; url: string; receivedAt: string }
+}
+
+/** What both EOI emails show. `deposit` is formatted AUD ("$50"); PayID details when one applies. */
+export type InterestEmail = {
+  name: string
+  reference: string
+  kind: 'player' | 'team'
+  teamName?: string | null
+  programmes: string[]
+  /** Each answer as "label: value" lines, in form order (choices as their labels). */
+  answers: { label: string; value: string }[]
+  /** Team members besides the contact, one line each ("Jo Park, jo@example.com"). */
+  members?: string[]
+  deposit?: string | null
+  payid?: { name: string; payId: string; instructions: string } | null
 }
 
 /** What both contact emails show: who wrote, their address, the topic and the message. */
@@ -66,6 +89,8 @@ export const templateNames = [
   'enrolment.already',
   'contact.notify',
   'contact.ack',
+  'interest.ack',
+  'interest.notify',
 ] as const satisfies readonly TemplateName[]
 
 /**
@@ -252,6 +277,86 @@ const contactRenderers: { [K in Extract<TemplateName, `contact.${string}`>]: (da
   }),
 }
 
+/** The parts both EOI emails list: programmes, team, members and answers, as text lines and HTML. */
+function interestSummary(d: InterestEmail) {
+  const rows: [string, string][] = [
+    ['Entry', d.kind === 'team' ? 'A team' : 'A player (to be placed in a team)'],
+    [d.programmes.length === 1 ? 'Programme' : 'Programmes', d.programmes.join(', ')],
+    ...(d.kind === 'team' && d.teamName ? ([['Team', d.teamName]] as [string, string][]) : []),
+    ...d.answers.map((a): [string, string] => [a.label, a.value]),
+  ]
+  const members = d.members ?? []
+  const text =
+    rows.map(([k, v]) => `${k}: ${v}`).join('\n') + (members.length ? `\nTeam members:\n${members.map((m) => `- ${m}`).join('\n')}` : '')
+  const html =
+    `<table style="border-collapse:collapse;margin:12px 0;font-size:14px">` +
+    rows
+      .map(
+        ([k, v]) =>
+          `<tr><th style="text-align:left;vertical-align:top;padding:4px 12px 4px 0;color:#555">${escapeHtml(k)}</th><td style="padding:4px 0;white-space:pre-wrap">${escapeHtml(v)}</td></tr>`,
+      )
+      .join('') +
+    `</table>` +
+    (members.length
+      ? `<p style="margin:12px 0 4px"><b>Team members</b></p><ul>${members.map((m) => `<li>${escapeHtml(m)}</li>`).join('')}</ul>`
+      : '')
+  return { text, html }
+}
+
+/** The deposit line of the acknowledgement, with the reference as the payment description. */
+function depositPart(d: InterestEmail) {
+  if (!d.deposit) return { text: '', html: '' }
+  const who = d.kind === 'team' ? 'per team' : ''
+  const amount = `${d.deposit}${who ? ` ${who}` : ''}`
+  if (d.payid?.payId)
+    return {
+      text: `\nThe deposit is ${amount}. Pay it by PayID to ${d.payid.payId}${d.payid.name ? ` (${d.payid.name})` : ''}, with ${d.reference} as the payment description.${d.payid.instructions ? ` ${d.payid.instructions}` : ''}\n`,
+      html:
+        `<p>The deposit is <b>${escapeHtml(amount)}</b>. Pay it by PayID to <b>${escapeHtml(d.payid.payId)}</b>${d.payid.name ? ` (${escapeHtml(d.payid.name)})` : ''}, ` +
+        `with <b>${escapeHtml(d.reference)}</b> as the payment description.${d.payid.instructions ? ` ${escapeHtml(d.payid.instructions)}` : ''}</p>`,
+    }
+  return {
+    text: `\nThe deposit is ${amount}. We'll tell you how to pay it when we're in touch.\n`,
+    html: `<p>The deposit is <b>${escapeHtml(amount)}</b>. We'll tell you how to pay it when we're in touch.</p>`,
+  }
+}
+
+const interestRenderers: { [K in Extract<TemplateName, `interest.${string}`>]: (data: TemplateData[K]) => RenderedEmail } = {
+  'interest.ack': (d) => {
+    const sum = interestSummary(d)
+    const pay = depositPart(d)
+    const message = d.message
+      ? { text: `\n${d.message}\n`, html: `<p style="white-space:pre-wrap">${escapeHtml(d.message)}</p>` }
+      : { text: '', html: '' }
+    const what = d.kind === 'team' && d.teamName ? `${d.teamName}'s expression of interest` : 'your expression of interest'
+    return {
+      subject: `We've got your details (${d.reference})`,
+      text: `Hi ${d.name},\n\nThanks for ${what}. ${d.text}\n\nYour reference is ${d.reference}.\n${pay.text}${message.text}\nWhat you sent:\n${sum.text}\n\n${QUESTIONS}\n\n${IGNORE}\n`,
+      html: layout(
+        `<p>Hi ${escapeHtml(d.name)},</p><p>Thanks for ${escapeHtml(what)}. ${escapeHtml(d.text)}</p>` +
+          `<p>Your reference is <b style="font-size:18px;letter-spacing:1px">${escapeHtml(d.reference)}</b>.</p>${pay.html}${message.html}` +
+          `<p style="margin-top:20px"><b>What you sent</b></p>${sum.html}<p style="color:#555;font-size:13px">${QUESTIONS} ${IGNORE}</p>`,
+      ),
+    }
+  },
+  'interest.notify': (d) => {
+    const sum = interestSummary(d)
+    const received = sydneyWhen(d.receivedAt)
+    const who = d.kind === 'team' && d.teamName ? `${d.teamName} (team, captain ${d.name})` : `${d.name} (player)`
+    const deposit = d.deposit ? `Deposit owed: ${d.deposit}.` : 'No deposit.'
+    return {
+      subject: `Expression of interest: ${who} (${d.reference})`,
+      replyTo: d.email,
+      text: `${who} sent an expression of interest through the website (${received}). Reference ${d.reference}.\n\nContact: ${d.name} <${d.email}>, ${d.phone}\n${sum.text}\n\n${deposit}\n\nReply to this email to answer them, or open it in the admin:\n${d.url}\n`,
+      html: layout(
+        `<p><b>${escapeHtml(who)}</b> sent an expression of interest through the website (${escapeHtml(received)}). Reference <b>${escapeHtml(d.reference)}</b>.</p>` +
+          `<p>Contact: ${escapeHtml(d.name)} &lt;${escapeHtml(d.email)}&gt;, ${escapeHtml(d.phone)}</p>${sum.html}<p>${escapeHtml(deposit)}</p>` +
+          `<p>Reply to this email to answer them.</p>${button(d.url, 'Open in the admin')}`,
+      ),
+    }
+  },
+}
+
 const renderers: { [K in TemplateName]: (data: TemplateData[K]) => RenderedEmail } = {
   'auth.otp': ({ otp }) => ({
     subject: `${otp} is your Tempe Volleyball sign-in code`,
@@ -282,6 +387,7 @@ const renderers: { [K in TemplateName]: (data: TemplateData[K]) => RenderedEmail
   },
   ...enrolmentRenderers,
   ...contactRenderers,
+  ...interestRenderers,
 }
 
 export const isTemplateName = (name: string): name is TemplateName => (templateNames as readonly string[]).includes(name)
