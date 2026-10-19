@@ -395,7 +395,9 @@ export const PAGE_DRAFTS: PageDraft[] = [
         emptyText: 'Training and junior programs are listed here when their next term or session is set. Contact Michael for details.',
       }),
       h2('How to join'),
-      p('See what’s open on the [Enrol](/enrol) page, or [contact Michael](/contact) for help choosing the right program.'),
+      p(
+        'For a league, [register your interest](/interest), on your own or as a team. For training and junior programs, see what’s open on the [Enrol](/enrol) page, or [contact Michael](/contact) for help choosing the right program.',
+      ),
       p(
         'Follow us on [Instagram (@tempe.volleyball)](https://www.instagram.com/tempe.volleyball/) for news, and see [Where we play](/where-we-play) for directions.',
       ),
@@ -441,7 +443,7 @@ export const PAGE_DRAFTS: PageDraft[] = [
         'Email [tempevb@gmail.com](mailto:tempevb@gmail.com) or [m.mouhajer@bigpond.com](mailto:m.mouhajer@bigpond.com)',
         'Phone [0414 911 544](tel:+61414911544)',
       ),
-      p('Ready to play? Enrol on the [Enrol](/enrol) page.'),
+      p('Ready to play? [Register your interest](/interest) in a league, or [enrol](/enrol) in training.'),
       p('Directions to each venue are on [Where we play](/where-we-play).'),
     ]),
   },
@@ -494,9 +496,13 @@ export const PAGE_DRAFTS: PageDraft[] = [
         'In Tempe, Burwood and Five Dock: see [Where we play](/where-we-play). Each league and program page shows its venue, and we post changes on [Instagram](https://www.instagram.com/tempe.volleyball/).',
       ),
       h2('Do I need a team to join?'),
-      p('No. Enter on your own and we’ll place you in a team that suits your level.'),
-      h2('How do I enrol?'),
-      p('Pick a league or program on the [Enrol](/enrol) page and fill in its form. We’ll confirm your spot by email.'),
+      p('No. [Register your interest](/interest) on your own and we’ll place you in a team that suits your level.'),
+      h2('How do I join a league?'),
+      p(
+        'Fill in the [register your interest](/interest) form, as a player on your own or as a whole team, and tick the leagues you’d like to play in. It’s open all year; we’ll be in touch before the next season starts.',
+      ),
+      h2('How do I enrol in training or a junior program?'),
+      p('Pick a program on the [Enrol](/enrol) page and fill in its form. We’ll confirm your spot by email.'),
       h2('Do I need a Volleyball NSW membership?'),
       p(
         `Yes, every player needs at least a recreational membership through our club (USYD). Wait until your spot is confirmed, then [register with Volleyball NSW](${VNSW_REGISTER}).`,
@@ -541,7 +547,7 @@ export const CONTACT_LIVE: LivePage = {
       'Phone [0414 911 544](tel:+61414911544)',
     ),
     contactForm({ title: 'Send us a message' }),
-    p('Ready to play? Enrol on the [Enrol](/enrol) page.'),
+    p('Ready to play? [Register your interest](/interest) in a league, or [enrol](/enrol) in training.'),
     p('Directions to each venue are on [Where we play](/where-we-play).'),
   ]),
 }
@@ -556,9 +562,9 @@ export const ENROL_PAGE = {
   metaDescription: 'Enrol in Tempe Volleyball’s social leagues, Super League, training and junior programs in Sydney.',
   body: body([
     p(
-      'Pick a league, training session or program below and fill in its form. Leagues take whole teams and individual players: enter on your own and we’ll place you in a team that suits your level.',
+      'Leagues and events take expressions of interest: [register your interest](/interest) as a whole team or on your own, and we’ll place you in a team that suits your level. For training and junior programs, pick one below and fill in its form.',
     ),
-    h2('What happens next'),
+    h2('What happens next (training and programs)'),
     ul(
       'We email you to confirm your spot. If it’s full, you join the waitlist, and we email you if a spot comes up.',
       'Once your spot is confirmed, pay by PayID to 0414 911 544, with your name (or your child’s) as the reference.',
@@ -579,13 +585,15 @@ export const ENROL_PAGE = {
 export const PRIVACY_PAGE = {
   path: '/privacy',
   title: 'Privacy policy',
-  metaDescription: 'How Tempe Volleyball collects, uses, stores and deletes your details when you enrol or contact us.',
+  metaDescription:
+    'How Tempe Volleyball collects, uses, stores and deletes your details when you register your interest, enrol or contact us.',
   body: body([
     p(
-      'This page explains what Tempe Volleyball collects when you enrol in a league or program or send us a message, why we need it, who can see it, where it’s kept, how long for, and how to ask us to delete it.',
+      'This page explains what Tempe Volleyball collects when you register your interest in a league, enrol in a program or send us a message, why we need it, who can see it, where it’s kept, how long for, and how to ask us to delete it.',
     ),
     h2('What we collect'),
     ul(
+      '**When you register your interest** in a league or event: your name, email address and mobile number, and what the form asks: for example your year of birth, gender, suburb, playing level and Volleyball NSW number. A team’s captain also gives the team’s name and may add team-mates’ names and the details the form asks for them (such as their email or mobile), so please only add team-mates who are happy for you to share them.',
       '**When you enrol:** your name, email address and mobile number, and only what that program’s form asks: for example your year of birth (not your full date of birth), your skill level, your team’s name, and an emergency contact (their name and phone number).',
       '**For juniors:** a parent or guardian fills in the form, and the email address and phone number we keep are the parent’s or guardian’s.',
       '**When you send us a message:** your name, email address, what it’s about, your message, and which page you sent it from.',
@@ -593,6 +601,7 @@ export const PRIVACY_PAGE = {
     ),
     h2('Why we need it'),
     ul(
+      'To put teams together from expressions of interest and contact you before the season starts. As the form says, your name and contact details are shared with your team-mates (for example in the team’s WhatsApp group) once you’re placed in a team',
       'To take your enrolment, hold your spot or place you on the waitlist, and put you in a team',
       'To email you about your enrolment, your games, changes to the draw and spots that come up',
       'To contact your emergency contact, or a junior’s parent or guardian, if something happens at a game or session',
@@ -604,7 +613,7 @@ export const PRIVACY_PAGE = {
     ),
     h2('Who can see it'),
     p(
-      'Only the club’s organisers with admin access to the website (admins and owners). People who only edit the website’s pages and results can’t see enrolments or messages. Every export of enrolments or messages is recorded.',
+      'Only the club’s organisers with admin access to the website (admins and owners), and your team-mates as described above. People who only edit the website’s pages and results can’t see expressions of interest, enrolments or messages. Every export of them is recorded.',
     ),
     h2('Where it’s stored'),
     ul(
@@ -616,6 +625,7 @@ export const PRIVACY_PAGE = {
     ),
     h2('How long we keep it'),
     ul(
+      '**Expressions of interest** are kept while we’re putting the season together. Once we’ve dealt with one we archive it, and archived ones are deleted 365 days later. Your player record (your name and contact details, and the teams and seasons you played in) is kept for the club’s records until you ask us to delete it.',
       '**Enrolments** are kept while we need them to run the season and for the club’s records, until we or you delete them.',
       '**Enrolments that were never confirmed** (the confirmation email wasn’t clicked) are deleted 30 days after they lapse.',
       '**Messages** are deleted 365 days after we’ve dealt with them.',
@@ -690,13 +700,32 @@ export const ARCHIVE: Archive[] = [
     to: '/enrol',
   },
   { path: '/thank-you-for-your-interest', wpId: 551, importedTitle: 'Thanks for contacting us!', to: '/contact' },
-  // Old enrolment pages (2020–2022). Their redirects to /enrol already exist (ENROL_REDIRECTS, source 'manual').
-  { path: '/2021-interest-in-playing', wpId: 614, importedTitle: '2022 Enrolment', to: '/enrol' },
-  { path: '/new-player', wpId: 629, importedTitle: 'New Player', to: '/enrol' },
-  { path: '/new-team-group', wpId: 624, importedTitle: 'New Team/Group', to: '/enrol' },
-  { path: '/returning-player', wpId: 632, importedTitle: 'Returning Player', to: '/enrol' },
-  { path: '/returning-team', wpId: 598, importedTitle: 'Returning Team/Group', to: '/enrol' },
+  // Old sign-up pages (2020–2022), expressions of interest really. Their redirects to /interest already exist
+  // (INTEREST_REDIRECTS, source 'manual'; REPOINT_REDIRECTS fixes rows an earlier run aimed at /enrol).
+  { path: '/2021-interest-in-playing', wpId: 614, importedTitle: '2022 Enrolment', to: '/interest' },
+  { path: '/new-player', wpId: 629, importedTitle: 'New Player', to: '/interest' },
+  { path: '/new-team-group', wpId: 624, importedTitle: 'New Team/Group', to: '/interest' },
+  { path: '/returning-player', wpId: 632, importedTitle: 'Returning Player', to: '/interest' },
+  { path: '/returning-team', wpId: 598, importedTitle: 'Returning Team/Group', to: '/interest' },
 ]
+
+// ── Redirects repointed (the EOI overhaul, docs/interest.md) ────────────────────
+
+/**
+ * The old sign-up pages' redirects, which an earlier import or content map wrote to /enrol: now /interest (they were
+ * all expressions of interest, src/lib/wp-import/routes.ts INTEREST_REDIRECTS). Only a row still exactly as a script
+ * left it (to /enrol, never saved in the admin) is changed.
+ */
+export const REPOINT_REDIRECTS: { from: string; to: string; was: string }[] = [
+  '/2023-enrolment',
+  '/2021-interest-in-playing',
+  '/new-player',
+  '/new-player-2023',
+  '/new-team-group',
+  '/new-team-group-2023',
+  '/returning-player',
+  '/returning-team',
+].map((from) => ({ from, to: '/interest', was: '/enrol' }))
 
 // ── Redirects waiting for their page to be archived ───────────────────────────
 

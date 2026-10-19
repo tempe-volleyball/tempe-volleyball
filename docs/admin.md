@@ -654,11 +654,13 @@ Decisions (each the more robust or more configurable option):
   them); postponed and TBD ones are `TENTATIVE`. Feeds follow the **current** season, so one subscription lasts
   season after season; between seasons a feed is empty rather than a 404, so calendar apps keep it. Clients are asked
   to refresh every 6 hours.
-- **Old enrolment pages → `/enrol`:** `/2023-enrolment`, `/2021-interest-in-playing`, `/new-player(-2023)`,
-  `/new-team-group(-2023)`, `/returning-player` and `/returning-team` are `manual` redirects written by the importer
-  (`ENROL_REDIRECTS` in `src/lib/wp-import/routes.ts`), never overwriting one Michael has edited. They take over as
-  soon as each page is archived (a published page always wins over a redirect). The content map archived the five
-  2020–2022 ones; `/2023-enrolment` and the two 2026 forms wait until `/enrol` is live (docs/content-map.md).
+- **Old sign-up pages → `/interest`** (docs/interest.md; they were `/enrol` until the EOI overhaul): `/2023-enrolment`,
+  `/2021-interest-in-playing`, `/new-player(-2023)`, `/new-team-group(-2023)`, `/returning-player` and
+  `/returning-team` are `manual` redirects written by the importer (`INTEREST_REDIRECTS` in
+  `src/lib/wp-import/routes.ts`), never overwriting one Michael has edited; the content map repoints rows an earlier
+  run aimed at `/enrol` while nobody has edited them. They take over as soon as each page is archived (a published
+  page always wins over a redirect). The content map archived the five 2020–2022 ones; `/2023-enrolment` and the two
+  2026 forms wait until the EOI form is live (docs/content-map.md).
 - **Cache tags** match the purge helpers: programme pages carry `programme:<slug>` (+ `league:<slug>`),
   `category:<slug>` (the breadcrumb), `venues` and `page:<path>` (which the enrolment admin purges); category pages
   `category:<slug>`, `programmes`, `venues`; `/enrol` `page:/enrol`, `programmes`, `venues`; fixture lists and feeds

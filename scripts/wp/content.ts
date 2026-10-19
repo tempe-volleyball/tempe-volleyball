@@ -5,8 +5,8 @@ import type { LeagueCode } from '../../src/server/db/schema/enums'
 import { EMBED_HOSTS, safeEmbedSrc } from '../../src/lib/content/render'
 import { rewriteUploads, type ResolvedMedia } from '../../src/lib/wp-import/html'
 import {
-  ENROL_REDIRECTS,
-  ENROL_ROUTE,
+  INTEREST_REDIRECTS,
+  INTEREST_ROUTE,
   LEAGUES_ROUTE,
   NEWS_ROUTE,
   ROUTE_PAGES,
@@ -245,15 +245,15 @@ export function buildContent(
 }
 
 /**
- * Redirects we decided on rather than derived from WordPress (the old enrolment pages -> /enrol). Written with
+ * Redirects we decided on rather than derived from WordPress (the old sign-up pages -> /interest). Written with
  * source 'manual' so they behave like ones Michael made: an import only (re)writes a row that is still the
  * importer's, never one that has been edited (see import-wp.ts).
  */
 export function manualRedirects(): Row[] {
-  return ENROL_REDIRECTS.map((from) => ({
+  return INTEREST_REDIRECTS.map((from) => ({
     id: stableId('redirect', from),
     from_path: from,
-    to_path: ENROL_ROUTE,
+    to_path: INTEREST_ROUTE,
     status: 301,
     source: 'manual',
   }))

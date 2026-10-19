@@ -220,6 +220,7 @@ describe('applying it to an imported site', () => {
     const privacy = await db.select().from(pages).where(eq(pages.path, '/privacy')).get()
     expect(privacy).toMatchObject({ status: 'draft', title: 'Privacy policy', updatedBy: null })
     expect(privacy!.body.html).toContain('365 days')
+    expect(privacy!.body.html).toContain('Expressions of interest')
     for (const r of REDIRECT_FIXES) expect((await lookupPath(db, r.from)).redirect).toMatchObject({ toPath: r.to, status: 301 })
 
     ;({ db, sqlite } = createTestDb())
@@ -254,6 +255,18 @@ describe('applying it to an imported site', () => {
       expect(found.redirect?.toPath).toBe(r.to)
     }
     expect(LATER_REDIRECTS.map((r) => r.to)).toContain(draftPath(DRAFT_PROGRAMMES[0]!))
+  })
+
+  it('repoints the old sign-up redirects from /enrol to /interest, unless Michael saved one', async () => {
+    await db.insert(user).values({ id: 'u-edit', name: 'Michael', email: 'm@example.com', emailVerified: true, role: 'owner' })
+    await db.insert(redirects).values([
+      { fromPath: '/new-player-2023', toPath: '/enrol', source: 'manual' },
+      { fromPath: '/2023-enrolment', toPath: '/enrol', source: 'manual', updatedBy: 'u-edit' },
+    ])
+    run()
+    for (const from of ['/2021-interest-in-playing', '/new-player', '/new-player-2023'])
+      expect((await db.select().from(redirects).where(eq(redirects.fromPath, from)).get())?.toPath).toBe('/interest')
+    expect((await db.select().from(redirects).where(eq(redirects.fromPath, '/2023-enrolment')).get())?.toPath).toBe('/enrol')
   })
 
   it('changes nothing the second time', () => {

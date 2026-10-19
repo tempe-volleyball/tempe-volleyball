@@ -2,8 +2,8 @@ import { checkPagePath } from '../content/paths'
 import { FIXTURE_LIST_ROUTE } from '../fixture-lists'
 import { describe, expect, it } from 'vitest'
 import {
-  ENROL_REDIRECTS,
-  ENROL_ROUTE,
+  INTEREST_REDIRECTS,
+  INTEREST_ROUTE,
   leagueDataPageTarget,
   normalisePath,
   pagePath,
@@ -118,13 +118,13 @@ describe('isAutoExcerpt', () => {
   })
 })
 
-describe('ENROL_REDIRECTS', () => {
-  it('lists normalised, unreserved paths that all go to /enrol', () => {
-    expect(ENROL_ROUTE).toBe('/enrol')
-    for (const p of ENROL_REDIRECTS) {
+describe('INTEREST_REDIRECTS', () => {
+  it('lists normalised, unreserved paths that all go to /interest', () => {
+    expect(INTEREST_ROUTE).toBe('/interest')
+    for (const p of INTEREST_REDIRECTS) {
       expect(normalisePath(p)).toBe(p)
       expect(checkPagePath(p)).toEqual({ ok: true, path: p })
     }
-    expect(new Set(ENROL_REDIRECTS).size).toBe(ENROL_REDIRECTS.length)
+    expect(new Set(INTEREST_REDIRECTS).size).toBe(INTEREST_REDIRECTS.length)
   })
 })
