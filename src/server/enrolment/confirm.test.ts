@@ -268,7 +268,7 @@ describe('email confirmation before a spot is held', () => {
     const later = new Date(NOW.getTime() + 25 * HOUR)
     s.setClock(later)
     const result = await runJobs(s.db, s.mailer, later, { enrolment: { secret: SECRET, siteUrl: SITE } })
-    expect(result.housekeeping).toEqual({ pendingExpired: 1, unconfirmedPruned: 0, emailsPruned: 0, messagesPruned: 0 })
+    expect(result.housekeeping).toEqual({ pendingExpired: 1, unconfirmedPruned: 0, emailsPruned: 0, messagesPruned: 0, interestsPruned: 0 })
     const statuses = Object.fromEntries((await regs(s)).map((r) => [r.id, r.status]))
     expect(statuses[r1.id]).toBe('confirmed')
     expect(statuses[r2.id]).toBe('pending_email')
@@ -560,7 +560,13 @@ describe('the hourly cron', () => {
     expect(s.stats.queries).toBeLessThanOrEqual(35)
     withinLimits(s.stats)
     expect(result.enrolment).toMatchObject({ expired: 1, offered: 1 })
-    expect(result.housekeeping).toEqual({ pendingExpired: 3, unconfirmedPruned: 0, emailsPruned: 20, messagesPruned: 0 })
+    expect(result.housekeeping).toEqual({
+      pendingExpired: 3,
+      unconfirmedPruned: 0,
+      emailsPruned: 20,
+      messagesPruned: 0,
+      interestsPruned: 0,
+    })
     expect(result.invitesExpired).toBe(1)
     expect(result.rateLimitsPruned).toBeGreaterThan(0)
     expect(result.email).toMatchObject({ sent: 5 })

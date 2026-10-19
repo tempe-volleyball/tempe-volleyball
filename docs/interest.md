@@ -145,8 +145,16 @@ way (the more robust or configurable option each time):
 
 - **Rosters: done (2026-10-20, branch eoi-rosters).** Season → Setup → Teams: Add all of last season's teams,
   Returning teams, Team EOIs, rosters with captain / move / replace / reorder, the player picker, counts and the CSV
-  (docs/admin.md §3.16, docs/api/rosters.md). Choices made where this record was open: rosters are admin-only on
+  (docs/admin.md §3.17, docs/api/rosters.md). Choices made where this record was open: rosters are admin-only on
   reads too; editable on archived seasons as well as published; one team per season (the admin offers "Move");
   retired players aren't copied with a roster; any open individual EOI is placed when its player joins a team,
   however they were picked; "New season" copying the latest copies its rosters too; a team EOI whose team is already
   in the season can add its members to that roster.
+
+## Status: admin side done (2026-10-20)
+
+- **Admin side: done** (2026-10-20, branch `eoi-admin`; docs/admin.md §3.16): Admin → Interest (inbox, EOI page,
+  "Add EOI", "Use these details", deposits, statuses, archive, delete, CSV, retention prune), Admin → Players
+  (Competition and Training, groups, player page, add, edit, retire, merge, delete, CSV), the programme Sign-ups tab,
+  Settings → Interest and the dashboard. APIs: [api/interest-admin.md](api/interest-admin.md),
+  [api/players.md](api/players.md).

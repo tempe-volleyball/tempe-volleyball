@@ -7,9 +7,13 @@ describe('admin navigation', () => {
     expect(editor).not.toContain('Enrolments')
     expect(editor).not.toContain('Forms')
     expect(editor).not.toContain('Admin users')
+    expect(editor).not.toContain('Interest')
+    expect(editor).not.toContain('Players')
     expect(editor).toContain('Security')
     const owner = navFor({ role: 'owner', canManageUsers: true }).flatMap((g) => g.items.map((i) => i.label))
-    expect(owner).toEqual(expect.arrayContaining(['Enrolments', 'Forms', 'Admin users', 'Audit log']))
+    expect(owner).toEqual(expect.arrayContaining(['Enrolments', 'Forms', 'Admin users', 'Audit log', 'Interest', 'Players']))
+    const admin = navFor({ role: 'admin', canManageUsers: false })
+    expect(admin.find((g) => g.label === 'Players')?.items.map((i) => i.label)).toEqual(['Interest', 'Players'])
   })
 
   it('finds the section for nested locations', () => {
@@ -18,6 +22,9 @@ describe('admin navigation', () => {
     expect(navItemFor('/seasons/abc/results')?.group?.label).toBe('Competition')
     expect(navItemFor('/training/x/details')?.item.label).toBe('Training')
     expect(navItemFor('/enrolments/season/x')?.group?.label).toBe('Programmes & enrolment')
+    expect(navItemFor('/interest/abc')?.item.label).toBe('Interest')
+    expect(navItemFor('/players/training/abc')?.item.label).toBe('Players')
+    expect(navItemFor('/players/competition')?.group?.label).toBe('Players')
     expect(navItemFor('/nowhere')).toBeNull()
     // A prefix must end at a path segment: /newsletter isn't News.
     expect(navItemFor('/newsletter')).toBeNull()

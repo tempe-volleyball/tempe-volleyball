@@ -73,7 +73,7 @@ function ProgrammeTable({ rows, kind }: { rows: ProgrammeListItem[]; kind: Progr
               <th className="pr-3 pb-2 font-semibold">Category</th>
               <th className="pr-3 pb-2 font-semibold">When and where</th>
               <th className="pr-3 pb-2 font-semibold">{cfg.instancesTab.label}</th>
-              <th className="pr-3 pb-2 font-semibold">Enrolment</th>
+              <th className="pr-3 pb-2 font-semibold">Sign-ups</th>
               <th className="pb-2 font-semibold">Status</th>
             </tr>
           </thead>
@@ -96,7 +96,18 @@ function ProgrammeTable({ rows, kind }: { rows: ProgrammeListItem[]; kind: Progr
                   {p.instances}
                   {p.generated.nextInstanceDate && <div className="text-xs text-black/60">next {p.generated.nextInstanceDate}</div>}
                 </td>
-                <td className="py-2 pr-3">{p.enrolmentOpenNow ? 'Open' : p.enrolmentOpen ? 'Scheduled' : 'Closed'}</td>
+                <td className="py-2 pr-3">
+                  {p.generated.signupMode === 'interest'
+                    ? p.interestOpen
+                      ? 'Interest'
+                      : 'Interest off'
+                    : p.enrolmentOpenNow
+                      ? 'Open'
+                      : p.enrolmentOpen
+                        ? 'Scheduled'
+                        : 'Closed'}
+                  {p.generated.signupMode === 'interest' && <div className="text-xs text-black/60">expressions of interest</div>}
+                </td>
                 <td className="py-2">
                   <StatusBadge status={p.status} />
                   {!p.menuVisible && <div className="text-xs text-black/60">hidden from menu</div>}

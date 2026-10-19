@@ -135,3 +135,12 @@ export function programmeLineSource(
     summaryLine: p.summaryLine?.trim() ?? '',
   }
 }
+
+/**
+ * The generated line of an interest-mode programme's join section (docs/interest.md), shown when
+ * leagues.interest_text is empty: the next start, when known, then the invitation.
+ */
+export function generatedInterestLine(nextStarts: string): string {
+  const invite = 'Tell us you’re interested, on your own or as a team, and we’ll be in touch.'
+  return nextStarts ? `${nextStarts}. ${invite}` : invite
+}

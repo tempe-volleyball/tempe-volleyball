@@ -39,7 +39,11 @@ the server like page bodies), `summaryLine` (null = generated), `moreInfoUrl` (p
 `ageMin`, `ageMax`, `seoTitle`, `seoDescription`, `imageId`, and enrolment: `enrolmentOpen`, `enrolmentOpensAt`,
 `enrolmentClosesAt` (UTC ISO; the admin converts from Sydney time with `sydneyToUtc`), `nextStartsOn`,
 `nextStartsText`, `enrolmentFormId`, `capTeams`, `capPlayers`, `priceCents`, `allowTeamEntries`, `allowFreeAgents`,
-`waitlistEnabled`, `waitlistOfferHours`.
+`waitlistEnabled`, `waitlistOfferHours`, and sign-ups (docs/interest.md): `signupMode` (`'interest'` |
+`'enrolment'`; `null` or `''` = the kind's default, `defaultSignupMode()`), `interestOpen`, `depositPlayerCents`,
+`depositTeamCents` (AUD cents, null = no deposit) and `interestText` (≤ 500, null = generated). Enrolment and sign-up
+changes alone are audited as `programme.enrolment` and purge like other non-listing fields (the programme's page, its
+category pages, every programme listing and the pages whose blocks use it).
 
 Rules:
 
@@ -72,6 +76,9 @@ type ProgrammeView = {
     generatedSchedule: string
     nextStarts: string // "Next season starts Thursday 14 January 2027", the override text, or ''
     nextInstanceDate: string | null
+    signupMode: 'interest' | 'enrolment' // effective (the row's, else the kind's default)
+    defaultSignupMode: 'interest' | 'enrolment'
+    interestLine: string // the join section's generated line (generatedInterestLine in src/lib/programme-text.ts)
   }
   enrolmentOpenNow: boolean // enrolmentOpen() from src/lib/programmes.ts, programme-level
   history: { seasons; sessions; terms; events; products; menuItems: { id; label }[]; pages: { id; title; path }[] }
