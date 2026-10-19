@@ -1,12 +1,13 @@
 import { and, asc, count, eq, gte, inArray, isNull, min, ne, or } from 'drizzle-orm'
 import { slugify } from '../../lib/content/paths'
-import { generatedSummaryLine, nextStartsLine, scheduleText, summaryLine } from '../../lib/programme-text'
+import { generatedInterestLine, generatedSummaryLine, nextStartsLine, scheduleText, summaryLine } from '../../lib/programme-text'
 import { enrolmentOpen, isReservedProgrammeSlug, programmePath } from '../../lib/programmes'
 import { sydneyDate } from '../../lib/time'
 import { tags, type PurgeTargets } from '../cache'
 import { runBatch, type AppDb } from '../db'
 import {
   categories,
+  defaultSignupMode,
   developmentTerms,
   enrolmentForms,
   events,
@@ -20,12 +21,14 @@ import {
   programmeSessions,
   PROGRAMME_CODE_PATTERN,
   seasons,
+  signupModes,
   venues,
   type Category,
   type NewProgramme,
   type Programme,
   type ProgrammeKind,
   type ProgrammeStatus,
+  type SignupMode,
   type Venue,
 } from '../db/schema'
 import {
@@ -84,6 +87,7 @@ export const PROGRAMME_LIMITS = {
   priceCents: 10_000_000,
   offerHours: 720,
   age: 99,
+  interestText: 500,
 } as const
 
 export const KIND_LABEL: Record<ProgrammeKind, string> = {
@@ -165,6 +169,11 @@ export type ProgrammeGenerated = {
   nextStarts: string
   /** The next season/session/term/event start date found, if any. */
   nextInstanceDate: string | null
+  /** How it takes sign-ups now (signupMode, else the kind's default), and that default. */
+  signupMode: SignupMode
+  defaultSignupMode: SignupMode
+  /** The join section's generated line (what shows when interestText is empty). */
+  interestLine: string
 }
 
 export type ProgrammeListItem = Omit<Programme, 'description'> & {
@@ -186,6 +195,9 @@ export function generatedFor(p: Programme, venue: VenueRef | null, nextInstanceD
     generatedSchedule: scheduleText({ ...p, scheduleLabel: null }),
     nextStarts: nextStartsLine(p, nextInstanceDate),
     nextInstanceDate,
+    signupMode: p.signupMode ?? defaultSignupMode(p.kind),
+    defaultSignupMode: defaultSignupMode(p.kind),
+    interestLine: generatedInterestLine(nextStartsLine(p, nextInstanceDate)),
   }
 }
 
@@ -350,8 +362,13 @@ export async function getProgramme(db: AppDb, id: string, now = new Date()): Pro
 
 export type ProgrammeInput = Record<string, unknown>
 
-/** Fields that only change enrolment (audited as programme.enrolment). */
+/** Fields that only change sign-ups: enrolment and expressions of interest (audited as programme.enrolment). */
 const ENROLMENT_FIELDS = [
+  'signupMode',
+  'interestOpen',
+  'depositPlayerCents',
+  'depositTeamCents',
+  'interestText',
   'enrolmentOpen',
   'enrolmentOpensAt',
   'enrolmentClosesAt',
@@ -442,6 +459,16 @@ export function parseProgrammeFields(input: ProgrammeInput): Patch {
   if (has(input, 'allowFreeAgents')) out.allowFreeAgents = bool(input.allowFreeAgents, 'Free agents')
   if (has(input, 'waitlistEnabled')) out.waitlistEnabled = bool(input.waitlistEnabled, 'Waitlist')
   if (has(input, 'waitlistOfferHours')) out.waitlistOfferHours = int(input.waitlistOfferHours, 'Offer time (hours)', 1, L.offerHours)
+  // Sign-ups (docs/interest.md): null mode = the kind's default.
+  if (has(input, 'signupMode')) {
+    const m = input.signupMode === '' ? null : input.signupMode
+    if (m !== null && !(signupModes as readonly unknown[]).includes(m)) throw invalid('Sign-ups: expressions of interest or enrolment.')
+    out.signupMode = m as SignupMode | null
+  }
+  if (has(input, 'interestOpen')) out.interestOpen = bool(input.interestOpen, 'Taking expressions of interest')
+  if (has(input, 'depositPlayerCents')) out.depositPlayerCents = intOrNull(input.depositPlayerCents, 'Player deposit', 0, L.priceCents)
+  if (has(input, 'depositTeamCents')) out.depositTeamCents = intOrNull(input.depositTeamCents, 'Team deposit', 0, L.priceCents)
+  if (has(input, 'interestText')) out.interestText = optionalText(input.interestText, 'The join section text', L.interestText)
   // Null = automatic (on when capped), true = always, false = never.
   if (has(input, 'enrolmentEmailConfirm'))
     out.enrolmentEmailConfirm = input.enrolmentEmailConfirm === null ? null : bool(input.enrolmentEmailConfirm, 'Email confirmation')

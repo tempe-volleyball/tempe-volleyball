@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { createTestDb, type QueryStats, type TestDb } from './db/testing'
 import { user, leagues, matchDays, matches, matchResults, pageRevisions, pages, posts, seasons, teams } from './db/schema'
 import { loadDashboard, type DashboardEnv } from './dashboard'
+import { createInterest, emptyDetails } from './players/core'
 
 // The admin home page's data (docs/admin.md §4).
 
@@ -173,6 +174,28 @@ describe('loadDashboard', () => {
     expect(e.setup).toEqual([])
     expect(e.enrolment).toBeNull()
     expect(e.recent).toBeNull()
+    expect(e.interest).toBeNull()
     expect(e.upcoming).toHaveLength(1)
+  })
+
+  it('counts new expressions of interest per programme for admins', async () => {
+    expect((await loadDashboard(db, env(), NOW)).interest).toEqual({ newCount: 0, programmes: [] })
+    const leagueId = (await db.select({ id: leagues.id }).from(leagues).get())!.id
+    await createInterest(db, {
+      kind: 'player',
+      pool: 'competition',
+      teamName: null,
+      members: [emptyDetails('Sam', 'Lee', 'sam@example.com')],
+      programmeIds: [leagueId],
+      answers: {},
+      formId: null,
+      formVersion: null,
+      depositCents: null,
+      source: 'public',
+      now: NOW,
+    })
+    const d = await loadDashboard(db, env(), NOW)
+    expect(d.interest?.newCount).toBe(1)
+    expect(d.interest?.programmes).toEqual([expect.objectContaining({ id: leagueId, new: 1, open: 1 })])
   })
 })
