@@ -124,7 +124,7 @@ beforeEach(async () => {
   })
   await db
     .insert(products)
-    .values({ id: 'prod', kind: 'session', name: 'Tue session', slug: 'tue', priceCents: 1000, programmeId: 'train' })
+    .values({ id: 'prod', kind: 'training_session', name: 'Tue session', slug: 'tue', priceCents: 1000, programmeId: 'train' })
   await db.insert(registrations).values({ id: 'r-tom', productId: 'prod', playerId: 'tom', reference: 'TVB-2345', status: 'confirmed' })
 })
 
@@ -246,8 +246,8 @@ describe('merge', () => {
       .insert(players)
       .values(comp('ana2', 'Ana', 'Cruz', { email: 'ana.cruz@example.com', phone: '0400 111 222', notes: 'Prefers Thursdays' }))
     await db.insert(products).values([
-      { id: 'p-tnl', kind: 'season', name: 'TNL Q4', slug: 'tnl-q4', priceCents: 0, programmeId: 'tnl', seasonId: 'tnl4' },
-      { id: 'p-fnl', kind: 'season', name: 'FNL Q4', slug: 'fnl-q4', priceCents: 0, programmeId: 'fnl', seasonId: 'fnl4' },
+      { id: 'p-tnl', kind: 'season_entry', name: 'TNL Q4', slug: 'tnl-q4', priceCents: 0, programmeId: 'tnl', seasonId: 'tnl4' },
+      { id: 'p-fnl', kind: 'season_entry', name: 'FNL Q4', slug: 'fnl-q4', priceCents: 0, programmeId: 'fnl', seasonId: 'fnl4' },
     ])
     await db.insert(registrations).values([
       { id: 'r-keep', productId: 'p-tnl', playerId: 'ana', reference: 'TVB-AAAA', status: 'confirmed' },

@@ -27,6 +27,14 @@ export const NAV: NavGroup[] = [
     ],
   },
   {
+    // Expressions of interest and the player records (docs/interest.md): personal data, admins and owners only.
+    label: 'Players',
+    items: [
+      { href: '/interest', label: 'Interest', only: 'admin' },
+      { href: '/players', label: 'Players', only: 'admin' },
+    ],
+  },
+  {
     label: 'Programmes & enrolment',
     items: [
       { href: '/training', label: 'Training' },

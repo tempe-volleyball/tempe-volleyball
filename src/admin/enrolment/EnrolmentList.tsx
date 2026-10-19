@@ -2,10 +2,14 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'wouter'
 import { formatDate, TARGET_LABELS } from '../../lib/enrolment/targets'
 import { api, type TargetSummary } from '../api'
+import type { InterestOptions } from '../../server/interest/admin'
+import { inboxHref } from '../interest/events'
 import { Skeleton, Card, Notice, Select, errorMessage } from '../ui'
 
 // Admin → Enrolments: every season, training session, development term and event that takes enrolments, with its
-// counts against its caps. Admin and owner only (personal data behind every row).
+// counts against its caps. Admin and owner only (personal data behind every row). Programmes that take expressions
+// of interest instead (docs/interest.md: leagues and events by default) are listed with a link to their inbox, and
+// their seasons are hidden unless asked for (they may still have enrolments from before the switch).
 
 const KIND_LABELS = { league: 'Leagues', training: 'Training', development: 'Development', event: 'Events' } as const
 
@@ -42,6 +46,22 @@ export function EnrolmentList() {
   const [kind, setKind] = useState('')
   const [programme, setProgramme] = useState('')
   const [q, setQ] = useState('')
+  const [interestIds, setInterestIds] = useState<Map<string, { code: string; name: string; open: number }>>(new Map())
+  const [showInterest, setShowInterest] = useState(false)
+
+  useEffect(() => {
+    void api<InterestOptions>('/api/admin/interest/options').then(
+      (r) =>
+        setInterestIds(
+          new Map(
+            r.programmes
+              .filter((p) => p.signupMode === 'interest' && p.status !== 'retired')
+              .map((p) => [p.id, { code: p.code, name: p.name, open: p.counts.new + p.counts.contacted }]),
+          ),
+        ),
+      () => undefined,
+    )
+  }, [])
 
   useEffect(() => {
     void api<{ targets: TargetSummary[] }>(`/api/admin/enrolment/targets${all ? '?all=1' : ''}`)
@@ -57,6 +77,7 @@ export function EnrolmentList() {
 
   const shown = (targets ?? []).filter(
     (t) =>
+      (showInterest || programme === t.programme.id || !interestIds.has(t.programme.id)) &&
       (!kind || t.programme.kind === kind) &&
       (!programme || t.programme.id === programme) &&
       (!q || `${t.programme.name} ${t.programme.code} ${t.label}`.toLowerCase().includes(q.toLowerCase())),
@@ -85,6 +106,27 @@ export function EnrolmentList() {
         </Link>
       </div>
       {error && <Notice kind="error">{error}</Notice>}
+      {interestIds.size > 0 && (
+        <Notice>
+          <span className="block">
+            These take expressions of interest instead of enrolments; see them in Admin → Interest:{' '}
+            {[...interestIds].map(([id, p], i) => (
+              <span key={id}>
+                {i > 0 && ', '}
+                <Link href={inboxHref({ programmeId: id })} className="text-brand font-semibold underline">
+                  {p.code}
+                </Link>
+                {p.open > 0 && <span className="text-black/70"> ({p.open} open)</span>}
+              </span>
+            ))}
+            . Switch one to enrolment on its Sign-ups tab.
+          </span>
+          <label className="mt-2 flex items-center gap-2">
+            <input type="checkbox" checked={showInterest} onChange={(e) => setShowInterest(e.target.checked)} />
+            Show their seasons here too (enrolments from before the switch)
+          </label>
+        </Notice>
+      )}
       <Card>
         <div className="grid gap-3 sm:grid-cols-4">
           <label className="block sm:col-span-2">
@@ -158,7 +200,13 @@ export function EnrolmentList() {
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap">{t.startsOn ? formatDate(t.startsOn) : ''}</td>
                   <td className="px-3 py-2">
-                    <OpenBadge open={t.open} status={t.status} />
+                    {interestIds.has(t.programme.id) ? (
+                      <Link href={inboxHref({ programmeId: t.programme.id })} className="text-brand text-xs font-semibold underline">
+                        Takes expressions of interest
+                      </Link>
+                    ) : (
+                      <OpenBadge open={t.open} status={t.status} />
+                    )}
                   </td>
                   <td className="px-3 py-2">
                     <Fill n={t.counts.players} cap={t.caps.players} />

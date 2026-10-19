@@ -350,7 +350,7 @@ describe('one EOI', () => {
     })
     // Lou has since enrolled somewhere: kept.
     const lou = r.members[2]!.playerId
-    await db.insert(products).values({ id: 'prod', kind: 'season', name: 'x', slug: 'x', priceCents: 0, programmeId: 'tnl' })
+    await db.insert(products).values({ id: 'prod', kind: 'season_entry', name: 'x', slug: 'x', priceCents: 0, programmeId: 'tnl' })
     await db.insert(registrations).values({ id: 'reg', productId: 'prod', playerId: lou, reference: 'TVB-2345', status: 'confirmed' })
     const res = await deleteInterests(db, admin, [r.id], {}, NOW)
     expect(res).toEqual({ deleted: 1, playersDeleted: 1 })

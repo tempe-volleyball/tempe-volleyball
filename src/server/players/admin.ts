@@ -32,7 +32,8 @@ import {
 } from '../db/schema'
 import { audit, auditEntry, conflict, invalid, likeEscaped, likePattern, notFound, optionalText, type Editor } from '../content/common'
 import { HttpError } from '../http'
-import { joinTargetRows, labelOfRow, targetLabelColumns } from '../enrolment/core'
+import { joinTargetRows, labelOfRow, refOfProduct, targetLabelColumns } from '../enrolment/core'
+import type { TargetRef } from '../../lib/enrolment/targets'
 import { competitionDirectory, type DirectoryPlayer, type RosterSpot } from './directory'
 
 // Admin → Players (docs/interest.md "Players", docs/admin.md §3.16, docs/api/players.md): competition and training
@@ -332,6 +333,8 @@ export type PlayerDetail = {
     amountCents: number | null
     paidAt: string | null
     createdAt: string
+    /** Its season, session, term or event (Admin → Enrolments → /enrolments/<kind>/<id>). */
+    target: TargetRef | null
   }[]
   rosters: (RosterSpot & { role: RosterRole; leagueName: string })[]
   captainOf: { groupId: string; name: string }[]
@@ -343,9 +346,9 @@ export type PlayerDetail = {
 const updatedByUser = alias(user, 'player_updated_by')
 const auditActor = alias(user, 'player_audit_actor')
 
-/** A player with every EOI, enrolment and roster spot: one batch of six reads. */
+/** A player with every EOI, enrolment and roster spot: one batch of eight reads. */
 export async function getPlayer(db: AppDb, id: string): Promise<PlayerDetail> {
-  const [rows, eois, progs, regs, spots, captains, history] = (await runBatch(db, [
+  const [rows, eois, progs, regs, spots, captains, regCount, history] = (await runBatch(db, [
     db
       .select({ p: players, updatedByName: sql<string | null>`${updatedByUser.name}`.as('updated_by_name') })
       .from(players)
@@ -390,6 +393,11 @@ export async function getPlayer(db: AppDb, id: string): Promise<PlayerDetail> {
           amountCents: registrations.amountCents,
           paidAt: registrations.paidAt,
           createdAt: registrations.createdAt,
+          // Aliased: D1 batch rows are keyed by column name.
+          seasonId: sql<string | null>`${products.seasonId}`.as('t_season_id'),
+          sessionId: sql<string | null>`${products.sessionId}`.as('t_session_id'),
+          termId: sql<string | null>`${products.termId}`.as('t_term_id'),
+          eventId: sql<string | null>`${products.eventId}`.as('t_event_id'),
           ...targetLabelColumns,
         })
         .from(registrations)
@@ -422,6 +430,10 @@ export async function getPlayer(db: AppDb, id: string): Promise<PlayerDetail> {
       .orderBy(desc(seasons.startDate)),
     db.select({ groupId: groups.id, name: groups.name }).from(groups).where(eq(groups.captainPlayerId, id)).limit(100),
     db
+      .select({ n: sql<number>`count(*)` })
+      .from(registrations)
+      .where(eq(registrations.playerId, id)),
+    db
       .select({
         at: auditLog.at,
         action: auditLog.action,
@@ -437,9 +449,16 @@ export async function getPlayer(db: AppDb, id: string): Promise<PlayerDetail> {
     { p: Player; updatedByName: string | null }[],
     Omit<PlayerDetail['interests'][number], 'programmes'>[],
     { interestId: string; programmeId: string; code: string; status: InterestStatus }[],
-    (Omit<PlayerDetail['enrolments'][number], 'label'> & Parameters<typeof labelOfRow>[0])[],
+    (Omit<PlayerDetail['enrolments'][number], 'label' | 'target'> &
+      Parameters<typeof labelOfRow>[0] & {
+        seasonId: string | null
+        sessionId: string | null
+        termId: string | null
+        eventId: string | null
+      })[],
     PlayerDetail['rosters'],
     PlayerDetail['captainOf'],
+    { n: number }[],
     PlayerDetail['history'],
   ]
   const row = rows[0]
@@ -462,11 +481,17 @@ export async function getPlayer(db: AppDb, id: string): Promise<PlayerDetail> {
       amountCents: r.amountCents,
       paidAt: r.paidAt,
       createdAt: r.createdAt,
+      target: refOfProduct(r),
     })),
     rosters: spots,
     captainOf: captains,
     history,
-    references: { registrations: regs.length, interests: eois.length, rosters: spots.length, captainOf: captains.length },
+    references: {
+      registrations: Number(regCount[0]?.n ?? regs.length),
+      interests: eois.length,
+      rosters: spots.length,
+      captainOf: captains.length,
+    },
   }
 }
 
