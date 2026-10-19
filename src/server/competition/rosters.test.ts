@@ -181,6 +181,32 @@ describe('roster changes', () => {
     await rejects(changeRoster(db, admin, id, { action: 'remove', teamId: aces, playerId: 'p2' }), 404)
   })
 
+  it('adds a team EOI’s members to a team already in the season and places the EOI', async () => {
+    const id = next.season.id
+    const eoi = await createInterest(db, {
+      kind: 'team',
+      pool: 'competition',
+      teamName: 'aces',
+      members: [emptyDetails('Cap', 'Tain', 'cap@example.com'), emptyDetails('Mem', 'Ber', 'mem@example.com')],
+      programmeIds: ['tnl'],
+      answers: {},
+      formId: null,
+      formVersion: null,
+      depositCents: null,
+      source: 'public',
+      now: at(4),
+    })
+    const v = await changeRoster(
+      db,
+      admin,
+      id,
+      { action: 'add', teamId: aces, playerIds: eoi.members.map((m) => m.playerId), interestId: eoi.id },
+      at(5),
+    )
+    expect(names(v).Aces).toEqual(['Cap', 'Mem'])
+    expect(await db.select().from(interestProgrammes).get()).toMatchObject({ status: 'placed', seasonId: id, teamId: aces })
+  })
+
   it('works on a published season (rosters never touch the draw)', async () => {
     const v = await changeRoster(
       db,

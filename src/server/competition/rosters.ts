@@ -593,6 +593,8 @@ export type RosterChangeInput = {
   newPlayer?: unknown
   captain?: unknown
   move?: unknown
+  /** add: the team EOI these players came from (its programme row for this league becomes placed in this team). */
+  interestId?: unknown
 }
 export type RosterChangeResult = RosterView & {
   /** What happened, for the toast: "Added 3 players". */
@@ -767,6 +769,8 @@ export async function changeRoster(
 
   if (action === 'add' || action === 'replace') {
     const move = input.move === true
+    const teamInterest =
+      action === 'add' && input.interestId !== undefined && input.interestId !== null ? idOf(input.interestId, 'EOI') : null
     let ids: string[]
     let fresh: MemberDetails[]
     if (action === 'add') {
@@ -838,6 +842,20 @@ export async function changeRoster(
               base,
               adding.map((p) => ({ playerId: p.id, teamId })),
             ),
+          ]
+        : []),
+      ...(teamInterest
+        ? [
+            db
+              .update(interestProgrammes)
+              .set({ status: 'placed', seasonId, teamId, updatedAt: at, updatedBy: actor.id })
+              .where(
+                and(
+                  eq(interestProgrammes.interestId, teamInterest),
+                  eq(interestProgrammes.programmeId, ctx.season.leagueId),
+                  sql`${interestProgrammes.interestId} in (select ${interests.id} from ${interests} where ${interests.kind} = 'team')`,
+                ),
+              ),
           ]
         : []),
     )

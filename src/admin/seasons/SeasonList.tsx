@@ -179,7 +179,7 @@ export function CreateSeasonDialog({ league, onCancel }: { league: LeagueListIte
           hint={`Leave blank for the first ${WEEKDAYS[league.weekday]} of the quarter. You can change it in the setup.`}
         />
         <Select label="Start from" value={copy} onChange={(e) => setCopy(e.target.value)}>
-          {latest && <option value="latest">A copy of {latest.name}: its teams and settings</option>}
+          {latest && <option value="latest">A copy of {latest.name}: its teams (with their rosters) and settings</option>}
           <option value="blank">Blank: no teams, the league's default format</option>
         </Select>
         {copy === 'latest' && (

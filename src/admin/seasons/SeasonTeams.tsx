@@ -126,7 +126,16 @@ export function TeamsCard({
   const savedTeams = (data?.rosters ?? []).map((r) => ({ id: r.teamId, name: r.teamName }))
   const placed = useMemo(() => placedMap(data?.rosters ?? []), [data])
   const leaving = (data?.rosters ?? []).filter((r) => !inSeason.has(r.teamId) && r.players.length > 0)
-  const openEois = (sources?.interests ?? []).filter((e) => !(e.matchedTeam && inSeason.has(e.matchedTeam.id)))
+  // Team EOIs already used: their team is in the season, or a team in the working copy copies from them.
+  const usedInterests = useMemo(
+    () =>
+      new Set([
+        ...Object.entries(rosterFrom ?? {}).flatMap(([t, f]) => ('interestId' in f && inSeason.has(t) ? [f.interestId] : [])),
+        ...(sources?.interests ?? []).filter((e) => e.matchedTeam && inSeason.has(e.matchedTeam.id)).map((e) => e.interestId),
+      ]),
+    [rosterFrom, inSeason, sources],
+  )
+  const openEois = (sources?.interests ?? []).filter((e) => !usedInterests.has(e.interestId))
 
   const add = (list: { team: Team; from: RosterFrom | null }[]) => {
     const r = addTeams(s.teams, rosterFrom, list)
@@ -199,6 +208,23 @@ export function TeamsCard({
     } finally {
       setEoiBusy(null)
     }
+  }
+
+  /** A team EOI for a team that's already in: its members join the saved roster now, and the EOI becomes placed. */
+  const addEoiMembers = async (e: TeamInterest) => {
+    if (!e.matchedTeam) return
+    setEoiBusy(e.interestId)
+    const team = e.matchedTeam
+    const ok = await change(
+      { action: 'add', teamId: team.id, playerIds: e.members.map((m) => m.playerId), interestId: e.interestId },
+      (r) => `Added ${r.done.added} of ${e.reference}’s members to ${team.name}.`,
+    )
+    setEoiBusy(null)
+    // It's placed now, so it's no longer an open EOI.
+    if (ok)
+      setData((d) =>
+        d ? { ...d, sources: { ...d.sources, interests: d.sources.interests.filter((x) => x.interestId !== e.interestId) } } : d,
+      )
   }
 
   /** Adds teams by name: existing ones by name (any case, with last time's roster), new ones created first. */
@@ -521,7 +547,9 @@ export function TeamsCard({
       {dialog === 'eois' && sources && (
         <TeamEoisDialog
           interests={sources.interests}
-          inSeason={inSeason}
+          used={usedInterests}
+          savedTeam={(e) => (e.matchedTeam && savedRosters.has(e.matchedTeam.id) ? savedRosters.get(e.matchedTeam.id)!.teamName : null)}
+          onAddMembers={(e) => void addEoiMembers(e)}
           busyId={eoiBusy}
           onAdd={(e) => void addEoi(e)}
           onClose={() => setDialog(null)}
@@ -870,7 +898,7 @@ function PlayerMenu({
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
         disabled={disabled}
-        className="flex h-8 w-9 items-center justify-center rounded text-lg leading-none text-black/70 hover:bg-black/5 disabled:opacity-40 pointer-coarse:h-11 pointer-coarse:w-11"
+        className="flex h-8 w-9 items-center justify-center rounded text-xl leading-none font-bold text-black/70 hover:bg-black/5 disabled:opacity-40 pointer-coarse:h-11 pointer-coarse:w-11"
         onClick={() => setOpen((o) => !o)}
       >
         ⋯

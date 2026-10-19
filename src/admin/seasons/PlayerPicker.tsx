@@ -74,6 +74,9 @@ export function PlayerPicker({
   const [showAll, setShowAll] = useState(false)
   const listId = useId()
   const listRef = useRef<HTMLUListElement>(null)
+  // After the Dialog's showModal() (a child's effect runs first): React's autoFocus fires before the dialog is open.
+  const searchRef = useRef<HTMLInputElement>(null)
+  useEffect(() => searchRef.current?.focus(), [])
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([])
   const teamName = teams.find((t) => t.id === teamId)?.name ?? 'the team'
 
@@ -127,7 +130,7 @@ export function PlayerPicker({
             : 'Pick who takes their place.'
           : total === 0
             ? 'Tick the players to add.'
-            : `${total} to add${chosen.some((p) => placed.get(p.id)) ? ' (some move from other teams)' : ''}.`}
+            : `${total} to add${movers(chosen, placed)}.`}
       </span>
       {total > 0 && mode === 'add' && (
         <Button
@@ -156,7 +159,7 @@ export function PlayerPicker({
         {error && <Notice kind="error">{error}</Notice>}
         {mode === 'add' && teams.length > 1 && (
           <label className="flex items-center gap-2 text-sm">
-            <span className="font-semibold">Add to</span>
+            <span className="shrink-0 font-semibold">Add to</span>
             <select className={`${inputClass} w-auto`} value={teamId} onChange={(e) => setTeamId(e.target.value)}>
               {teams.map((t) => (
                 <option key={t.id} value={t.id}>
@@ -167,7 +170,7 @@ export function PlayerPicker({
           </label>
         )}
 
-        <div role="tablist" aria-label="Players" className="-mx-1 flex overflow-x-auto border-b border-black/10">
+        <div role="tablist" aria-label="Players" className="-mx-1 flex overflow-x-auto border-b border-black/10 [scrollbar-width:none]">
           {pickerTabs.map((t, i) => (
             <button
               key={t}
@@ -197,8 +200,8 @@ export function PlayerPicker({
 
         <input
           className={inputClass}
+          ref={searchRef}
           type="search"
-          autoFocus
           placeholder="Search by name, email or phone"
           aria-label="Search players"
           role="combobox"
@@ -385,6 +388,14 @@ function PickerRow({
       </span>
     </li>
   )
+}
+
+/** " (Sam Lee moves from Aces)" for the footer. */
+const movers = (chosen: DirectoryPlayer[], placed: Placed) => {
+  const m = chosen.filter((p) => placed.get(p.id))
+  if (m.length === 0) return ''
+  if (m.length === 1) return ` (${playerName(m[0]!)} moves from ${placed.get(m[0]!.id)!.teamName})`
+  return ` (${m.length} move from other teams)`
 }
 
 export function Badge({ children, tone }: { children: React.ReactNode; tone?: 'brand' | 'accent' }) {

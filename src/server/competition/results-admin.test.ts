@@ -385,16 +385,14 @@ describe('merging teams', () => {
     await db
       .insert(interestMembers)
       .values({ interestId: 'eoi', playerId: 'pb', role: 'captain', details: { firstName: 'Ben', lastName: 'B' } as never })
-    await db
-      .insert(interestProgrammes)
-      .values({
-        interestId: 'eoi',
-        programmeId: 'tnl',
-        status: 'placed',
-        seasonId: second.season.id,
-        teamId: b,
-        createdAt: NOW.toISOString(),
-      })
+    await db.insert(interestProgrammes).values({
+      interestId: 'eoi',
+      programmeId: 'tnl',
+      status: 'placed',
+      seasonId: second.season.id,
+      teamId: b,
+      createdAt: NOW.toISOString(),
+    })
     // A redirect that already led to B's feed (an earlier merge into B).
     await db
       .insert(redirects)

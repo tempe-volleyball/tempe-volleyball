@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { formatWhen, type PreviewPlayer, type RosterSources, type SourceTeam, type TeamInterest } from '../api'
 import { Button, Dialog, EmptyState } from '../ui'
 import { Badge } from './PlayerPicker'
@@ -34,6 +34,8 @@ export function ReturningTeamsDialog({
   onClose: () => void
 }) {
   const [q, setQ] = useState('')
+  const searchRef = useRef<HTMLInputElement>(null)
+  useEffect(() => searchRef.current?.focus(), [])
   const rows = useMemo(() => sources.teams.filter((t) => teamMatches(t.teamName, q)), [sources, q])
   return (
     <Dialog title="Returning teams" onCancel={onClose} wide sheet footer={<CloseFooter onClose={onClose} />}>
@@ -43,8 +45,8 @@ export function ReturningTeamsDialog({
       </p>
       <input
         className={inputClass}
+        ref={searchRef}
         type="search"
-        autoFocus
         placeholder="Search teams"
         aria-label="Search teams"
         value={q}
@@ -103,16 +105,22 @@ export function ReturningTeamsDialog({
 
 export function TeamEoisDialog({
   interests,
-  inSeason,
+  used,
+  savedTeam,
   busyId,
   onAdd,
+  onAddMembers,
   onClose,
 }: {
   interests: TeamInterest[]
-  inSeason: ReadonlySet<string>
+  /** EOIs whose team is in the season already (matched, or added from this EOI). */
+  used: ReadonlySet<string>
+  /** The matched team's name when it's saved in this season (its members can then be added to its roster). */
+  savedTeam: (e: TeamInterest) => string | null
   /** The interest being added (its team is being created). */
   busyId: string | null
   onAdd: (e: TeamInterest) => void
+  onAddMembers: (e: TeamInterest) => void
   onClose: () => void
 }) {
   return (
@@ -126,7 +134,8 @@ export function TeamEoisDialog({
       ) : (
         <ul className="divide-y divide-black/10 rounded border border-black/10">
           {interests.map((e) => {
-            const added = !!e.matchedTeam && inSeason.has(e.matchedTeam.id)
+            const added = used.has(e.interestId)
+            const into = added ? savedTeam(e) : null
             return (
               <li key={e.interestId} className="flex flex-wrap items-start gap-3 px-3 py-3 text-sm">
                 <span className="min-w-0 flex-1">
@@ -150,16 +159,29 @@ export function TeamEoisDialog({
                     {formatWhen(e.createdAt)}
                   </span>
                 </span>
-                <Button
-                  variant="secondary"
-                  className="shrink-0 px-3 py-1.5 text-xs"
-                  disabled={added || (busyId !== null && busyId !== e.interestId)}
-                  busy={busyId === e.interestId}
-                  aria-label={added ? `${e.teamName} is in this season` : `Add team ${e.teamName}`}
-                  onClick={() => onAdd(e)}
-                >
-                  {added ? 'Already in' : 'Add team'}
-                </Button>
+                {into ? (
+                  <Button
+                    variant="secondary"
+                    className="shrink-0 px-3 py-1.5 text-xs"
+                    disabled={busyId !== null}
+                    busy={busyId === e.interestId}
+                    aria-label={`Add ${e.teamName}’s members to ${into}’s roster`}
+                    onClick={() => onAddMembers(e)}
+                  >
+                    Add members to {into}
+                  </Button>
+                ) : (
+                  <Button
+                    variant="secondary"
+                    className="shrink-0 px-3 py-1.5 text-xs"
+                    disabled={added || (busyId !== null && busyId !== e.interestId)}
+                    busy={busyId === e.interestId}
+                    aria-label={added ? `${e.teamName} is in this season` : `Add team ${e.teamName}`}
+                    onClick={() => onAdd(e)}
+                  >
+                    {added ? 'Already in' : 'Add team'}
+                  </Button>
+                )}
               </li>
             )
           })}
