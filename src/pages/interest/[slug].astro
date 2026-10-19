@@ -1,0 +1,11 @@
+---
+// /interest/<programme slug>: the expression-of-interest form with that programme ticked
+// (src/components/interest/InterestPage.astro).
+import InterestPage from '../../components/interest/InterestPage.astro'
+import { interestRoute } from '../../server/interest/route'
+
+const route = await interestRoute(Astro, Astro.params.slug ?? '')
+if (route instanceof Response) return route
+---
+
+<InterestPage {...route} />

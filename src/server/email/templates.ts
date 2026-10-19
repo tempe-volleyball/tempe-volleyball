@@ -328,12 +328,11 @@ const interestRenderers: { [K in Extract<TemplateName, `interest.${string}`>]: (
     const message = d.message
       ? { text: `\n${d.message}\n`, html: `<p style="white-space:pre-wrap">${escapeHtml(d.message)}</p>` }
       : { text: '', html: '' }
-    const what = d.kind === 'team' && d.teamName ? `${d.teamName}'s expression of interest` : 'your expression of interest'
     return {
       subject: `We've got your details (${d.reference})`,
-      text: `Hi ${d.name},\n\nThanks for ${what}. ${d.text}\n\nYour reference is ${d.reference}.\n${pay.text}${message.text}\nWhat you sent:\n${sum.text}\n\n${QUESTIONS}\n\n${IGNORE}\n`,
+      text: `Hi ${d.name},\n\n${d.text}\n\nYour reference is ${d.reference}.\n${pay.text}${message.text}\nWhat you sent:\n${sum.text}\n\n${QUESTIONS}\n\n${IGNORE}\n`,
       html: layout(
-        `<p>Hi ${escapeHtml(d.name)},</p><p>Thanks for ${escapeHtml(what)}. ${escapeHtml(d.text)}</p>` +
+        `<p>Hi ${escapeHtml(d.name)},</p><p style="white-space:pre-wrap">${escapeHtml(d.text)}</p>` +
           `<p>Your reference is <b style="font-size:18px;letter-spacing:1px">${escapeHtml(d.reference)}</b>.</p>${pay.html}${message.html}` +
           `<p style="margin-top:20px"><b>What you sent</b></p>${sum.html}<p style="color:#555;font-size:13px">${QUESTIONS} ${IGNORE}</p>`,
       ),

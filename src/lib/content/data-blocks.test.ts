@@ -104,8 +104,23 @@ describe('programmeLines', () => {
     const d = data(programmes)
     expect(programmeLines(attrs({ filter: { categoryIds: ['adult'] } }), d).map((l) => l.id)).toEqual(['scrim'])
     expect(programmeLines(attrs({ filter: { kinds: ['league'] } }), d).map((l) => l.id)).toEqual(['tnl', 'fnl'])
-    expect(programmeLines(attrs({ filter: { enrolmentOpenOnly: true } }), d).map((l) => l.id)).toEqual(['scrim'])
-    expect(programmeLines(attrs({ filter: { enrolment: 'closed' } }), d).map((l) => l.id)).toEqual(['tnl', 'fnl'])
+    // Leagues take expressions of interest by default, which counts as taking sign-ups (docs/interest.md).
+    expect(programmeLines(attrs({ filter: { enrolmentOpenOnly: true } }), d).map((l) => l.id)).toEqual(['tnl', 'fnl', 'scrim'])
+    expect(programmeLines(attrs({ filter: { enrolment: 'closed' } }), d).map((l) => l.id)).toEqual([])
+    // In enrolment mode they follow their enrolment switch, as before.
+    const enrolling = data(programmes.map((p) => (p.kind === 'league' ? { ...p, signupMode: 'enrolment' as const } : p)))
+    expect(programmeLines(attrs({ filter: { enrolment: 'open' } }), enrolling).map((l) => l.id)).toEqual(['scrim'])
+    expect(programmeLines(attrs({ filter: { enrolment: 'closed' } }), enrolling).map((l) => l.id)).toEqual(['tnl', 'fnl'])
+  })
+
+  it('counts an interest programme as open while it takes EOIs, and says it takes them', () => {
+    const d = data(programmes.map((p) => (p.id === 'fnl' ? { ...p, interestOpen: false } : p)))
+    const open = programmeLines(attrs({ filter: { enrolment: 'open' } }), d)
+    expect(open.map((l) => [l.id, l.interest])).toEqual([
+      ['tnl', true],
+      ['scrim', false],
+    ])
+    expect(programmeLines(attrs({ filter: { enrolment: 'closed' } }), d).map((l) => l.id)).toEqual(['fnl'])
   })
 
   it('applies the dragged order first, appends new programmes, and hides per page', () => {

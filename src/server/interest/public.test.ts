@@ -108,7 +108,7 @@ async function setup(over: SettingsOver = {}) {
   for (const [key, value] of Object.entries(over))
     await db
       .insert(schema.siteSettings)
-      .values({ key, value: { ...(DEFAULT_SETTINGS as Record<string, object>)[key], ...value }, updatedAt: NOW.toISOString() })
+      .values({ key, value: { ...(DEFAULT_SETTINGS as unknown as Record<string, object>)[key], ...value }, updatedAt: NOW.toISOString() })
   const deps = (o: Partial<PublicInterestDeps> = {}): PublicInterestDeps => ({
     db,
     mailer,

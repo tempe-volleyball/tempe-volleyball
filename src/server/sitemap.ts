@@ -23,6 +23,8 @@ export async function loadSitemapRows(db: AppDb): Promise<SitemapRows> {
         slug: programmes.slug,
         status: programmes.status,
         updatedAt: programmes.updatedAt,
+        signupMode: programmes.signupMode,
+        interestOpen: programmes.interestOpen,
         // Correlated subqueries, one indexed lookup each per programme (a few dozen rows at most). Written out with
         // aliases: drizzle leaves single-table column names unqualified, which a subquery would resolve to itself.
         hasHistory: sql<number>`case ${programmes.kind}

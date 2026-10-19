@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, gte, inArray, isNull, lt, ne, sql } from 'drizzle-orm'
 import { metaDescription } from '../../lib/content'
 import { nextStartsLine, scheduleText, summaryLine, venueText } from '../../lib/programme-text'
+import { interestPath, isInterestMode, takesInterest } from '../../lib/interest'
 import { categoryPath, isListedStatus, isPublicStatus, programmePath } from '../../lib/programmes'
 import { sydneyDate } from '../../lib/time'
 import { tags } from '../cache'
@@ -43,8 +44,13 @@ export type ProgrammeCard = {
   venue: string
   /** "Next season starts Thursday 15 January 2027", or ''. */
   nextStarts: string
-  /** Something can be enrolled in right now (programme switch and window, and at least one open target). */
+  /**
+   * Something can be enrolled in right now (programme switch and window, and at least one open target). Always false
+   * for an interest-mode programme, which takes expressions of interest instead (`interest`).
+   */
   enrolmentOpen: boolean
+  /** Interest mode (docs/interest.md): `open` while it takes EOIs, with the form's path. Null in enrolment mode. */
+  interest: { open: boolean; href: string } | null
   /** The open targets, soonest first. */
   targets: CardTarget[]
 }
@@ -115,6 +121,9 @@ export function programmeCard(
   open: { targets: TargetSummary[] } | undefined,
 ): ProgrammeCard {
   const venue = (p.defaultVenueId && venueById.get(p.defaultVenueId)) || null
+  // Interest-mode programmes show the EOI form, never enrolment, whatever their old enrolment switch says.
+  const interest = isInterestMode(p) ? { open: takesInterest(p), href: interestPath(p.slug) } : null
+  const live = interest ? undefined : open
   return {
     id: p.id,
     kind: p.kind,
@@ -127,8 +136,9 @@ export function programmeCard(
     schedule: scheduleText(p),
     venue: venueText(venue),
     nextStarts: nextStartsLine(p, nextDate),
-    enrolmentOpen: !!open && open.targets.length > 0,
-    targets: (open?.targets ?? []).map((t) => ({
+    enrolmentOpen: !!live && live.targets.length > 0,
+    interest,
+    targets: (live?.targets ?? []).map((t) => ({
       label: t.label,
       startsOn: t.startsOn,
       spots: spotsText(t, t.waitlistEnabled),
@@ -413,7 +423,9 @@ export async function loadProgrammePage(
   const category = cats[0] && cats[0].status !== 'draft' ? cats[0] : null
   const [upcomingRows = [], pastRows = []] = kind === 'league' ? [] : rest.slice(0, 2)
   const next = nextInstanceMap(rest.slice(instances.length) as { programmeId: string; date: string | null }[][])
-  const enrolment = isListedStatus(p.status) && p.enrolmentOpen ? await loadEnrolmentForm(db, p.id, opts.turnstileSiteKey, now) : null
+  // Interest-mode programmes take EOIs on /interest instead (docs/interest.md): no enrolment form on their page.
+  const enrolment =
+    isListedStatus(p.status) && p.enrolmentOpen && !isInterestMode(p) ? await loadEnrolmentForm(db, p.id, opts.turnstileSiteKey, now) : null
   return {
     found: {
       programme: p,

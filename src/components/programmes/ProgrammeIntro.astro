@@ -4,8 +4,8 @@ import { scheduleText, venueText, type VenueTextInput } from '../../lib/programm
 import type { Programme } from '../../server/db/schema'
 
 // What sits under a programme's H1 (docs/public-site.md, "Programme pages"): the enrolment badge, when, where and
-// "Next … starts" as facts, the Enrol button while enrolment is open, the "more info" link, and Michael's
-// description (rich text from the admin). A retired programme gets the "This … has finished" notice instead.
+// "Next … starts" as facts, the Enrol button while enrolment is open (interest programmes: Register interest), the
+// "more info" link, and Michael's description (rich text from the admin). A retired programme gets the "This … has finished" notice instead.
 type Props = {
   programme: Programme
   venue: VenueTextInput
@@ -18,8 +18,13 @@ type Props = {
   titles?: Map<string, string>
   /** Extra buttons after Enrol and More info (a league's Fixtures and Ladder). */
   links?: { label: string; href: string; srLabel?: string }[]
+  /**
+   * Interest mode (docs/interest.md): no enrolment badge; "Taking sign-ups" and a Register interest button to the
+   * EOI form while it takes EOIs, nothing at all while it doesn't. Null = enrolment mode (the badge and Enrol now).
+   */
+  interest?: { open: boolean; href: string } | null
 }
-const { programme: p, venue, nextStarts, enrolmentOpen, noun, titles, hasHistory = true, links = [] } = Astro.props
+const { programme: p, venue, nextStarts, enrolmentOpen, noun, titles, hasHistory = true, links = [], interest = null } = Astro.props
 const when = scheduleText(p)
 const where = venueText(venue)
 const retired = p.status === 'retired'
@@ -32,9 +37,17 @@ const html = p.description?.html ?? ''
   </p>
 ) : (
   <>
-    <p class="badge-row">
-      {enrolmentOpen ? <span class="badge badge-open">Enrolling now</span> : <span class="badge badge-closed">Enrolment closed</span>}
-    </p>
+    {interest ? (
+      interest.open && (
+        <p class="badge-row">
+          <span class="badge badge-open">Taking sign-ups</span>
+        </p>
+      )
+    ) : (
+      <p class="badge-row">
+        {enrolmentOpen ? <span class="badge badge-open">Enrolling now</span> : <span class="badge badge-closed">Enrolment closed</span>}
+      </p>
+    )}
     {(when || where || nextStarts) && (
       <dl class="facts">
         {when && (
@@ -57,11 +70,16 @@ const html = p.description?.html ?? ''
         )}
       </dl>
     )}
-    {(enrolmentOpen || p.moreInfoUrl || links.length > 0) && (
+    {(enrolmentOpen || interest?.open || p.moreInfoUrl || links.length > 0) && (
       <p class="mt-6 flex flex-wrap gap-3">
-        {enrolmentOpen && (
+        {!interest && enrolmentOpen && (
           <a class="btn btn-enrol" href="#enrol">
             Enrol now<span class="sr-only"> in {p.name}</span>
+          </a>
+        )}
+        {interest?.open && (
+          <a class="btn btn-enrol" href={interest.href}>
+            Register interest<span class="sr-only"> in {p.name}</span>
           </a>
         )}
         {links.map((l) => (

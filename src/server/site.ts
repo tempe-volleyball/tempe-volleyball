@@ -66,6 +66,8 @@ export type SiteProgramme = Pick<
   | 'nextStartsOn'
   | 'nextStartsText'
   | 'priceCents'
+  | 'signupMode'
+  | 'interestOpen'
 >
 
 export type SiteCategory = Pick<Category, 'id' | 'name' | 'slug' | 'sort' | 'status'>
@@ -121,6 +123,8 @@ const programmeQuery = (db: AppDb) =>
       nextStartsOn: programmes.nextStartsOn,
       nextStartsText: programmes.nextStartsText,
       priceCents: programmes.priceCents,
+      signupMode: programmes.signupMode,
+      interestOpen: programmes.interestOpen,
     })
     .from(programmes)
     .where(ne(programmes.status, 'draft'))

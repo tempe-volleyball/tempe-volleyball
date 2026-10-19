@@ -2,15 +2,17 @@ import { isIntroPagePath } from '../content/paths'
 import { categoryPath, PROGRAMME_PATH_PREFIX, programmePath } from '../programmes'
 import { FIXTURE_LIST_ROUTE } from '../fixture-lists'
 import { ENROL_ROUTE, LEAGUES_ROUTE, NEWS_ROUTE, postRoute, seasonRoute } from '../wp-import/routes'
-import type { ProgrammeKind, ProgrammeStatus } from '../../server/db/schema/enums'
+import type { ProgrammeKind, ProgrammeStatus, SignupMode } from '../../server/db/schema/enums'
+import { INTEREST_ROUTE, takesInterest } from '../interest'
 
 // sitemap.xml (docs/public-site.md "Sitemap"): every real, indexable page and nothing else. Pure: the route loads
 // the rows (src/server/sitemap.ts, one batch) and these functions decide what's listed and write the XML.
 //
 // Listed: the home page; published content pages (not hidden from search); categories that aren't drafts; active
 // programmes, and retired ones with history (their page stays up with the archive); the kind index pages that
-// list something; /enrol, /leagues, /leagues/fixtures and /news; published news posts (not hidden); and every
-// public season page except each league's current one, whose canonical URL is the league page.
+// list something; /enrol, /interest (while something takes EOIs), /leagues, /leagues/fixtures and /news; published
+// news posts (not hidden); and every public season page except each league's current one, whose canonical URL is the
+// league page.
 
 /** The sitemaps protocol's limit per file (also 50 MB); past it /sitemap.xml becomes an index of /sitemap-<n>.xml. */
 export const SITEMAP_LIMIT = 50_000
@@ -28,6 +30,9 @@ export type SitemapRows = {
     updatedAt: string
     /** Retired programmes stay listed only with something to show: a public season, or past dates. */
     hasHistory: boolean
+    /** Expressions of interest (docs/interest.md): /interest is listed while any active programme takes them. */
+    signupMode?: SignupMode | null
+    interestOpen?: boolean
   }[]
   seasons: {
     id: string
@@ -102,6 +107,10 @@ export function sitemapEntries(rows: SitemapRows): SitemapEntry[] {
     if (kindLastmod.has(kind) || (intro && !intro.noindex)) add(path, newest(kindLastmod.get(kind), intro?.updatedAt))
   }
   if (!hidden.has(ENROL_ROUTE)) add(ENROL_ROUTE, pageAt.get(ENROL_ROUTE)?.updatedAt)
+  // The EOI form, while something takes EOIs. /interest/<slug> isn't listed: it's the same form with one box ticked.
+  const interest = programmes.filter((p) => takesInterest(p))
+  if (interest.length > 0 && !hidden.has(INTEREST_ROUTE))
+    add(INTEREST_ROUTE, newest(pageAt.get(INTEREST_ROUTE)?.updatedAt, ...interest.map((p) => p.updatedAt)))
 
   const current = currentSeasonIds(rows.seasons.filter((s) => s.status !== 'draft'))
   for (const s of rows.seasons) {
