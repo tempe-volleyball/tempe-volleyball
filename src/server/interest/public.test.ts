@@ -4,10 +4,17 @@ import { DEFAULT_SETTINGS } from '../../lib/content/settings'
 import { createTestDb } from '../db/testing'
 import * as schema from '../db/schema'
 import { createMailer } from '../email'
-import { renderEmail } from '../email/templates'
+import { ACK_NAME_MAX, renderEmail } from '../email/templates'
 import { HttpError } from '../http'
 import { INTEREST_REFERENCE_PATTERN } from '../players/core'
-import { INTEREST_RATE, interestNotifyAddresses, loadInterestForm, submitInterest, type PublicInterestDeps } from './public'
+import {
+  INTEREST_RATE,
+  MAX_PROGRAMMES_PER_EOI,
+  interestNotifyAddresses,
+  loadInterestForm,
+  submitInterest,
+  type PublicInterestDeps,
+} from './public'
 
 // The EOI form end to end against a migrated in-memory SQLite: what's offered (null sign-up mode = the kind's
 // default), the slug rules, submitting as a player or a team, validation, deposits, the pool, Turnstile, rate limits
@@ -273,6 +280,73 @@ describe('submitInterest', () => {
     expect(acks[0]).toContain('Thursday Night League, Friday Night League')
   })
 
+  it('stays well inside 50 D1 queries at the most Settings allow: 30 members, 20 programmes, 5 notify addresses', async () => {
+    const s = await setup({
+      interest: {
+        maxMembers: 30,
+        // 0 = no limit, which is MAX_PROGRAMMES_PER_EOI.
+        maxProgrammes: 0,
+        notifyEmails: ['a@example.com', 'b@example.com', 'c@example.com', 'd@example.com', 'e@example.com'],
+        notifyPerDay: 50,
+      },
+    })
+    const extra = Array.from({ length: 18 }, (_, i) => ({
+      id: `x${i}`,
+      code: `X${i}`,
+      name: `Extra League ${i}`,
+      slug: `x${i}`,
+      weekday: i % 7,
+      sort: 20 + i,
+      categoryId: 'cat_mixed_leagues',
+    }))
+    await s.db.insert(schema.leagues).values(extra)
+    // Some members already players (matched), the rest new.
+    await s.db.insert(schema.players).values(
+      Array.from({ length: 10 }, (_, i) => ({
+        id: `old${i}`,
+        pool: 'competition' as const,
+        firstName: `M${i}`,
+        lastName: 'Old',
+        email: `m${i}@example.com`,
+      })),
+    )
+    const members = Array.from({ length: 29 }, (_, i) => ({
+      firstName: `M${i}`,
+      lastName: i < 10 ? 'Old' : 'New',
+      email: `m${i}@example.com`,
+      phone: '0400 000 000',
+      gender: 'female',
+    }))
+    // Production mode (a real send costs more queries than the console's log line).
+    let n = 0
+    const resend = (async () => Response.json({ id: `re_${++n}` })) as unknown as typeof fetch
+    const mailer = createMailer({
+      db: s.db,
+      env: { SITE_ENV: 'production', RESEND_API_KEY: 'k' },
+      fetch: resend,
+      now: () => NOW,
+      hashSalt: 'salt',
+    })
+    const all = ['tnl', 'fnl', 'scrim', ...extra.map((p) => p.id)]
+    expect(all).toHaveLength(MAX_PROGRAMMES_PER_EOI + 1)
+    const tooMany = await failsWith(
+      submitInterest(s.deps({ ip: null }), team({ programmeIds: all, person: { ...team().person, email: 'other@example.com' } })),
+      400,
+    )
+    expect(fieldErrors(tooMany).programmes).toBe(`Tick at most ${MAX_PROGRAMMES_PER_EOI}.`)
+    s.stats.reset()
+    await submitInterest(s.deps({ mailer }), team({ programmeIds: all.filter((id) => id !== 'scrim'), members }))
+    // 37 when written (2026-10-20): 3 rate limits, 2 to load, 1 to match, 11 to save, 1 notify budget, 5 × 3 to notify, 5 to acknowledge.
+    expect(s.stats.queries).toBeLessThanOrEqual(40)
+    expect(s.stats.maxParams).toBeLessThanOrEqual(100)
+    expect(await s.db.select().from(schema.interestMembers)).toHaveLength(30)
+    expect(await s.db.select().from(schema.interestProgrammes)).toHaveLength(20)
+    const outbox = await s.db.select().from(schema.emailOutbox)
+    expect(outbox.filter((o) => o.template === 'interest.notify')).toHaveLength(5)
+    expect(outbox.filter((o) => o.template === 'interest.ack')).toHaveLength(1)
+    expect(outbox.every((o) => o.status === 'sent')).toBe(true)
+  })
+
   it('saves a team EOI: the captain first, blank member rows dropped, the highest team deposit, PayID on the page', async () => {
     const s = await setup({ payid: { name: 'M Mouhajer', payId: '0414 911 544' }, interest: { notifyEmails: ['ops@example.com'] } })
     const r = await submitInterest(s.deps(), team())
@@ -291,7 +365,14 @@ describe('submitInterest', () => {
     expect(s.sent('interest.notify').map((l) => /to=(\S+)/.exec(l)?.[1])).toEqual(['ops@example.com'])
     const ack = s.sent('interest.ack')[0]!
     expect(ack).toContain('Pay it by PayID to 0414 911 544')
-    expect(ack).toContain('Jo Park, jo@example.com')
+    // The acknowledgement goes to an unverified address: no team name, members or answers (docs/api/interest.md).
+    for (const typed of ['Spike Lee', 'Jo Park', 'jo@example.com', 'Sam Ng', 'Marrickville', 'Intermediate'])
+      expect(ack).not.toContain(typed)
+    expect(ack).toContain('Entry: A team')
+    // The organiser's notification has everything.
+    const note = s.sent('interest.notify')[0]!
+    expect(note).toContain('Jo Park, jo@example.com')
+    expect(note).toContain('Spike Lee')
   })
 
   it('uses the training pool when only training is picked, and no deposit when none is set', async () => {
@@ -414,16 +495,21 @@ describe('submitInterest', () => {
     expect(await t.db.select().from(schema.interests)).toHaveLength(INTEREST_RATE.perEmailHour)
   })
 
-  it('notifies at most notifyPerDay a day, and sends no acknowledgement or notification when they are off', async () => {
-    const s = await setup({ interest: { notifyPerDay: 1 } })
+  it('sends at most notifyPerDay notification emails a day (one per address), and none when they are off', async () => {
+    const s = await setup({ interest: { notifyPerDay: 3, notifyEmails: ['a@example.com', 'b@example.com'] } })
     await submitInterest(s.deps(), player())
     await submitInterest(
       s.deps({ ip: '198.51.100.7' }),
       player({ person: { firstName: 'Sam', lastName: 'Ng', email: 'sam@example.com', phone: '0400 000 000' } }),
     )
-    expect(await s.db.select().from(schema.interests)).toHaveLength(2)
-    expect(s.sent('interest.notify')).toHaveLength(1)
-    expect(s.sent('interest.ack')).toHaveLength(2)
+    await submitInterest(
+      s.deps({ ip: '198.51.100.8' }),
+      player({ person: { firstName: 'Jo', lastName: 'Park', email: 'jo@example.com', phone: '0400 000 001' } }),
+    )
+    expect(await s.db.select().from(schema.interests)).toHaveLength(3)
+    // Two for the first EOI, one of two for the second, none for the third.
+    expect(s.sent('interest.notify').map((l) => /to=(\S+)/.exec(l)?.[1])).toEqual(['a@example.com', 'b@example.com', 'a@example.com'])
+    expect(s.sent('interest.ack')).toHaveLength(3)
 
     const quiet = await setup({ interest: { notify: false, acknowledge: false }, payid: { payId: 'pay@example.com' } })
     const r = await submitInterest(quiet.deps(), player({ programmeIds: ['fnl'] }))
@@ -465,11 +551,24 @@ describe('EOI emails', () => {
       deposit: '$200',
       payid: { name: 'M', payId: '0414', instructions: '' },
     }
-    const ack = renderEmail('interest.ack', { ...data, text: 'Thanks.' })
+    const ack = renderEmail('interest.ack', {
+      name: data.name,
+      reference: data.reference,
+      kind: data.kind,
+      programmes: data.programmes,
+      deposit: data.deposit,
+      payid: data.payid,
+      text: 'Thanks.',
+    })
     expect(ack.subject).toBe('We’ve got your details (EOI-7K3Q)'.replace('’', "'"))
-    expect(ack.text).toContain('Playing level: <i>Intermediate</i>')
+    expect(ack.text).toContain('Programme: Thursday Night League')
     expect(ack.text).toContain('The deposit is $200 per team. Pay it by PayID to 0414 (M), with EOI-7K3Q as the payment description.')
-    expect(ack.html).not.toContain('<i>')
+    expect(ack.html).toContain('Hi Pat &lt;b&gt;,')
+    expect(ack.html).not.toContain('<b>,')
+    // A first name is cut short, so the greeting can't carry a message.
+    const long = renderEmail('interest.ack', { ...data, name: `Pat ${'x'.repeat(60)} visit evil.example`, text: 'Thanks.' })
+    expect(long.text).toContain(`Hi Pat ${'x'.repeat(ACK_NAME_MAX - 4)},`)
+    expect(long.text).not.toContain('evil.example')
     const note = renderEmail('interest.notify', {
       ...data,
       email: 'pat@example.com',
@@ -477,6 +576,9 @@ describe('EOI emails', () => {
       url: 'https://x/admin/interest/1',
       receivedAt: NOW.toISOString(),
     })
+    expect(note.text).toContain('Playing level: <i>Intermediate</i>')
+    expect(note.text).toContain('Team members:\n- Jo Park')
+    expect(note.html).not.toContain('<i>')
     expect(note.replyTo).toBe('pat@example.com')
     expect(note.subject).toBe('Expression of interest: Spikes (team, captain Pat <b>) (EOI-7K3Q)')
     expect(note.html).toContain('https://x/admin/interest/1')

@@ -225,4 +225,40 @@ describe('migration 0010', () => {
       { id: 'b', pool: 'training', source: 'enrolment' },
     ])
   })
+
+  it('splits a player with league and training entries into one row per pool', () => {
+    const sqlite = createMigratedSqlite({ before: '0010_interest_players_rosters.sql' })
+    sqlite.exec(
+      `INSERT INTO leagues (id, code, name, slug, weekday, kind) VALUES ('tnl', 'TNL', 'TNL', 'tnl', 4, 'league'), ('sct', 'SCT', 'Scrim', 'sct', 6, 'training'), ('adp', 'ADP', 'ADP', 'adp', 6, 'development')`,
+    )
+    sqlite.exec(
+      `INSERT INTO players (id, first_name, last_name, email, phone) VALUES ('a', 'A', 'A', 'a@x.com', '0400'), ('c', 'C', 'C', 'c@x.com', NULL), ('d', 'D', 'D', 'd@x.com', NULL)`,
+    )
+    sqlite.exec(
+      `INSERT INTO products (id, kind, name, slug, price_cents, programme_id) VALUES ('p1', 'season_entry', 'TNL', 'tnl-p', 0, 'tnl'), ('p2', 'training_session', 'S', 's-p', 0, 'sct'), ('p3', 'development_term', 'ADP', 'adp-p', 0, 'adp')`,
+    )
+    sqlite.exec(
+      `INSERT INTO groups (id, kind, name, captain_player_id, product_id) VALUES ('g1', 'team', 'Spikers', 'a', 'p1'), ('g2', 'team', 'Scrimmers', 'a', 'p2')`,
+    )
+    sqlite.exec(
+      `INSERT INTO registrations (id, product_id, player_id, reference, status) VALUES ('r1', 'p1', 'a', 'TVB-AAAA', 'confirmed'), ('r2', 'p2', 'a', 'TVB-AAAB', 'confirmed'), ('r3', 'p3', 'a', 'TVB-AAAC', 'confirmed'), ('r4', 'p3', 'c', 'TVB-CCCC', 'confirmed')`,
+    )
+    applyMigration(sqlite, '0010_interest_players_rosters.sql')
+    expect(sqlite.prepare('SELECT id, pool, email, phone, source FROM players ORDER BY id').all()).toEqual([
+      { id: 'a', pool: 'competition', email: 'a@x.com', phone: '0400', source: 'enrolment' },
+      { id: 'a-training', pool: 'training', email: 'a@x.com', phone: '0400', source: 'enrolment' },
+      { id: 'c', pool: 'training', email: 'c@x.com', phone: null, source: 'enrolment' },
+      { id: 'd', pool: 'training', email: 'd@x.com', phone: null, source: 'enrolment' },
+    ])
+    expect(sqlite.prepare('SELECT id, player_id FROM registrations ORDER BY id').all()).toEqual([
+      { id: 'r1', player_id: 'a' },
+      { id: 'r2', player_id: 'a-training' },
+      { id: 'r3', player_id: 'a-training' },
+      { id: 'r4', player_id: 'c' },
+    ])
+    expect(sqlite.prepare('SELECT id, captain_player_id FROM groups ORDER BY id').all()).toEqual([
+      { id: 'g1', captain_player_id: 'a' },
+      { id: 'g2', captain_player_id: 'a-training' },
+    ])
+  })
 })

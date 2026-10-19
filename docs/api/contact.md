@@ -45,8 +45,9 @@ reply. Rate-limit keys are salted hashes (`src/server/ratelimit.ts`).
 Emails go through `sendEmail()` as ordinary (non-priority) mail:
 
 - `contact.notify` to Settings → Contact form's addresses (else the contact email), with the sender as **reply-to**
-  and a link to `/admin/messages/<id>`. At most `notifyPerDay` messages a day are notified (a rolling 24-hour
-  window, key `contact:notify-day`); later ones are still stored and counted on the admin home page.
+  and a link to `/admin/messages/<id>`. At most `notifyPerDay` notification **emails** go a day (one per address, a
+  rolling 24-hour window, key `contact:notify-day`): a message that would go over is notified only to the addresses
+  that still fit, then to none. Every message is still stored and counted on the admin home page.
 - `contact.ack` to the sender, only with Settings → Contact form → "Send an automatic reply" on (off by default). It's
   limited per mailbox like the enrolment emails (5 an hour, then queued; 10 a day, then dropped).
 

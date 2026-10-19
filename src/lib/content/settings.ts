@@ -93,7 +93,7 @@ export type InterestSettings = {
   /** Email the contact address (and notifyEmails) about each EOI. */
   notify: boolean
   notifyEmails: string[]
-  /** At most this many EOIs a day are notified (a rolling 24 hours), so a burst of spam can't use up the day's emails. */
+  /** At most this many notification emails a day (one per address; a rolling 24 hours), so a burst of spam can't use up the day's emails. */
   notifyPerDay: number
   /** The form's intro and the thank-you line shown after sending. */
   introText: string
@@ -112,7 +112,7 @@ export type ContactFormSettings = {
   /** Where new messages are emailed. Empty = Settings → Contact details' email. */
   notifyEmails: string[]
   /**
-   * At most this many notification emails a day (Sydney), so a burst of spam can't use up the day's emails; messages
+   * At most this many notification emails a day (one per address; a rolling 24 hours), so a burst of spam can't use up the day's emails; messages
    * past it are still saved and counted on the admin home page.
    */
   notifyPerDay: number

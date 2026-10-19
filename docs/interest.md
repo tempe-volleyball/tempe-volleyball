@@ -43,10 +43,13 @@ year. Our league pages said "Enrolment … is closed right now" between seasons,
   exactly as `/api/enrol` and `/api/contact`.
 - **The answer is always the same** ("Thanks, we'll be in touch"), plus the form's confirmation text and the deposit
   and PayID details when a deposit applies. No reference or "already registered" on the page.
-- **Emails** (through the outbox, never priority): an acknowledgement to the contact with what they sent and its
-  reference (Settings → Interest → "Send an acknowledgement", default on), and a notification to Settings → Interest →
-  "Notify" addresses (empty = the contact email). Off-by-default spam risk is the same as
-  the contact form's auto-reply: the acknowledgement only goes to the address typed, at most the mailbox limits.
+- **Emails** (through the outbox, never priority): an acknowledgement to the contact with its reference (Settings →
+  Interest → "Send an acknowledgement", default on), and a notification with everything sent to Settings → Interest →
+  "Notify" addresses (empty = the contact email). The address typed isn't verified, so the acknowledgement carries
+  **fixed facts only** (the programmes, player or team, the reference, the deposit and PayID, a shortened first
+  name): nothing else anyone typed, so it can't be used to send someone a message from us (2026-10-20). It has its
+  own per-mailbox limit (3 an hour, 5 a day), apart from the enrolment emails', so forged EOIs can't block someone's
+  enrolment confirm links. `notifyPerDay` counts notification **emails** (one per address), not EOIs.
 - **No email confirmation** (no spot is held, and Michael contacts everyone anyway). Unconfirmed details never
   overwrite a player record (below), so a forged EOI can't change anyone's details. A setting to ask people to
   confirm their email first wasn't built (2026-10-20); it can be added later the way enrolment does it (§3.7).
@@ -62,6 +65,15 @@ year. Our league pages said "Enrolment … is closed right now" between seasons,
 - **Public forms never overwrite a player:** a new person creates a player row with what they typed; an existing
   player keeps their details and the form's details are kept on the EOI (`interest_members.details`) for Michael to
   compare and apply ("Use these details") in the admin.
+- **A match from a public form is unverified** (2026-10-20): matching is by email and name, and anyone can type
+  someone else's, so an EOI linked to an existing player may not be from them. The admin must say so before "Use these
+  details" (an EOI with `source` `public`); nothing from the form reaches the player until Michael applies it.
+- **Migration 0010 splits people in both pools:** existing players with league or event entries become
+  `competition`; those with only training or development entries (or none) stay `training`; a player with both
+  keeps their row as the competition one and gets a training copy (id `<id>-training`) that their training and
+  development entries, and the training teams they captain, move to. During the short window between CI applying
+  0010 and the new code going live, the old code would create league registrants in the training pool; no league
+  takes enrolments today, so that's accepted.
 - New columns: `gender`, `suburb`, `vnsw_number`, `retired_at` (Michael's "retired" flag; retired players are hidden
   from pickers unless asked for), `source` (`interest` / `enrolment` / `admin` / `import`), and `pool`.
 - **Admin → Players** (admin+): two tabs, **Competition** and **Training**, each a searchable list with filters, a
@@ -128,13 +140,14 @@ way (the more robust or configurable option each time):
 - `/interest` is an intro-page path (a page published there adds a title, intro and meta description) as well as
   Settings → Interest → Intro; `/interest/*` is reserved.
 - Notifications go to the Notify addresses, or the contact email when there are none (the contact form's rule), at
-  most Settings → Interest → `notifyPerDay` (new, default 30, 1–50) a day, like the contact form.
+  most Settings → Interest → `notifyPerDay` (new, default 30, 1–50) emails a day (one per address), like the contact
+  form.
 - A honeypot field, as on the contact form (bots get the normal answer, nothing is stored).
 - A chosen form's `team_name` question is dropped (the team name is the form's own field); an archived or missing
   form falls back to the built-in questions. Programme age limits aren't checked (an EOI can name several programmes).
 - `interest_text`, when set, replaces the join section's whole text; otherwise the next start plus a generic line.
 - Interest-mode programmes never show enrolment on the public site (their page has no enrolment form even if the old
-  enrolment switch is on). `POST /api/enrol` itself is unchanged.
+  enrolment switch is on), and `POST /api/enrol` refuses them (409 `closed`, docs/admin.md §3.7).
 - `/2023-enrolment` was an EOI page too ("interested in playing … submit one of the below entries"), so every old
   sign-up URL goes to `/interest`; the content map repoints rows earlier runs aimed at `/enrol` (unless edited).
 

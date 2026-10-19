@@ -13,6 +13,7 @@ import {
   players,
   products,
   registrations,
+  type Gender,
   type PendingDetails,
   type RegistrationSource,
   poolOfKind,
@@ -233,6 +234,10 @@ export async function createEntry(
     guardianEmail: g?.email ?? null,
     guardianPhone: g?.phone ?? null,
     emergencyContact: mapped.emergencyContact ? `${mapped.emergencyContact.name}, ${mapped.emergencyContact.phone}` : null,
+    // validateEnrolment only lets a listed gender through.
+    gender: (mapped.gender as Gender | undefined) ?? null,
+    suburb: mapped.suburb ?? null,
+    vnswNumber: mapped.vnswNumber ?? null,
   }
   // An unconfirmed (pending_email) entry writes nothing onto a player: anyone can type someone else's address, so
   // its details wait on the registration (pending_details) until the address is confirmed (confirm.ts merges them).
@@ -262,7 +267,10 @@ export async function createEntry(
             guardianName: sql`coalesce(${players.guardianName}, ${g?.name ?? null})`,
             guardianEmail: sql`coalesce(${players.guardianEmail}, ${g?.email ?? null})`,
             guardianPhone: sql`coalesce(${players.guardianPhone}, ${g?.phone ?? null})`,
-            emergencyContact: sql`coalesce(${players.emergencyContact}, ${mapped.emergencyContact ? `${mapped.emergencyContact.name}, ${mapped.emergencyContact.phone}` : null})`,
+            emergencyContact: sql`coalesce(${players.emergencyContact}, ${details.emergencyContact})`,
+            gender: sql`coalesce(${players.gender}, ${details.gender})`,
+            suburb: sql`coalesce(${players.suburb}, ${details.suburb})`,
+            vnswNumber: sql`coalesce(${players.vnswNumber}, ${details.vnswNumber})`,
             updatedBy: opts.actorId ?? null,
           })
           .where(eq(players.id, playerId))

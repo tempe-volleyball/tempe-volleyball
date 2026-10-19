@@ -7,6 +7,7 @@ import { HttpError } from '../http'
 import { runJobs } from '../cron'
 import { exportEnrolments, getTargetDetail, groupAction, registrationAction } from './admin'
 import { confirmEmail, viewConfirmation } from './confirm'
+import { createForm, setFormProgrammes } from './forms'
 import { submitPublicEnrolment, type PublicEnrolInput } from './submit'
 import { readConfirmToken } from './tokens'
 
@@ -78,6 +79,8 @@ async function setup(
       slug: 'tnl',
       weekday: 4,
       categoryId: 'cat_mixed_leagues',
+      // Leagues take EOIs by default; these tests enrol into one switched to enrolment mode.
+      signupMode: 'enrolment',
       enrolmentOpen: true,
       capTeams: opts.capTeams === undefined ? 1 : opts.capTeams,
       waitlistEnabled: opts.waitlist ?? true,
@@ -347,6 +350,36 @@ describe('unconfirmed details (security review L3)', () => {
     expect(after).toMatchObject({ phone: '0400 000 000', emergencyContact: 'Sam Lee, 0411 111 111' })
     expect((await regs(s)).find((r) => r.status === 'confirmed')!.pendingDetails).toBeNull()
     expect(await s.db.select().from(schema.players).all()).toHaveLength(1)
+  })
+
+  it('holds gender, suburb and VNSW number until the address is confirmed, then fills blanks', async () => {
+    const s = await setup()
+    const training = await s.db.select().from(schema.programmes).where(eq(schema.programmes.kind, 'training')).get()
+    const form = await createForm(s.db, s.actor, {
+      name: 'Training',
+      fields: [
+        { key: 'gender', type: 'gender', label: 'Gender', required: true },
+        { key: 'suburb', type: 'suburb', label: 'Suburb' },
+        { key: 'vnsw_number', type: 'vnsw_number', label: 'VNSW number' },
+      ],
+    })
+    await setFormProgrammes(s.db, s.actor, form.id, { programmeIds: [training!.id] })
+    const p = person()
+    await enrol(s, {
+      target: { kind: 'session', id: s.session.id },
+      entryType: 'player',
+      person: p,
+      answers: { gender: 'non_binary', suburb: 'Tempe', vnsw_number: 'V42' },
+    })
+    const [before] = await s.db.select().from(schema.players).all()
+    expect(before).toMatchObject({ gender: null, suburb: null, vnswNumber: null })
+    const [held] = await regs(s)
+    expect(held!.pendingDetails).toMatchObject({ gender: 'non_binary', suburb: 'Tempe', vnswNumber: 'V42' })
+    // An admin filled the suburb in meanwhile: confirming keeps it.
+    await s.db.update(schema.players).set({ suburb: 'Newtown' })
+    expect((await confirmEmail(s.deps, confirmLink(s, p.email))).state).toBe('confirmed')
+    const [after] = await s.db.select().from(schema.players).all()
+    expect(after).toMatchObject({ gender: 'non_binary', suburb: 'Newtown', vnswNumber: 'V42' })
   })
 
   it('confirming fills blanks only, and an admin confirming by hand merges the same way', async () => {

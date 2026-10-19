@@ -6,6 +6,7 @@ import { defaultFields } from '../../lib/enrolment/defaults'
 import { activeFields, type FormField } from '../../lib/enrolment/forms'
 import { PRODUCT_KIND, sessionLabel, targetLabel, type TargetKind, type TargetRef } from '../../lib/enrolment/targets'
 import { DEFAULT_SETTINGS } from '../../lib/content/settings'
+import { isInterestMode } from '../../lib/interest'
 import { sydneyDateTime, sydneyToUtc } from '../../lib/time'
 import { runBatch, type AppDb } from '../db'
 import {
@@ -22,6 +23,7 @@ import {
   type Product,
   type ProgrammeKind,
   type ProgrammeStatus,
+  type SignupMode,
 } from '../db/schema'
 import { HttpError } from '../http'
 import type { Mailer } from '../email'
@@ -60,6 +62,8 @@ export type ProgrammeInfo = {
   name: string
   slug: string
   status: ProgrammeStatus
+  /** Null = the kind's default (leagues and events take EOIs, not enrolments; docs/interest.md). */
+  signupMode?: SignupMode | null
   enrolmentOpen: boolean
   enrolmentOpensAt: string | null
   enrolmentClosesAt: string | null
@@ -84,6 +88,7 @@ export const programmeColumns = {
   name: programmes.name,
   slug: programmes.slug,
   status: programmes.status,
+  signupMode: programmes.signupMode,
   enrolmentOpen: programmes.enrolmentOpen,
   enrolmentOpensAt: programmes.enrolmentOpensAt,
   enrolmentClosesAt: programmes.enrolmentClosesAt,
@@ -314,8 +319,10 @@ export function effective(programme: ProgrammeInfo, product: Product | null): Ef
   }
 }
 
+/** Open for enrolment: never for a programme in interest mode (it takes EOIs at /interest instead). */
 export const isOpen = (target: Target, nowIso: string) =>
   !target.closedReason &&
+  !isInterestMode(target.programme) &&
   enrolmentOpen(
     {
       open: target.programme.enrolmentOpen,
@@ -483,6 +490,9 @@ export function mergePendingDetailsStatements(db: AppDb, registrationId: string)
         guardianEmail: sql`coalesce(${players.guardianEmail}, ${held('guardianEmail')})`,
         guardianPhone: sql`coalesce(${players.guardianPhone}, ${held('guardianPhone')})`,
         emergencyContact: sql`coalesce(${players.emergencyContact}, ${held('emergencyContact')})`,
+        gender: sql`coalesce(${players.gender}, ${held('gender')})`,
+        suburb: sql`coalesce(${players.suburb}, ${held('suburb')})`,
+        vnswNumber: sql`coalesce(${players.vnswNumber}, ${held('vnswNumber')})`,
       })
       .where(
         sql`${players.id} = (select rq.player_id from registrations rq where rq.id = ${registrationId} and rq.status <> 'pending_email' and rq.pending_details is not null)`,

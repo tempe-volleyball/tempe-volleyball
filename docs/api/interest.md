@@ -67,7 +67,8 @@ Validation, every error at once in `fieldErrors`:
 
 - `kind`: player or team.
 - `programmes`: at least one; each must be offered now; at most Settings → Interest → "Most programmes per entry"
-  (0 = no limit).
+  (0 = no limit, which means `MAX_PROGRAMMES_PER_EOI`, 20: it keeps a POST inside D1's query budget; the form's
+  `maxProgrammes` is 0 unless more than 20 are offered).
 - The contact person (`firstName`, `lastName`, `email`, `phone`) and the answers: `validateEnrolment(fields, kind ===
 'team' ? 'team' : 'free_agent', …)`, so `appliesTo` works as on the enrolment form.
 - `teamName`: required for teams, at most 80 characters.
@@ -93,11 +94,23 @@ Answers:
 Emails go through `sendEmail()`, never priority:
 
 - `interest.notify` to Settings → Interest → "Notify" addresses, or the contact email (Settings → Contact) when
-  there are none, each once, with the contact as **reply-to**, what was sent and a link to `/admin/interest/<id>`. At most Settings →
-  Interest → "Notification emails a day" (`notifyPerDay`, default 30) EOIs a rolling day are notified (key
-  `interest:notify-day`); later ones are still saved.
-- `interest.ack` to the contact (Settings → Interest → acknowledge, default on): the thank-you text, the reference,
-  the deposit with PayID instructions (the reference as the payment description), the form's confirmation text and
-  what they sent. Limited per mailbox like the enrolment emails (`isMailboxLimited`).
+  there are none, each once, with the contact as **reply-to**, everything that was sent (team, members, answers) and
+  a link to `/admin/interest/<id>`. At most Settings → Interest → "Notification emails a day" (`notifyPerDay`,
+  default 30) **emails** go in a rolling day (key `interest:notify-day`, counted once per address sent, so five
+  Notify addresses use five; `take()` in `src/server/ratelimit.ts`): an EOI that would go over is notified only to
+  the addresses that still fit, in order, and after that to none. Every EOI is still saved. The contact form's
+  notifications count the same way (`contact:notify-day`).
+- `interest.ack` to the contact (Settings → Interest → acknowledge, default on). **That address isn't verified**
+  (anyone can type someone else's), so the acknowledgement lists **fixed facts only**: the first name (shortened to
+  `ACK_NAME_MAX`, 30 characters), the thank-you text and the form's confirmation text (both set by the organiser),
+  the reference, the entry type, the programmes picked and the deposit with PayID instructions (the reference as the
+  payment description). No team name, members or answers: those are in the notification to the organiser. It's
+  limited per mailbox (`isMailboxLimited`) with **its own budget**, `INTEREST_ACK_PER_HOUR` 3 and
+  `INTEREST_ACK_PER_DAY` 5 (keys `mail:interest:<hash>` / `mail:interest-day:<hash>`), apart from the enrolment
+  emails' `mail:enrol*`, so forged EOIs naming someone's address can't use up the limit their enrolment confirm-link
+  emails need.
 
-Logs never carry personal data (`describeError`). About 25 D1 queries per EOI with both emails (tested ≤ 30).
+Logs never carry personal data (`describeError`). About 20 D1 queries per EOI with both emails; at the most Settings
+allow (30 members, 20 programmes, 5 Notify addresses, real sends) 37 (tested ≤ 40). The submit loads only the
+programmes, settings and form (`loadOffering(…, { display: false })`), not the categories, venues and dates the page
+shows.

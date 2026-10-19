@@ -16,7 +16,7 @@ import {
   registrationSources,
   registrationStatuses,
 } from './enums'
-import type { PaymentProviderId } from './enums'
+import type { Gender, PaymentProviderId } from './enums'
 import { enrolmentForms } from './forms'
 import { developmentTerms, events, programmeSessions } from './programmes'
 
@@ -179,6 +179,10 @@ export type PendingDetails = {
   guardianEmail: string | null
   guardianPhone: string | null
   emergencyContact: string | null
+  /** Added with migration 0010; entries held before it lack them (json_extract then gives null). */
+  gender?: Gender | null
+  suburb?: string | null
+  vnswNumber?: string | null
 }
 
 export const registrations = sqliteTable(

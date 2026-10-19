@@ -44,17 +44,17 @@ export type TemplateData = {
   'contact.notify': ContactEmail & { url: string; receivedAt: string }
   /** The optional automatic reply to the sender (Settings → Contact form), with a copy of their message. */
   'contact.ack': ContactEmail & { text: string }
-  /** An expression of interest, to the person who sent it (Settings → Interest → acknowledge): what they sent and its reference. */
-  'interest.ack': InterestEmail & {
-    /** Settings → Interest's thank-you text, and the form's confirmation text. */
-    text: string
-    message?: string | null
-  }
+  /**
+   * An expression of interest, to the address typed on the form (Settings → Interest → acknowledge). That address
+   * isn't verified, so this lists only fixed facts (the programmes, the entry type, the reference, the deposit and
+   * PayID) and the first name, shortened: nothing else anyone typed (docs/api/interest.md).
+   */
+  'interest.ack': InterestAckEmail
   /** A new expression of interest, to the organiser: replying goes to the contact (reply-to). */
   'interest.notify': InterestEmail & { email: string; phone: string; url: string; receivedAt: string }
 }
 
-/** What both EOI emails show. `deposit` is formatted AUD ("$50"); PayID details when one applies. */
+/** What the EOI notification shows (the acknowledgement takes a few of these). `deposit` is formatted AUD ("$50"); PayID details when one applies. */
 export type InterestEmail = {
   name: string
   reference: string
@@ -68,6 +68,16 @@ export type InterestEmail = {
   deposit?: string | null
   payid?: { name: string; payId: string; instructions: string } | null
 }
+
+/** The acknowledgement's data: no free text from the form but the (shortened) first name. */
+export type InterestAckEmail = Pick<InterestEmail, 'name' | 'reference' | 'kind' | 'programmes' | 'deposit' | 'payid'> & {
+  /** Settings → Interest's thank-you text, and the form's confirmation text (both set by the organiser). */
+  text: string
+  message?: string | null
+}
+
+/** The most of a first name the acknowledgement shows. */
+export const ACK_NAME_MAX = 30
 
 /** What both contact emails show: who wrote, their address, the topic and the message. */
 export type ContactEmail = { name: string; email: string; topic: string; message: string; page?: string | null }
@@ -277,7 +287,7 @@ const contactRenderers: { [K in Extract<TemplateName, `contact.${string}`>]: (da
   }),
 }
 
-/** The parts both EOI emails list: programmes, team, members and answers, as text lines and HTML. */
+/** What the notification lists: programmes, team, members and answers, as text lines and HTML. */
 function interestSummary(d: InterestEmail) {
   const rows: [string, string][] = [
     ['Entry', d.kind === 'team' ? 'A team' : 'A player (to be placed in a team)'],
@@ -304,7 +314,7 @@ function interestSummary(d: InterestEmail) {
 }
 
 /** The deposit line of the acknowledgement, with the reference as the payment description. */
-function depositPart(d: InterestEmail) {
+function depositPart(d: Pick<InterestEmail, 'deposit' | 'kind' | 'payid' | 'reference'>) {
   if (!d.deposit) return { text: '', html: '' }
   const who = d.kind === 'team' ? 'per team' : ''
   const amount = `${d.deposit}${who ? ` ${who}` : ''}`
@@ -323,18 +333,33 @@ function depositPart(d: InterestEmail) {
 
 const interestRenderers: { [K in Extract<TemplateName, `interest.${string}`>]: (data: TemplateData[K]) => RenderedEmail } = {
   'interest.ack': (d) => {
-    const sum = interestSummary(d)
     const pay = depositPart(d)
     const message = d.message
       ? { text: `\n${d.message}\n`, html: `<p style="white-space:pre-wrap">${escapeHtml(d.message)}</p>` }
       : { text: '', html: '' }
+    // Fixed facts only: the address isn't verified, so nothing typed on the form is echoed but a short first name.
+    const name = d.name.replace(/\s+/g, ' ').trim().slice(0, ACK_NAME_MAX)
+    const rows: [string, string][] = [
+      ['Entry', d.kind === 'team' ? 'A team' : 'A player (to be placed in a team)'],
+      [d.programmes.length === 1 ? 'Programme' : 'Programmes', d.programmes.join(', ')],
+    ]
+    const sumText = rows.map(([k, v]) => `${k}: ${v}`).join('\n')
+    const sumHtml =
+      `<table style="border-collapse:collapse;margin:12px 0;font-size:14px">` +
+      rows
+        .map(
+          ([k, v]) =>
+            `<tr><th style="text-align:left;vertical-align:top;padding:4px 12px 4px 0;color:#555">${escapeHtml(k)}</th><td style="padding:4px 0">${escapeHtml(v)}</td></tr>`,
+        )
+        .join('') +
+      `</table>`
     return {
       subject: `We've got your details (${d.reference})`,
-      text: `Hi ${d.name},\n\n${d.text}\n\nYour reference is ${d.reference}.\n${pay.text}${message.text}\nWhat you sent:\n${sum.text}\n\n${QUESTIONS}\n\n${IGNORE}\n`,
+      text: `Hi ${name},\n\n${d.text}\n\nYour reference is ${d.reference}.\n${pay.text}${message.text}\n${sumText}\n\n${QUESTIONS}\n\n${IGNORE}\n`,
       html: layout(
-        `<p>Hi ${escapeHtml(d.name)},</p><p style="white-space:pre-wrap">${escapeHtml(d.text)}</p>` +
+        `<p>Hi ${escapeHtml(name)},</p><p style="white-space:pre-wrap">${escapeHtml(d.text)}</p>` +
           `<p>Your reference is <b style="font-size:18px;letter-spacing:1px">${escapeHtml(d.reference)}</b>.</p>${pay.html}${message.html}` +
-          `<p style="margin-top:20px"><b>What you sent</b></p>${sum.html}<p style="color:#555;font-size:13px">${QUESTIONS} ${IGNORE}</p>`,
+          `${sumHtml}<p style="color:#555;font-size:13px">${QUESTIONS} ${IGNORE}</p>`,
       ),
     }
   },

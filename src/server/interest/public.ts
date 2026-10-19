@@ -35,7 +35,7 @@ import { getSettings } from '../content/settings'
 import { describeError } from '../log'
 import { createInterest } from '../players/core'
 import { nextInstanceMap, nextInstanceQueries } from '../programmes/programmes'
-import { hashKey, hit, type Limit } from '../ratelimit'
+import { hashKey, hit, take, type Limit } from '../ratelimit'
 import { TURNSTILE_ACTIONS, verifyTurnstile } from '../turnstile'
 
 // The public expression-of-interest form (docs/interest.md, docs/api/interest.md): what /interest and
@@ -57,6 +57,15 @@ export const MAX_INTEREST_ANSWERS_BYTES = 32 * 1024
 
 /** The most programme ids a request may name (far above any real list). */
 const MAX_PROGRAMME_IDS = 50
+
+/**
+ * The most programmes one EOI may pick, whatever Settings → Interest says (its "0 = no limit" means this). Keeps a
+ * POST /api/interest well inside D1's 50 queries with 30 members and 5 notification addresses (public.test.ts).
+ */
+export const MAX_PROGRAMMES_PER_EOI = 20
+
+/** Settings → Interest's "most programmes per entry", with 0 (no limit) and anything higher as MAX_PROGRAMMES_PER_EOI. */
+const programmeLimit = (setting: number) => (setting > 0 ? Math.min(setting, MAX_PROGRAMMES_PER_EOI) : MAX_PROGRAMMES_PER_EOI)
 
 /** One programme on the form. */
 export type InterestProgrammeOption = {
@@ -179,22 +188,28 @@ type Offering = {
  * Programmes, categories, venues, next start dates and settings in one batch, then the chosen form (a second query
  * only when Settings → Interest names one). Draft programmes are never read.
  */
-async function loadOffering(db: AppDb, now: Date): Promise<Offering> {
+async function loadOffering(db: AppDb, now: Date, opts: { display?: boolean } = {}): Promise<Offering> {
   const today = sydneyDate(now)
-  const [rows, cats, vens, settingRows, ...dates] = (await runBatch(db, [
+  // A submit only needs the programmes, settings and form: categories, venues and next dates are for showing them.
+  const display = opts.display !== false
+  const [rows, settingRows, cats = [], vens = [], ...dates] = (await runBatch(db, [
     db.select(programmeColumns).from(programmes).where(ne(programmes.status, 'draft')).orderBy(asc(programmes.sort), asc(programmes.name)),
-    db
-      .select({ id: categories.id, name: categories.name, status: categories.status })
-      .from(categories)
-      .orderBy(asc(categories.sort), asc(categories.name)),
-    db.select({ id: venues.id, name: venues.name, address: venues.address }).from(venues),
     db.select({ key: siteSettings.key, value: siteSettings.value }).from(siteSettings),
-    ...nextInstanceQueries(db, today),
+    ...(display
+      ? [
+          db
+            .select({ id: categories.id, name: categories.name, status: categories.status })
+            .from(categories)
+            .orderBy(asc(categories.sort), asc(categories.name)),
+          db.select({ id: venues.id, name: venues.name, address: venues.address }).from(venues),
+          ...nextInstanceQueries(db, today),
+        ]
+      : []),
   ])) as unknown as [
     ProgrammeRow[],
-    { id: string; name: string; status: string }[],
-    { id: string; name: string; address: string | null }[],
     { key: string; value: unknown }[],
+    { id: string; name: string; status: string }[] | undefined,
+    { id: string; name: string; address: string | null }[] | undefined,
     ...{ programmeId: string; date: string | null }[][],
   ]
   const settings = readSettings(settingRows.filter((r) => (settingKeys as readonly string[]).includes(r.key)))
@@ -273,7 +288,8 @@ export async function loadInterestForm(
       formId: o.form?.id ?? null,
       formVersion: o.form?.version ?? null,
       confirmationText: o.form?.confirmationText ?? null,
-      maxProgrammes: s.interest.maxProgrammes,
+      // 0 only when the cap can't bind: the form says "as many as you like".
+      maxProgrammes: o.offered.length > MAX_PROGRAMMES_PER_EOI ? programmeLimit(s.interest.maxProgrammes) : s.interest.maxProgrammes,
       maxMembers: s.interest.maxMembers,
       memberFields: s.interest.memberFields,
       introText: s.interest.introText,
@@ -425,14 +441,14 @@ export async function submitInterest(deps: PublicInterestDeps, input: InterestIn
     if (!byEmail.ok) throw rateLimited(byEmail.retryAfter)
   }
 
-  const o = await loadOffering(db, now)
+  const o = await loadOffering(db, now, { display: false })
   const s = o.settings.interest
   const errors: FieldErrors = {}
 
   const kind = input.kind === 'team' ? 'team' : input.kind === 'player' ? 'player' : null
   if (!kind) errors.kind = 'Choose whether you’re entering on your own or as a team.'
 
-  // Programmes: each must be offered now; at least one; at most Settings → Interest's limit.
+  // Programmes: each must be offered now; at least one; at most Settings → Interest's limit (programmeLimit).
   const ids = Array.isArray(input.programmeIds)
     ? [...new Set(input.programmeIds.filter((v): v is string => typeof v === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(v)))]
     : []
@@ -441,7 +457,7 @@ export async function submitInterest(deps: PublicInterestDeps, input: InterestIn
   if (ids.length === 0) errors.programmes = o.offered.length ? 'Tick at least one.' : 'Nothing is taking expressions of interest right now.'
   else if (ids.length > MAX_PROGRAMME_IDS || picked.some((p) => !p))
     errors.programmes = 'Something you ticked isn’t taking expressions of interest any more. Reload the page and try again.'
-  else if (s.maxProgrammes > 0 && ids.length > s.maxProgrammes) errors.programmes = `Tick at most ${s.maxProgrammes}.`
+  else if (ids.length > programmeLimit(s.maxProgrammes)) errors.programmes = `Tick at most ${programmeLimit(s.maxProgrammes)}.`
   const chosen = picked.filter((p): p is ProgrammeRow => !!p)
 
   const fields = interestFields(o.form)
@@ -532,8 +548,14 @@ export async function submitInterest(deps: PublicInterestDeps, input: InterestIn
   if (s.acknowledge)
     await quietly(
       () =>
+        // Fixed facts only (the address isn't verified): no team name, members or answers.
         deps.mailer.sendEmail(person.email, 'interest.ack', {
-          ...emailData,
+          name: person.firstName,
+          reference: created.reference,
+          kind,
+          programmes: emailData.programmes,
+          deposit: emailData.deposit,
+          payid,
           text: s.successText,
           message: o.form?.confirmationText ?? null,
         }),
@@ -570,14 +592,14 @@ async function notify(
 ) {
   const to = s.notify ? interestNotifyAddresses(contactEmail, s.notifyEmails) : []
   if (to.length === 0) return
-  // One count per EOI (not per address), in a rolling day.
-  const budget = await hit(deps.db, [{ key: 'interest:notify-day', max: s.notifyPerDay, windowMs: 24 * HOUR }], now)
-  if (!budget.ok) {
-    console.warn('[interest] notification not sent: the daily limit for EOI notifications is reached (the EOI is saved)')
-    return
-  }
+  // One count per email sent (not per EOI), in a rolling day, so notifyPerDay caps the emails.
+  const allowed = await take(deps.db, { key: 'interest:notify-day', max: s.notifyPerDay, windowMs: 24 * HOUR }, to.length, now)
+  if (allowed < to.length)
+    console.warn(
+      `[interest] notification sent to ${allowed} of ${to.length} addresses: the daily limit for EOI notification emails is reached (the EOI is saved)`,
+    )
   const url = new URL(`/admin/interest/${m.id}`, deps.siteUrl).toString()
-  for (const addr of to)
+  for (const addr of to.slice(0, allowed))
     await quietly(
       () => deps.mailer.sendEmail(addr, 'interest.notify', { ...data, email: m.email, phone: m.phone, url, receivedAt: m.at }),
       'notification',

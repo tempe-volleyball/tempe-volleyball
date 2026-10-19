@@ -296,8 +296,13 @@ Decisions (each the more robust or more configurable option):
 - **Offer links are signed, not stored**, and die the moment the offer is answered or lapses.
 - **Duplicates** are the same email and the same first and last name in the same target, so siblings can share a
   parent's email. A public form fills only blank player details and never overwrites what's there.
+- **Only enrolment-mode programmes take enrolments** (2026-10-20): a programme in interest mode (`signup_mode`
+  `interest`, or null on a league or event) is never open for enrolment (`isOpen` in `src/server/enrolment/core.ts`),
+  so `/api/enrol` refuses it with 409 `closed` and `/enrol` doesn't list it; it takes EOIs at `/interest`
+  (docs/interest.md). An admin can still add an entry by hand.
 - **Unconfirmed details stay off the player** (security review L3): an entry waiting for its email confirmation keeps
-  the details it was sent with (mobile, year of birth, guardian, emergency contact) on the registration
+  the details it was sent with (mobile, year of birth, guardian, emergency contact, and gender, suburb and VNSW number
+  when the form asks them) on the registration
   (`registrations.pending_details`), not the `players` row. A new player row gets only the name and address the entry
   is for; an existing one isn't touched. Confirming the address (the link, or an admin's "Confirm email" or
   "Confirm") merges them in, filling blanks only, and clears them. So someone typing another person's address can't
