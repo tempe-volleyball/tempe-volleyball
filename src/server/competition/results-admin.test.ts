@@ -2,7 +2,24 @@ import { eq } from 'drizzle-orm'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { generate, isTeam, shapeKey, type Result, type Week } from '../../lib/fixtures'
 import { createTestDb, type QueryStats, type TestDb } from '../db/testing'
-import { auditLog, courts, leagues, matchDays, matches, redirects, seasons, seasonTeams, teams, user, venues } from '../db/schema'
+import {
+  auditLog,
+  courts,
+  interestMembers,
+  interestProgrammes,
+  interests,
+  leagues,
+  matchDays,
+  matches,
+  players,
+  redirects,
+  seasons,
+  seasonTeamPlayers,
+  seasonTeams,
+  teams,
+  user,
+  venues,
+} from '../db/schema'
 import { HttpError } from '../http'
 import { fixtureRows, ladderRows, toCompetition } from './adapter'
 import { moveMatch, undoMoveMatch } from './move'
@@ -354,6 +371,30 @@ describe('merging teams', () => {
     for (const name of ['P', 'Q', 'R']) others.push((await createTeam(db, admin, { name }, NOW)).id)
     const first = await season(4, { quarter: 1, teamIds: [a, ...others] })
     const second = await season(4, { quarter: 2, teamIds: [b, ...others] })
+    // Rosters: A's in Q1, B's in Q2, and a team EOI placed into B.
+    await db.insert(players).values([
+      { id: 'pa', pool: 'competition', firstName: 'Ann', lastName: 'A', email: 'pa@example.com' },
+      { id: 'pb', pool: 'competition', firstName: 'Ben', lastName: 'B', email: 'pb@example.com' },
+    ])
+    await db.insert(seasonTeamPlayers).values([
+      { seasonId: first.season.id, teamId: a, playerId: 'pa', role: 'captain' },
+      { seasonId: second.season.id, teamId: b, playerId: 'pb' },
+      { seasonId: second.season.id, teamId: b, playerId: 'pa', sort: 1 },
+    ])
+    await db.insert(interests).values({ id: 'eoi', kind: 'team', reference: 'EOI-AAAA', teamName: 'Ice Cold!' })
+    await db
+      .insert(interestMembers)
+      .values({ interestId: 'eoi', playerId: 'pb', role: 'captain', details: { firstName: 'Ben', lastName: 'B' } as never })
+    await db
+      .insert(interestProgrammes)
+      .values({
+        interestId: 'eoi',
+        programmeId: 'tnl',
+        status: 'placed',
+        seasonId: second.season.id,
+        teamId: b,
+        createdAt: NOW.toISOString(),
+      })
     // A redirect that already led to B's feed (an earlier merge into B).
     await db
       .insert(redirects)
@@ -370,9 +411,17 @@ describe('merging teams', () => {
         .orderBy(matches.id),
       redirects: await db.select({ from: redirects.fromPath, to: redirects.toPath }).from(redirects).orderBy(redirects.fromPath),
       keys: await db.select({ id: seasons.id, g: seasons.generatedFrom }).from(seasons).orderBy(seasons.id),
+      rosters: await db
+        .select({ s: seasonTeamPlayers.seasonId, t: seasonTeamPlayers.teamId, p: seasonTeamPlayers.playerId, r: seasonTeamPlayers.role })
+        .from(seasonTeamPlayers)
+        .orderBy(seasonTeamPlayers.seasonId, seasonTeamPlayers.playerId),
+      placed: await db.select({ t: interestProgrammes.teamId, s: interestProgrammes.status }).from(interestProgrammes),
     })
     const before = await snapshot()
     await mergeTeams(db, admin, a, { mergeId: b }, at(1))
+    // B's roster and EOI placement now belong to A (nothing lost to B's delete cascading).
+    expect((await db.select().from(seasonTeamPlayers).where(eq(seasonTeamPlayers.teamId, a))).length).toBe(3)
+    expect(await db.select({ t: interestProgrammes.teamId }).from(interestProgrammes)).toEqual([{ t: a }])
     // The draw key follows the merge, so B's season doesn't say "Settings changed".
     const merged = await getSeason(db, second.season.id)
     expect(merged.competition.generatedFrom).toBe(shapeKey(merged.competition.settings))
