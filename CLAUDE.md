@@ -55,6 +55,8 @@ src/admin/           The admin React app (one client:only island at /admin/*, wo
                      sign-in, TOTP enrolment, admin users, audit log, and content: pages (+ revisions), news,
                      menu (dnd-kit), media library, site settings. editor/ is the TipTap editor (lazy-loaded);
                      media/upload.ts resizes images to WebP in the browser. src/pages/admin/[...path].astro mounts it.
+                     seasons/: the season screen; SeasonTeams.tsx (Setup → Teams: team sources and rosters),
+                     PlayerPicker.tsx, TeamSources.tsx, roster-helpers.ts (pure, tested).
 src/pages/           Routes. api/health.ts is the deploy smoke test. robots.txt.ts disallows all outside production.
                      Public: index (home page row), [...path] (content pages by pages.path, else the redirects table
                      → 301, else 404), leagues/ (index, [league] = current season #ladder/#fixtures, [league]/[season]
@@ -95,6 +97,8 @@ src/server/          Code that touches bindings: db/schema.ts + db/index.ts (Dri
                      twoFactor doesn't do itself), roles.ts (all role/invite/audit rules), guard.ts, bootstrap.ts.
                      content/: pages, posts, menu, media (R2 streaming), settings: validation, batched writes,
                      audit, 301s on path changes. cache.ts: edge-cache tags + purge() after publishes.
+                     competition/rosters.ts: season rosters (docs/api/rosters.md): roster changes, team sources,
+                     the copies PUT /teams makes (rosterFrom), CSV.
                      contact/messages.ts: the contact form (POST /api/contact) and Admin → Messages (Phase 7).
                      interest/: the public EOI form (docs/interest.md, docs/api/interest.md): public.ts
                      (loadInterestForm, submitInterest for POST /api/interest), route.ts (/interest pages).

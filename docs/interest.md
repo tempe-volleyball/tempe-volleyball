@@ -140,3 +140,13 @@ way (the more robust or configurable option each time):
   enrolment switch is on). `POST /api/enrol` itself is unchanged.
 - `/2023-enrolment` was an EOI page too ("interested in playing … submit one of the below entries"), so every old
   sign-up URL goes to `/interest`; the content map repoints rows earlier runs aimed at `/enrol` (unless edited).
+
+## Status: rosters done (2026-10-20)
+
+- **Rosters: done (2026-10-20, branch eoi-rosters).** Season → Setup → Teams: Add all of last season's teams,
+  Returning teams, Team EOIs, rosters with captain / move / replace / reorder, the player picker, counts and the CSV
+  (docs/admin.md §3.16, docs/api/rosters.md). Choices made where this record was open: rosters are admin-only on
+  reads too; editable on archived seasons as well as published; one team per season (the admin offers "Move");
+  retired players aren't copied with a roster; any open individual EOI is placed when its player joins a team,
+  however they were picked; "New season" copying the latest copies its rosters too; a team EOI whose team is already
+  in the season can add its members to that roster.

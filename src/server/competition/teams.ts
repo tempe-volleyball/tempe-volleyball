@@ -7,11 +7,13 @@ import { runBatch, type AppDb } from '../db'
 import {
   auditLog,
   groups,
+  interestProgrammes,
   ladderAdjustments,
   leagues,
   matches,
   redirects,
   seasons,
+  seasonTeamPlayers,
   seasonTeams,
   teams,
   type Season,
@@ -173,6 +175,10 @@ export type MergeUndoRecord = {
   memberSeasonIds: string[]
   /** Every season with a game or adjustment of B's (a superset of memberSeasonIds in practice). */
   seasonIds: string[]
+  /** Seasons B had a roster in (season_team_players). Missing in records made before rosters. */
+  rosterSeasonIds?: string[]
+  /** EOI programme rows placed into B ("interestId|programmeId"). */
+  interestKeys?: string[]
   groupIds: string[]
   /** Redirects that led to one of B's feeds and were re-pointed to A's. */
   repointedRedirectIds: string[]
@@ -204,47 +210,60 @@ export async function mergeTeams(
   if (mergeId === keepId) throw new HttpError(400, 'invalid_input', 'Pick a different team to merge in.')
   const both = [keepId, mergeId]
   const feedOf = sql`'%/teams/' || (select ${teams.slug} from ${teams} where ${teams.id} = ${mergeId}) || '.ics'`
-  const [teamRows, memberRows, homeRows, awayRows, dutyRows, adjustmentRows, groupRows, redirectRows] = (await runBatch(db, [
-    db.select().from(teams).where(inArray(teams.id, both)),
-    db
-      .select({
-        teamId: seasonTeams.teamId,
-        seasonId: seasonTeams.seasonId,
-        seasonName: sql<string>`${seasons.name}`.as('season_name'),
-        leagueSlug: sql<string>`${leagues.slug}`.as('league_slug'),
-      })
-      .from(seasonTeams)
-      .innerJoin(seasons, eq(seasons.id, seasonTeams.seasonId))
-      .innerJoin(leagues, eq(leagues.id, seasons.leagueId))
-      .where(inArray(seasonTeams.teamId, both)),
-    db.selectDistinct({ seasonId: matches.seasonId, teamId: matches.homeTeamId }).from(matches).where(inArray(matches.homeTeamId, both)),
-    db.selectDistinct({ seasonId: matches.seasonId, teamId: matches.awayTeamId }).from(matches).where(inArray(matches.awayTeamId, both)),
-    db.selectDistinct({ seasonId: matches.seasonId, teamId: matches.dutyTeamId }).from(matches).where(inArray(matches.dutyTeamId, both)),
-    db
-      .selectDistinct({ seasonId: ladderAdjustments.seasonId, teamId: ladderAdjustments.teamId })
-      .from(ladderAdjustments)
-      .where(inArray(ladderAdjustments.teamId, both)),
-    db.select({ id: groups.id }).from(groups).where(eq(groups.teamId, mergeId)),
-    db
-      .select({ id: redirects.id, fromPath: redirects.fromPath, toPath: redirects.toPath })
-      .from(redirects)
-      .where(or(sql`${redirects.toPath} like ${feedOf}`, sql`${redirects.fromPath} like ${feedOf}`)),
-  ])) as unknown as [
-    Team[],
-    { teamId: string; seasonId: string; seasonName: string; leagueSlug: string }[],
-    { seasonId: string; teamId: string }[],
-    { seasonId: string; teamId: string }[],
-    { seasonId: string; teamId: string }[],
-    { seasonId: string; teamId: string }[],
-    { id: string }[],
-    { id: string; fromPath: string; toPath: string }[],
-  ]
+  const [teamRows, memberRows, homeRows, awayRows, dutyRows, adjustmentRows, groupRows, redirectRows, rosterRows, placedRows] =
+    (await runBatch(db, [
+      db.select().from(teams).where(inArray(teams.id, both)),
+      db
+        .select({
+          teamId: seasonTeams.teamId,
+          seasonId: seasonTeams.seasonId,
+          seasonName: sql<string>`${seasons.name}`.as('season_name'),
+          leagueSlug: sql<string>`${leagues.slug}`.as('league_slug'),
+        })
+        .from(seasonTeams)
+        .innerJoin(seasons, eq(seasons.id, seasonTeams.seasonId))
+        .innerJoin(leagues, eq(leagues.id, seasons.leagueId))
+        .where(inArray(seasonTeams.teamId, both)),
+      db.selectDistinct({ seasonId: matches.seasonId, teamId: matches.homeTeamId }).from(matches).where(inArray(matches.homeTeamId, both)),
+      db.selectDistinct({ seasonId: matches.seasonId, teamId: matches.awayTeamId }).from(matches).where(inArray(matches.awayTeamId, both)),
+      db.selectDistinct({ seasonId: matches.seasonId, teamId: matches.dutyTeamId }).from(matches).where(inArray(matches.dutyTeamId, both)),
+      db
+        .selectDistinct({ seasonId: ladderAdjustments.seasonId, teamId: ladderAdjustments.teamId })
+        .from(ladderAdjustments)
+        .where(inArray(ladderAdjustments.teamId, both)),
+      db.select({ id: groups.id }).from(groups).where(eq(groups.teamId, mergeId)),
+      db
+        .select({ id: redirects.id, fromPath: redirects.fromPath, toPath: redirects.toPath })
+        .from(redirects)
+        .where(or(sql`${redirects.toPath} like ${feedOf}`, sql`${redirects.fromPath} like ${feedOf}`)),
+      db
+        .selectDistinct({ seasonId: seasonTeamPlayers.seasonId, teamId: seasonTeamPlayers.teamId })
+        .from(seasonTeamPlayers)
+        .where(inArray(seasonTeamPlayers.teamId, both)),
+      db
+        .select({ interestId: interestProgrammes.interestId, programmeId: interestProgrammes.programmeId })
+        .from(interestProgrammes)
+        .where(eq(interestProgrammes.teamId, mergeId)),
+    ])) as unknown as [
+      Team[],
+      { teamId: string; seasonId: string; seasonName: string; leagueSlug: string }[],
+      { seasonId: string; teamId: string }[],
+      { seasonId: string; teamId: string }[],
+      { seasonId: string; teamId: string }[],
+      { seasonId: string; teamId: string }[],
+      { id: string }[],
+      { id: string; fromPath: string; toPath: string }[],
+      { seasonId: string; teamId: string }[],
+      { interestId: string; programmeId: string }[],
+    ]
   const keep = teamRows.find((t) => t.id === keepId)
   const gone = teamRows.find((t) => t.id === mergeId)
   if (!keep || !gone) throw notFound('team')
   const seasonsOf = (teamId: string) =>
     new Set(
-      [...memberRows, ...homeRows, ...awayRows, ...dutyRows, ...adjustmentRows].filter((r) => r.teamId === teamId).map((r) => r.seasonId),
+      [...memberRows, ...homeRows, ...awayRows, ...dutyRows, ...adjustmentRows, ...rosterRows]
+        .filter((r) => r.teamId === teamId)
+        .map((r) => r.seasonId),
     )
   const keepSeasons = seasonsOf(keepId)
   const goneSeasons = seasonsOf(mergeId)
@@ -280,6 +299,8 @@ export async function mergeTeams(
     wpIdMoved,
     memberSeasonIds,
     seasonIds: [...goneSeasons],
+    rosterSeasonIds: [...new Set(rosterRows.filter((r) => r.teamId === mergeId).map((r) => r.seasonId))],
+    interestKeys: placedRows.map((r) => `${r.interestId}|${r.programmeId}`),
     groupIds: groupRows.map((g) => g.id),
     repointedRedirectIds: redirectRows.filter((r) => r.toPath.endsWith(goneFeed)).map((r) => r.id),
     feeds: feeds.map((f) => ({
@@ -306,6 +327,25 @@ export async function mergeTeams(
       .set({ teamId: keepId, ...by })
       .where(eq(ladderAdjustments.teamId, mergeId)),
     db.update(groups).set({ teamId: keepId, updatedAt: at }).where(eq(groups.teamId, mergeId)),
+    // Rosters and EOI placements follow (before B is deleted, which would cascade). A roster row that would collide
+    // with one of A's (same season and player) is dropped; a merge across one season is refused, so that's only
+    // a safety net.
+    db
+      .delete(seasonTeamPlayers)
+      .where(
+        and(
+          eq(seasonTeamPlayers.teamId, mergeId),
+          sql`exists (select 1 from ${seasonTeamPlayers} as k where k.team_id = ${keepId} and k.season_id = ${seasonTeamPlayers.seasonId} and k.player_id = ${seasonTeamPlayers.playerId})`,
+        ),
+      ),
+    db
+      .update(seasonTeamPlayers)
+      .set({ teamId: keepId, ...by })
+      .where(eq(seasonTeamPlayers.teamId, mergeId)),
+    db
+      .update(interestProgrammes)
+      .set({ teamId: keepId, ...by })
+      .where(eq(interestProgrammes.teamId, mergeId)),
     // The draw key lists team ids, so B's seasons would otherwise say "Settings changed".
     db
       .update(seasons)
@@ -483,6 +523,27 @@ export async function undoMerge(
       .update(groups)
       .set({ teamId: b.id, updatedAt: at })
       .where(and(eq(groups.teamId, r.keepId), inJson(groups.id, r.groupIds))),
+    ...(r.rosterSeasonIds?.length
+      ? [
+          db
+            .update(seasonTeamPlayers)
+            .set({ teamId: b.id, ...by })
+            .where(and(eq(seasonTeamPlayers.teamId, r.keepId), inJson(seasonTeamPlayers.seasonId, r.rosterSeasonIds))),
+        ]
+      : []),
+    ...(r.interestKeys?.length
+      ? [
+          db
+            .update(interestProgrammes)
+            .set({ teamId: b.id, ...by })
+            .where(
+              and(
+                eq(interestProgrammes.teamId, r.keepId),
+                sql`(${interestProgrammes.interestId} || '|' || ${interestProgrammes.programmeId}) in (select value from json_each(${JSON.stringify(r.interestKeys)}))`,
+              ),
+            ),
+        ]
+      : []),
     db
       .update(seasons)
       .set({ generatedFrom: sql`replace(${seasons.generatedFrom}, ${quoted(r.keepId)}, ${quoted(b.id)})` })

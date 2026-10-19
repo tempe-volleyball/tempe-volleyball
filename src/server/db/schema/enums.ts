@@ -212,6 +212,7 @@ export const auditActions = [
   'player.delete',
   'player.export',
   'roster.update',
+  'roster.export',
 ] as const
 export type AuditAction = (typeof auditActions)[number]
 

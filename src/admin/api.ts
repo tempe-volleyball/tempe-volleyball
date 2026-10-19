@@ -145,6 +145,22 @@ export type { AdjustmentRow } from '../server/competition/adjustments'
 export type { MatchList, MatchListRow } from '../server/competition/match-list'
 export type { WithdrawResult, ReinstateResult } from '../server/competition/withdraw'
 
+// ── Season rosters (docs/api/rosters.md) ──────────────────────────────────────
+
+export type {
+  RosterView,
+  TeamRoster,
+  RosterPlayer,
+  RosterSources,
+  SourceTeam,
+  TeamInterest,
+  PreviewPlayer,
+  RosterFrom,
+  RosterChangeResult,
+  RosterCopySummary,
+} from '../server/competition/rosters'
+export type { Directory, DirectoryPlayer, RosterSpot } from '../server/players/directory'
+
 // ── Stats (docs/api/stats.md) ─────────────────────────────────────────────────
 
 export type StatsResponse = import('../server/analytics/stats').StatsView & { canFetch: boolean }
