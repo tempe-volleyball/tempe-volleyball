@@ -1,4 +1,10 @@
-import { programmeKinds, type PageDataRefKind, type ProgrammeKind, type ProgrammeStatus } from '../../server/db/schema/enums'
+import {
+  programmeKinds,
+  type PageDataRefKind,
+  type ProgrammeKind,
+  type ProgrammeStatus,
+  type SignupMode,
+} from '../../server/db/schema/enums'
 import {
   WEEKDAYS,
   generatedSummaryLine,
@@ -9,6 +15,7 @@ import {
   type ProgrammeTextInput,
 } from '../programme-text'
 import { enrolmentOpen, isListedStatus, programmePath } from '../programmes'
+import { isInterestMode, takesInterest } from '../interest'
 import { fixturesTableHtml, ladderTableHtml } from '../tables'
 import { leagueFixturesRoute, leagueLadderRoute } from '../wp-import/routes'
 import {
@@ -251,6 +258,9 @@ export type BlockProgramme = ProgrammeTextInput & {
   enrolmentOpen: boolean
   enrolmentOpensAt: string | null
   enrolmentClosesAt: string | null
+  /** Expressions of interest (docs/interest.md). Missing = the kind's default mode, EOIs on. */
+  signupMode?: SignupMode | null
+  interestOpen?: boolean
 }
 
 export type BlockVenue = { id: string; name: string; address: string | null }
@@ -292,7 +302,10 @@ export type ProgrammeLine = {
   current: ProgrammeLineSource
   /** What the line says without the override (the summary line, the template or the generated line). */
   automatic: string
+  /** Taking sign-ups now: enrolment open (enrolment mode), or EOIs on (interest mode). */
   enrolmentOpen: boolean
+  /** The programme takes expressions of interest rather than enrolments. */
+  interest: boolean
 }
 
 // A private-use character pair marks {link} while the text is tidied, so no typed text can collide with it.
@@ -327,8 +340,14 @@ export function fillTemplate(template: string, values: Record<string, string>): 
     .trim()
 }
 
+/**
+ * "Taking sign-ups" for the filter's open / closed: an interest programme counts as open while it takes EOIs (they
+ * aren't time-windowed), an enrolment programme while its enrolment is open (docs/interest.md).
+ */
 const isOpen = (p: BlockProgramme, nowIso: string) =>
-  enrolmentOpen({ open: p.enrolmentOpen, status: p.status, opensAt: p.enrolmentOpensAt, closesAt: p.enrolmentClosesAt }, null, nowIso)
+  isInterestMode(p)
+    ? takesInterest(p)
+    : enrolmentOpen({ open: p.enrolmentOpen, status: p.status, opensAt: p.enrolmentOpensAt, closesAt: p.enrolmentClosesAt }, null, nowIso)
 
 /**
  * The block's lines: active programmes matching the filter, in the block's order (dragged ids first, then the rest by
@@ -404,6 +423,7 @@ export function programmeLines(
       current,
       automatic: automaticRaw.split(LINK).join('More info'),
       enrolmentOpen: isOpen(p, data.nowIso),
+      interest: isInterestMode(p),
     }
   })
 }

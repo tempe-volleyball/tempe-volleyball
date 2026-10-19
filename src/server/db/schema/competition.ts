@@ -11,6 +11,7 @@ import {
   programmeKinds,
   programmeStatuses,
   seasonStatuses,
+  signupModes,
   type TieBreakRule,
 } from './enums'
 import { enrolmentForms } from './forms'
@@ -218,6 +219,16 @@ export const leagues = sqliteTable(
      * pending_email). Null = automatic: on when the instance has a player or team cap. products.email_confirm overrides.
      */
     enrolmentEmailConfirm: integer('enrolment_email_confirm', { mode: 'boolean' }),
+    // ── Expressions of interest (docs/interest.md) ──
+    /** `interest` (EOIs) or `enrolment` (§3.7). Null = the kind's default: leagues and events interest, others enrolment. */
+    signupMode: text('signup_mode', { enum: signupModes }),
+    /** An interest programme takes EOIs while this is on (all year; no dates). */
+    interestOpen: integer('interest_open', { mode: 'boolean' }).notNull().default(true),
+    /** Deposits (AUD cents) asked on the EOI form, paid by PayID and marked by hand. Null = none. */
+    depositPlayerCents: integer('deposit_player_cents'),
+    depositTeamCents: integer('deposit_team_cents'),
+    /** The public join section's line on the programme page. Null = generated ("Next season starts …"). */
+    interestText: text('interest_text'),
   },
   (t) => [
     uniqueIndex('leagues_code_unique').on(t.code),

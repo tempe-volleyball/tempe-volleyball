@@ -1,14 +1,16 @@
 ---
-// /enrol (docs/admin.md §3.3, §3.6): everything open for enrolment now, grouped by category, each card linking to
-// its programme's enrol section (where the form is). Generated from the programmes, so a programme appears the
+// /enrol (docs/admin.md §3.3, §3.6): the interest programmes taking EOIs (leagues and events by default, linking the
+// EOI form, docs/interest.md), then everything open for enrolment now, grouped by category, each card linking to its
+// programme's enrol section (where the form is). Generated from the programmes, so a programme appears the
 // moment its enrolment opens and leaves when it closes. The intro is hand-editable: publish a page at /enrol in
 // Admin → Pages and its body shows above the list (its title becomes the H1). The old year-stamped enrolment pages
-// 301 here once the content map archives them (src/lib/wp-import/routes.ts ENROL_REDIRECTS).
+// (and the old EOI pages) 301 to /interest instead (src/lib/wp-import/routes.ts INTEREST_REDIRECTS).
 import PageBody from '../../components/PageBody.astro'
 import Breadcrumbs from '../../components/programmes/Breadcrumbs.astro'
 import ProgrammeCards from '../../components/programmes/ProgrammeCards.astro'
 import BaseLayout from '../../layouts/BaseLayout.astro'
 import { documentTitle, metaDescription } from '../../lib/content'
+import { INTEREST_ROUTE } from '../../lib/interest'
 import { cachePublic, tags } from '../../server/cache'
 import { renderBody } from '../../server/content/blocks'
 import { getTurnstileKeys } from '../../server/services'
@@ -21,18 +23,24 @@ const [site, found, listings] = await Promise.all([publicSite(db), lookupPath(db
 
 const open = listings.programmes.filter((c) => c.enrolmentOpen)
 const groups = groupByCategory(listings, open)
+// Interest programmes (leagues and events by default, docs/interest.md) taking EOIs: listed with links to the form.
+const interest = groupByCategory(
+  listings,
+  listings.programmes.filter((c) => c.interest?.open),
+).flatMap((g) => g.cards)
 const later = groupByCategory(
   listings,
-  listings.programmes.filter((c) => !c.enrolmentOpen),
+  listings.programmes.filter((c) => !c.enrolmentOpen && !c.interest?.open),
 )
 const page = found.page
 // The intro page may hold data blocks (a Programme list, say), rendered from live data like any page.
 const body = page ? await renderBody(db, site, page.body, new Date(), { turnstileSiteKey: getTurnstileKeys()?.siteKey ?? null }) : null
 cachePublic(Astro.cache, tags.page('/enrol'), tags.programmes, tags.venues, ...(body?.tags ?? []))
 const title = page?.title ?? 'Enrol'
+const taking = [...interest, ...open]
 const generated =
-  open.length > 0
-    ? `Enrol in Tempe Volleyball: ${open.map((c) => c.name).join(', ')}. Leagues, training and development programs in Sydney.`
+  taking.length > 0
+    ? `Join Tempe Volleyball: ${taking.map((c) => c.name).join(', ')}. Leagues, training and development programs in Sydney.`
     : 'Enrol in Tempe Volleyball leagues, training and development programs in Sydney.'
 ---
 
@@ -46,36 +54,65 @@ const generated =
     <Breadcrumbs slot="before" items={[{ label: title }]} />
     {!page && (
       <p class="page-lead mb-10">
-        Pick a league, training session or program below and fill in its form. Full sessions and seasons take a waitlist, and we'll email
-        you if a spot comes up.
+        Leagues and events: tell us you're interested, on your own or as a team, and we'll be in touch. Training and programs: pick one
+        below and fill in its form; full sessions take a waitlist, and we'll email you if a spot comes up.
       </p>
     )}
     <div class:list={[page && 'mt-10']}>
-      {groups.length > 0 ? (
-        groups.map((g) => (
-          <section aria-labelledby={`enrol-${g.category?.slug ?? 'other'}`} class="mb-12">
-            <h2 id={`enrol-${g.category?.slug ?? 'other'}`} class="section-title">
-              {g.category ? (
-                <a class="hover:text-link hover:underline" href={`/${g.category.slug}`}>
-                  {g.category.name}
+      {interest.length > 0 && (
+        <section aria-labelledby="enrol-interest" class="mb-12">
+          <h2 id="enrol-interest" class="section-title">
+            Leagues and events: register your interest
+          </h2>
+          <p class="mb-4 max-w-2xl">
+            Come on your own and we'll find you a team, or enter a whole team.{' '}
+            <a class="link" href={INTEREST_ROUTE}>
+              One form covers them all
+            </a>
+            .
+          </p>
+          <ul class="card divide-line divide-y p-0 sm:p-0">
+            {interest.map((c) => (
+              <li class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5 py-3.5">
+                <div class="min-w-0">
+                  <a class="link font-semibold" href={c.path}>
+                    {c.name}
+                  </a>
+                  <span class="text-muted block text-sm">{c.nextStarts || c.schedule}</span>
+                </div>
+                <a class="btn btn-enrol btn-sm" href={c.interest!.href}>
+                  Register interest<span class="sr-only"> in {c.name}</span>
                 </a>
-              ) : (
-                'More'
-              )}
-            </h2>
-            <ProgrammeCards cards={g.cards} headingLevel={3} showTargets />
-          </section>
-        ))
-      ) : (
-        <div class="empty mb-10 max-w-2xl">
-          <p>Nothing is open for enrolment right now.</p>
-          <p>Here's what runs and when each starts next.</p>
-        </div>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
+      {groups.length > 0
+        ? groups.map((g) => (
+            <section aria-labelledby={`enrol-${g.category?.slug ?? 'other'}`} class="mb-12">
+              <h2 id={`enrol-${g.category?.slug ?? 'other'}`} class="section-title">
+                {g.category ? (
+                  <a class="hover:text-link hover:underline" href={`/${g.category.slug}`}>
+                    {g.category.name}
+                  </a>
+                ) : (
+                  'More'
+                )}
+              </h2>
+              <ProgrammeCards cards={g.cards} headingLevel={3} showTargets />
+            </section>
+          ))
+        : interest.length === 0 && (
+            <div class="empty mb-10 max-w-2xl">
+              <p>Nothing is open for enrolment right now.</p>
+              <p>Here's what runs and when each starts next.</p>
+            </div>
+          )}
       {later.length > 0 && (
         <section aria-labelledby="enrol-later" class="mt-4">
           <h2 id="enrol-later" class="section-title">
-            {groups.length > 0 ? 'Not open yet' : 'Our programs'}
+            {groups.length > 0 || interest.length > 0 ? 'Not open yet' : 'Our programs'}
           </h2>
           <ul class="card divide-line divide-y p-0 sm:p-0">
             {later.flatMap((g) =>

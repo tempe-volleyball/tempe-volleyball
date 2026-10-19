@@ -3,6 +3,8 @@ import { Link } from 'wouter'
 import { formatLong } from '../../lib/fixtures'
 import { api, formatWhen, type AuditRow, type Dashboard, type DashboardDay, type Me } from '../api'
 import { capText } from '../enrolment/EnrolmentList'
+import { formatDate } from '../../lib/enrolment/targets'
+import { inboxHref } from '../interest/events'
 import { KINDS } from '../programmes/kinds'
 import { Card, LoadError, Skeleton, errorMessage } from '../ui'
 import { ACTIONS, describe } from './Audit'
@@ -243,6 +245,37 @@ function Panels({ data, me }: { data: Dashboard; me: Me }) {
             <p className="mt-3 text-xs text-black/60">
               Secrets are set in the Cloudflare account by whoever looks after it (PLAN.md, “Setup needed”).
             </p>
+          </Section>
+        )}
+
+        {data.interest && (
+          <Section
+            title="New expressions of interest"
+            count={data.interest.newCount > 0 ? data.interest.newCount : undefined}
+            action={
+              <Link href="/interest" className={linkClass}>
+                All interest
+              </Link>
+            }
+          >
+            {data.interest.programmes.length === 0 ? (
+              <p className="text-sm text-black/70">No open expressions of interest.</p>
+            ) : (
+              <ul className="divide-y divide-black/10">
+                {data.interest.programmes.map((p) => (
+                  <li key={p.id} className={rowClass}>
+                    <Link href={inboxHref({ programmeId: p.id })} className="min-w-0 flex-1">
+                      <span className="text-brand block font-semibold underline-offset-2 hover:underline">{p.name}</span>
+                      <span className="block text-sm text-black/70">
+                        {p.open} open
+                        {p.since ? `, ${p.openSince} since the last season started (${formatDate(p.since)})` : ''}
+                      </span>
+                    </Link>
+                    {p.new > 0 && <Chip tone="amber">{p.new} new</Chip>}
+                  </li>
+                ))}
+              </ul>
+            )}
           </Section>
         )}
 

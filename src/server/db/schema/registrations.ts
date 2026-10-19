@@ -5,6 +5,9 @@ import { id, SQL_NOW_ISO, timestamps, updatedBy, wpId } from './columns'
 import { leagues, seasons, teams } from './competition'
 import {
   emailStatuses,
+  genders,
+  playerPools,
+  playerSources,
   groupKinds,
   groupStatuses,
   paymentProviders,
@@ -13,7 +16,7 @@ import {
   registrationSources,
   registrationStatuses,
 } from './enums'
-import type { PaymentProviderId } from './enums'
+import type { Gender, PaymentProviderId } from './enums'
 import { enrolmentForms } from './forms'
 import { developmentTerms, events, programmeSessions } from './programmes'
 
@@ -104,8 +107,22 @@ export const players = sqliteTable(
     notes: text('notes'),
     ...timestamps(),
     updatedBy: updatedBy(),
+    // ── Expressions of interest, players and rosters (docs/interest.md) ──
+    /** Competition players (leagues, events) are kept apart from training players: one row per pool. */
+    pool: text('pool', { enum: playerPools }).notNull().default('training'),
+    gender: text('gender', { enum: genders }),
+    suburb: text('suburb'),
+    /** Volleyball NSW membership (rego) number. */
+    vnswNumber: text('vnsw_number'),
+    /** UTC ISO; Michael's "retired" flag. Retired players show only in the Retired group. */
+    retiredAt: text('retired_at'),
+    source: text('source', { enum: playerSources }),
   },
-  (t) => [index('players_email_idx').on(t.email)],
+  (t) => [
+    index('players_email_idx').on(t.email),
+    index('players_pool_email_idx').on(t.pool, t.email),
+    index('players_pool_last_name_idx').on(t.pool, t.lastName, t.firstName),
+  ],
 )
 
 /**
@@ -162,6 +179,10 @@ export type PendingDetails = {
   guardianEmail: string | null
   guardianPhone: string | null
   emergencyContact: string | null
+  /** Added with migration 0010; entries held before it lack them (json_extract then gives null). */
+  gender?: Gender | null
+  suburb?: string | null
+  vnswNumber?: string | null
 }
 
 export const registrations = sqliteTable(

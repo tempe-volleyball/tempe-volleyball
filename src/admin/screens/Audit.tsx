@@ -50,6 +50,16 @@ export const ACTIONS: Record<string, string> = {
   'fixtures.import': 'Imported fixtures (CSV)',
   'message.delete': 'Deleted messages',
   'message.export': 'Exported messages (CSV)',
+  'interest.create': 'Added an expression of interest',
+  'interest.update': 'Changed an expression of interest',
+  'interest.delete': 'Deleted expressions of interest',
+  'interest.export': 'Exported expressions of interest (CSV)',
+  'player.create': 'Added a player',
+  'player.update': 'Changed a player',
+  'player.merge': 'Merged two players',
+  'player.delete': 'Deleted a player',
+  'player.export': 'Exported players (CSV)',
+  'roster.update': 'Changed a season roster',
 }
 
 /** A merge can be undone from Admin → Teams for 30 days (the screen says whether this one still can). */
@@ -113,6 +123,14 @@ export const describe = (row: AuditRow) => {
   }
   if (row.action === 'message.delete') return `${String(after.count ?? '?')} contact ${after.count === 1 ? 'message' : 'messages'}`
   if (row.action === 'message.export') return `${String(after.rows ?? '?')} rows (${String(after.filter ?? '')})`
+  if (row.action === 'interest.create') return `${String(after.reference ?? '')} (${after.kind === 'team' ? 'team' : 'player'})`
+  if (row.action === 'interest.delete') return Array.isArray(before.references) ? before.references.join(', ') : ''
+  if (row.action === 'interest.export' || row.action === 'player.export') return `${String(after.rows ?? '?')} rows`
+  if (row.action === 'player.update' && Array.isArray(after.fields)) return `Changed: ${after.fields.join(', ')}`
+  if (row.action === 'player.merge' && before.merged && typeof before.merged === 'object') {
+    const m = before.merged as Record<string, unknown>
+    return `${String(m.firstName ?? '')} ${String(m.lastName ?? '')} (a duplicate) merged in`
+  }
   if (row.action === 'team.create') return String(after.name ?? '')
   if (row.action === 'team.rename') return `${String(before.name ?? '?')} → ${String(after.name ?? '?')}`
   return row.targetType ? `${row.targetType} ${row.targetId ?? ''}` : ''

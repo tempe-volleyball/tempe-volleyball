@@ -9,6 +9,7 @@ import { runEnrolmentCron } from './enrolment/offers'
 import { pruneRateLimits } from './ratelimit'
 import { sweepAbandonedUploads, type SweepBucket } from './content/media-sweep'
 import { pruneMessagesStatement } from './contact/messages'
+import { pruneInterestsStatement, prunePlayersOfInterestsStatement } from './interest/admin'
 
 /**
  * Cron Trigger entry point (see `triggers.crons` in wrangler.jsonc; schedules are UTC). Hourly. Every job is
@@ -20,7 +21,9 @@ import { pruneMessagesStatement } from './contact/messages'
  *    time (src/server/enrolment/confirm.ts), and delete sent or failed emails, and unconfirmed entries that lapsed
  *    or were replaced (with a player row nothing else uses), older than Settings → Enrolment's "days to keep sent
  *    emails" (default 30), so addresses don't stay in the outbox or in unverified entries; and contact messages
- *    handled longer ago than Settings → Contact form's "days to keep handled messages" (default 365)
+ *    handled longer ago than Settings → Contact form's "days to keep handled messages" (default 365); and EOIs
+ *    archived longer ago than Settings → Interest's "delete archived EOIs after" (default 365, 0 = keep; at most 200
+ *    a run, src/server/interest/admin.ts)
  *  - expire admin invites past their expiry
  *  - send queued emails that went over Resend's daily limit
  *  - clear secret payloads (codes, sign-in and invite links) from outbox rows that can no longer be sent
@@ -91,12 +94,18 @@ export async function runHousekeeping(db: AppDb, mailer: Partial<Pick<Mailer, 'p
   const at = now.toISOString()
   const days = settings.enrolment.emailRetentionDays
   const cutoff = new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString()
+  const interestPrune = pruneInterestsStatement(db, settings.interest.archivedRetentionDays, now)
+  // The players those EOIs created and nothing else uses go first (the EOIs' members say who they are).
+  const interestPlayersPrune = prunePlayersOfInterestsStatement(db, settings.interest.archivedRetentionDays, now)
   const results = await runBatch(db, [
+    ...(interestPrune && interestPlayersPrune ? [interestPlayersPrune, interestPrune] : []),
     pruneMessagesStatement(db, settings.contactForm.retentionDays, now),
     ...expirePendingStatements(db, at),
     ...pruneUnconfirmedStatements(db, cutoff),
     ...(mailer.pruneStatement ? [mailer.pruneStatement(days, now)] : []),
   ])
+  if (interestPrune) results.shift()
+  const interestsPruned = interestPrune ? (results.shift() as unknown[]).length : 0
   const messagesPruned = (results.shift() as unknown[]).length
   const pruned = results[3] as { playerId: string }[]
   const playerIds = [...new Set(pruned.map((r) => r.playerId))]
@@ -106,6 +115,7 @@ export async function runHousekeeping(db: AppDb, mailer: Partial<Pick<Mailer, 'p
     unconfirmedPruned: pruned.length,
     emailsPruned: mailer.pruneStatement ? (results[4] as unknown[]).length : 0,
     messagesPruned,
+    interestsPruned,
   }
 }
 

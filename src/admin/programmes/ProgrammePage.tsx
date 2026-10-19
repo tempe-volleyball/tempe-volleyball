@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { useLocation } from 'wouter'
+import { Link, useLocation } from 'wouter'
 import { checkSlug } from '../../lib/content/paths'
-import { generatedSummaryLine, scheduleText } from '../../lib/programme-text'
+import { generatedInterestLine, generatedSummaryLine, nextStartsLine, scheduleText } from '../../lib/programme-text'
 import { programmePath } from '../../lib/programmes'
 import { sydneyToUtc, utcToSydneyInput } from '../../lib/time'
 import { api, formatWhen, isConflict, type Me, type Programme, type ProgrammeKind, type ProgrammeView, type PurgeResult } from '../api'
@@ -25,6 +25,7 @@ import {
   purgeNote,
 } from '../ui'
 import { KINDS, WEEKDAY_NAMES, centsToDollars, dollarsToCents, intOrNull, statusLabel } from './kinds'
+import { inboxHref } from '../interest/events'
 import { InstancesTab } from './Schedule'
 
 // One programme: /admin/<kind base>/<id>/<tab>. Details and Enrolment edit the programme row (one Save for both);
@@ -67,6 +68,12 @@ type Form = {
   waitlistOfferHours: string
   /** '' = automatic (on when capped), 'true' = always, 'false' = never. */
   enrolmentEmailConfirm: string
+  /** '' = the kind's default. */
+  signupMode: '' | 'interest' | 'enrolment'
+  interestOpen: boolean
+  depositPlayer: string
+  depositTeam: string
+  interestText: string
 }
 
 const str = (v: string | number | null | undefined) => (v === null || v === undefined ? '' : String(v))
@@ -105,6 +112,11 @@ const formOf = (p: Programme): Form => ({
   waitlistEnabled: p.waitlistEnabled,
   waitlistOfferHours: String(p.waitlistOfferHours),
   enrolmentEmailConfirm: p.enrolmentEmailConfirm === null ? '' : String(p.enrolmentEmailConfirm),
+  signupMode: p.signupMode ?? '',
+  interestOpen: p.interestOpen,
+  depositPlayer: centsToDollars(p.depositPlayerCents),
+  depositTeam: centsToDollars(p.depositTeamCents),
+  interestText: p.interestText ?? '',
 })
 
 const orNull = (s: string) => (s.trim() === '' ? null : s.trim())
@@ -147,6 +159,11 @@ function payloadOf(f: Form, kind: ProgrammeKind): Record<string, unknown> {
     waitlistEnabled: f.waitlistEnabled,
     waitlistOfferHours: Number(f.waitlistOfferHours),
     enrolmentEmailConfirm: f.enrolmentEmailConfirm === '' ? null : f.enrolmentEmailConfirm === 'true',
+    signupMode: f.signupMode || null,
+    interestOpen: f.interestOpen,
+    depositPlayerCents: dollarsToCents(f.depositPlayer),
+    depositTeamCents: dollarsToCents(f.depositTeam),
+    interestText: orNull(f.interestText),
   }
 }
 
@@ -204,7 +221,8 @@ export function ProgrammePage({ me, kind, id, tab: requested }: { me: Me; kind: 
   const dirty = Object.keys(changes).length > 0 || descDirty
   useUnsavedWarning(dirty, { within: `${cfg.base}/${id}` })
 
-  const tabs = [{ key: 'details', label: 'Details' }, { key: 'enrolment', label: 'Enrolment' }, cfg.instancesTab]
+  // The tab's key stays `enrolment` (old links); it holds both ways of signing up (docs/interest.md).
+  const tabs = [{ key: 'details', label: 'Details' }, { key: 'enrolment', label: 'Sign-ups' }, cfg.instancesTab]
   const tab = tabs.some((t) => t.key === requested) ? requested! : 'details'
 
   if (loadError)
@@ -618,6 +636,138 @@ function EnrolmentCard({
   const cfg = KINDS[kind]
   const g = view.generated
   const noun = { league: 'season', training: 'session', development: 'term', event: 'event' }[kind]
+  const mode = form.signupMode || g.defaultSignupMode
+  const modeName = { interest: 'expressions of interest', enrolment: 'enrolment' }
+  // The join line as it would be generated with what's typed now (next start date or words).
+  const nextNow = nextStartsLine(
+    { kind, nextStartsOn: form.nextStartsOn || null, nextStartsText: form.nextStartsText.trim() || null },
+    g.nextInstanceDate,
+  )
+  const nextStartsCard = (
+    <Card title={`Next ${noun} starts`}>
+      <div className="space-y-4">
+        <p className="text-sm text-black/60">
+          Shown as “{g.nextStarts || 'nothing yet'}”.{' '}
+          {g.nextInstanceDate ? `Found from the next ${noun} (${g.nextInstanceDate}).` : `No upcoming ${noun} yet.`} Override it with a date
+          or your own words; leave both blank for automatic.
+        </p>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Date" type="date" value={form.nextStartsOn} onChange={(e) => set('nextStartsOn', e.target.value)} />
+          <Field
+            label="Or your own words"
+            maxLength={200}
+            value={form.nextStartsText}
+            placeholder="Starts after the Easter break"
+            onChange={(e) => set('nextStartsText', e.target.value)}
+            hint="Wins over the date."
+          />
+        </div>
+      </div>
+    </Card>
+  )
+  return (
+    <>
+      <Card title="Sign-ups">
+        <div className="space-y-4">
+          <Select
+            label="How people sign up"
+            value={form.signupMode}
+            onChange={(e) => set('signupMode', e.target.value as Form['signupMode'])}
+            hint={
+              mode === 'interest'
+                ? 'People tell you they’re interested (on their own or as a team) on the form at /interest; you contact them, take a deposit and build the season. They arrive in Admin → Interest.'
+                : 'People enrol on the website, with caps, a waitlist and a fee. They arrive in Admin → Enrolments.'
+            }
+          >
+            <option value="">Default: {modeName[g.defaultSignupMode]}</option>
+            <option value="interest">Expressions of interest</option>
+            <option value="enrolment">Enrolment</option>
+          </Select>
+          {mode === 'interest' && (
+            <>
+              <Checkbox
+                label="Taking expressions of interest"
+                hint={`All year, no dates. Off: the ${cfg.noun} isn’t offered on the form and its page says nothing about joining.`}
+                checked={form.interestOpen}
+                onChange={(v) => set('interestOpen', v)}
+              />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field
+                  label="Deposit per player (AUD)"
+                  inputMode="decimal"
+                  value={form.depositPlayer}
+                  placeholder="No deposit"
+                  hint="Asked of someone on their own. Paid by PayID; you mark it paid in Admin → Interest."
+                  onChange={(e) => set('depositPlayer', e.target.value)}
+                />
+                {cfg.fields.teams && (
+                  <Field
+                    label="Deposit per team (AUD)"
+                    inputMode="decimal"
+                    value={form.depositTeam}
+                    placeholder="No deposit"
+                    hint="Asked of a team entry. With several programmes ticked, the highest deposit applies."
+                    onChange={(e) => set('depositTeam', e.target.value)}
+                  />
+                )}
+              </div>
+              <TextArea
+                label="Join section text"
+                rows={2}
+                maxLength={500}
+                value={form.interestText}
+                placeholder={generatedInterestLine(nextNow)}
+                hint="The line above the “I’m interested” button on its page. Leave it empty for the generated text shown."
+                onChange={(e) => set('interestText', e.target.value)}
+              />
+              <p className="text-sm">
+                <Link href={inboxHref({ programmeId: view.programme.id })} className="text-brand underline underline-offset-2">
+                  See its expressions of interest
+                </Link>
+              </p>
+            </>
+          )}
+        </div>
+      </Card>
+
+      {mode === 'interest' && nextStartsCard}
+
+      {mode === 'interest' && (
+        <details className="rounded border border-black/10 bg-white p-4 shadow-sm sm:p-5">
+          <summary className="cursor-pointer font-semibold">Enrolment settings (not used while taking expressions of interest)</summary>
+          <p className="mt-2 text-sm text-black/60">
+            Kept as they are, and saved with the rest, for if you switch this {cfg.noun} to enrolment.
+          </p>
+          <div className="mt-4 space-y-6">
+            <EnrolmentSettings view={view} form={form} set={set} kind={kind} />
+          </div>
+        </details>
+      )}
+      {mode === 'enrolment' && (
+        <>
+          <EnrolmentSettings view={view} form={form} set={set} kind={kind} nextStarts={nextStartsCard} />
+        </>
+      )}
+    </>
+  )
+}
+
+/** The enrolment settings (docs/admin.md §3.7): open and dates, caps, price, waitlist, form, ages. */
+function EnrolmentSettings({
+  view,
+  form,
+  set,
+  kind,
+  nextStarts,
+}: {
+  view: ProgrammeView
+  form: Form
+  set: <K extends keyof Form>(k: K, v: Form[K]) => void
+  kind: ProgrammeKind
+  nextStarts?: ReactNode
+}) {
+  const cfg = KINDS[kind]
+  const noun = { league: 'season', training: 'session', development: 'term', event: 'event' }[kind]
   return (
     <>
       <Card title="Enrolment">
@@ -656,26 +806,7 @@ function EnrolmentCard({
         </div>
       </Card>
 
-      <Card title={`Next ${noun} starts`}>
-        <div className="space-y-4">
-          <p className="text-sm text-black/60">
-            Shown as “{g.nextStarts || 'nothing yet'}”.{' '}
-            {g.nextInstanceDate ? `Found from the next ${noun} (${g.nextInstanceDate}).` : `No upcoming ${noun} yet.`} Override it with a
-            date or your own words; leave both blank for automatic.
-          </p>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Date" type="date" value={form.nextStartsOn} onChange={(e) => set('nextStartsOn', e.target.value)} />
-            <Field
-              label="Or your own words"
-              maxLength={200}
-              value={form.nextStartsText}
-              placeholder="Starts after the Easter break"
-              onChange={(e) => set('nextStartsText', e.target.value)}
-              hint="Wins over the date."
-            />
-          </div>
-        </div>
-      </Card>
+      {nextStarts}
 
       <Card title="Caps, price and waitlist">
         <p className="mb-4 text-sm text-black/60">

@@ -17,6 +17,7 @@ export * from './schema/admin'
 export * from './schema/registrations'
 export * from './schema/analytics'
 export * from './schema/contact'
+export * from './schema/interest'
 export * from './schema/relations'
 
 import type { account, session, twoFactor, user, verification } from './schema/auth'

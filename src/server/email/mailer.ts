@@ -34,7 +34,8 @@ import {
 // Sign-in emails are also limited per recipient (AUTH_PER_HOUR, AUTH_PER_DAY).
 //
 // Enrolment emails that an anonymous form can trigger (anything not sent with `priority`) are limited per mailbox
-// (ENROLMENT_PER_HOUR / _PER_DAY, keyed on canonicalMailbox so +tags and Gmail dots count as one), and may only use
+// (ENROLMENT_PER_HOUR / _PER_DAY, keyed on canonicalMailbox so +tags and Gmail dots count as one; the EOI
+// acknowledgement counts separately, INTEREST_ACK_PER_HOUR / _PER_DAY), and may only use
 // the general pool up to PRIORITY_RESERVE short of its cap: the rest is kept for waitlist offers, admin emails and
 // emails after a confirmed address, so junk entries can't hold up a real offer (docs/admin.md §3.7).
 //
@@ -62,6 +63,12 @@ export const CONFIRM_LINK_RESERVE = 10
 /** Non-priority enrolment emails to one mailbox per hour (more are queued for later) and per day (more are dropped). */
 export const ENROLMENT_PER_HOUR = 5
 export const ENROLMENT_PER_DAY = 10
+/**
+ * EOI acknowledgements to one mailbox per hour / day, counted apart from the enrolment emails so forged EOIs naming
+ * someone's address can't use up the limit their enrolment confirm-link emails need (docs/api/interest.md).
+ */
+export const INTEREST_ACK_PER_HOUR = 3
+export const INTEREST_ACK_PER_DAY = 5
 /** Give up on an email after this many failed sends. */
 export const MAX_ATTEMPTS = 5
 /** Emails the cron sends per run; keeps one invocation well under the 50 D1 queries / 50 subrequests limits. */
@@ -119,10 +126,10 @@ export const PRIORITY_TEMPLATES: ReadonlySet<string> = new Set(['admin.invite', 
 
 /**
  * Templates an anonymous form can send to an address it names, so they're limited per mailbox unless sent as
- * priority: the enrolment emails and the contact form's automatic reply. (The contact form's notification goes to
- * the organiser's own addresses and has its own daily limit, Settings → Contact form.)
+ * priority: the enrolment emails, the contact form's automatic reply and the EOI acknowledgement. (The contact form's
+ * and the EOI form's notifications go to the organiser's own addresses and have their own daily limits in Settings.)
  */
-const isMailboxLimited = (t: string) => t.startsWith('enrolment.') || t === 'contact.ack'
+const isMailboxLimited = (t: string) => t.startsWith('enrolment.') || t === 'contact.ack' || t === 'interest.ack'
 
 /**
  * What an offer email's payload carries so a send can start the hold (`hold`). `latest` (UTC ISO) caps it: the
@@ -362,16 +369,18 @@ export function createMailer(deps: MailerDeps) {
    * The per-mailbox limit for non-priority enrolment emails: 'ok', 'later' (over the hour: queue it until the window
    * ends) or 'drop' (over the day). One batch of two upserts.
    */
-  async function enrolmentLimit(to: string, at: Date): Promise<{ verdict: 'ok' | 'later' | 'drop'; retryAfter: number }> {
+  async function enrolmentLimit(to: string, template: string, at: Date): Promise<{ verdict: 'ok' | 'later' | 'drop'; retryAfter: number }> {
     if (!deps.hashSalt) return { verdict: 'ok', retryAfter: 0 }
     const h = await hashKey(canonicalMailbox(to), deps.hashSalt)
-    const hour = `mail:enrol:${h}`
-    const day = `mail:enrol-day:${h}`
+    // EOI acknowledgements have their own (tighter) budget; see INTEREST_ACK_PER_HOUR.
+    const ack = template === 'interest.ack'
+    const hour = ack ? `mail:interest:${h}` : `mail:enrol:${h}`
+    const day = ack ? `mail:interest-day:${h}` : `mail:enrol-day:${h}`
     const r = await hit(
       db,
       [
-        { key: hour, max: ENROLMENT_PER_HOUR, windowMs: 60 * 60 * 1000 },
-        { key: day, max: ENROLMENT_PER_DAY, windowMs: 24 * 60 * 60 * 1000 },
+        { key: hour, max: ack ? INTEREST_ACK_PER_HOUR : ENROLMENT_PER_HOUR, windowMs: 60 * 60 * 1000 },
+        { key: day, max: ack ? INTEREST_ACK_PER_DAY : ENROLMENT_PER_DAY, windowMs: 24 * 60 * 60 * 1000 },
       ],
       at,
     )
@@ -424,7 +433,7 @@ export function createMailer(deps: MailerDeps) {
       }
     }
     if (isMailboxLimited(template) && !priority) {
-      const limit = await enrolmentLimit(to, at)
+      const limit = await enrolmentLimit(to, template, at)
       if (limit.verdict === 'drop') {
         console.warn(`[email] ${template} not sent: per-mailbox limit for today reached`)
         return { id: '', status: 'limited' }

@@ -49,6 +49,15 @@ describe('sitemapEntries', () => {
   const entries = sitemapEntries(rows())
   const paths = entries.map((e) => e.path)
 
+  it('lists /interest only while an active programme takes EOIs, never its per-programme pages', () => {
+    const progs = rows().programmes
+    const without = (over: Partial<SitemapRows['programmes'][number]>) =>
+      sitemapEntries(rows({ programmes: progs.map((p) => (p.id === 'tnl' ? { ...p, ...over } : p)) })).map((e) => e.path)
+    expect(without({ signupMode: 'enrolment' })).not.toContain('/interest')
+    expect(without({ interestOpen: false })).not.toContain('/interest')
+    expect(paths.filter((p) => p.startsWith('/interest'))).toEqual(['/interest'])
+  })
+
   it('lists the real, indexable pages once each', () => {
     expect(paths).toEqual([
       '/',
@@ -62,6 +71,8 @@ describe('sitemapEntries', () => {
       '/leagues/fixtures',
       '/training',
       '/enrol',
+      // TNL is a league with no sign-up mode set: it takes EOIs.
+      '/interest',
       '/leagues/tnl/tnl-q3-2026',
       '/leagues/mnl/mnl-q4-2020',
       '/news',

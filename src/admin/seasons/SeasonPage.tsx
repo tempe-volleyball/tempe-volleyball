@@ -26,6 +26,7 @@ import {
   type Me,
   type MatchDayState,
   type PurgeResult,
+  type RosterCopySummary,
   type SaveDrawResult,
   type SeasonView,
 } from '../api'
@@ -48,7 +49,7 @@ import {
 import { generateInWorker, newSeed } from './browser'
 import { ConfirmDialog, LeaveDialog } from './dialogs'
 import { GameStatusDialog, NightDialog, WithdrawDialog, type NightChoice } from './NightDialogs'
-import { isEmptyPlan, planSave, type Draft } from './draft'
+import { isEmptyPlan, planSave, rosterCopyNote, type Draft } from './draft'
 import { ForfeitDialog, MoveGameDialog } from './GameDialogs'
 import { changedResults } from './results-form'
 import { ResultsTab, type DayEdit, type DayNote, type GameStatus, type ResultsActions } from './ResultsTab'
@@ -196,11 +197,15 @@ export function SeasonPage({ me, id, tab: requested }: { me: Me; id: string; tab
     let steps = 0
     let cache: PurgeResult | undefined
     let warnings: Issue[] = []
+    let rosterNote = ''
     try {
       if (plan.teamIds) {
-        token = (
-          await api<SeasonView>(`/api/admin/seasons/${id}/teams`, { method: 'PUT', body: { baseUpdatedAt: token, teamIds: plan.teamIds } })
-        ).season.updatedAt
+        const r = await api<SeasonView & { rosterCopy: RosterCopySummary }>(`/api/admin/seasons/${id}/teams`, {
+          method: 'PUT',
+          body: { baseUpdatedAt: token, teamIds: plan.teamIds, ...(plan.rosterFrom ? { rosterFrom: plan.rosterFrom } : {}) },
+        })
+        token = r.season.updatedAt
+        rosterNote = rosterCopyNote(r.rosterCopy)
         steps++
       }
       if (plan.draw) {
@@ -233,7 +238,7 @@ export function SeasonPage({ me, id, tab: requested }: { me: Me; id: string; tab
       const fresh = await load()
       setDraft(null)
       setMessage(
-        `Saved${warnings.length ? ` (${warnings.length} warning${warnings.length > 1 ? 's' : ''} to check on the Fixtures tab)` : ''}.${purgeNote(cache)}`,
+        `Saved${warnings.length ? ` (${warnings.length} warning${warnings.length > 1 ? 's' : ''} to check on the Fixtures tab)` : ''}.${rosterNote}${purgeNote(cache)}`,
       )
       return fresh
     } catch (e) {
@@ -920,6 +925,7 @@ export function SeasonPage({ me, id, tab: requested }: { me: Me; id: string; tab
             generating={busy === 'generate'}
             onGenerate={() => void generate()}
             onTeamRenamed={onTeamRenamed}
+            canEditRosters={isAdmin}
           />
         ) : tab === 'fixtures' ? (
           <FixturesTab

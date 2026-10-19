@@ -1,5 +1,6 @@
 ---
 import BaseLayout from '../../layouts/BaseLayout.astro'
+import { interestPath, isInterestMode, takesInterest } from '../../lib/interest'
 import { DEFAULT_DESCRIPTION, documentTitle } from '../../lib/content'
 import { formatDateLong, formatTimeRange, nextStartsLine, summaryLine, venueText, WEEKDAYS } from '../../lib/programme-text'
 import { categoryPath } from '../../lib/programmes'
@@ -10,6 +11,7 @@ import { programmeJsonLd } from '../../server/seo'
 import NotFound from '../NotFound.astro'
 import Breadcrumbs from './Breadcrumbs.astro'
 import EnrolSection from './EnrolSection.astro'
+import JoinSection from './JoinSection.astro'
 import ProgrammeIntro from './ProgrammeIntro.astro'
 
 // A training, development or event programme's page (docs/admin.md §3.3, §3.6): breadcrumb, when and where, the
@@ -30,6 +32,8 @@ const summary = p ? summaryLine(p, venue) : ''
 const seo = p ? programmeSeo(p, summary, nextStarts) : null
 const targets = new Map((page?.enrolment?.targets ?? []).map((t) => [`${t.kind}:${t.id}`, t]))
 const enrolmentOpen = targets.size > 0
+// Interest mode (events by default, docs/interest.md): a join section linking the EOI form instead of enrolment.
+const interest = p && isInterestMode(p) ? { open: takesInterest(p), href: interestPath(p.slug) } : null
 const instanceKind =
   page?.upcoming[0]?.kind ?? page?.past[0]?.kind ?? (p?.kind === 'training' ? 'session' : p?.kind === 'development' ? 'term' : 'event')
 const noun = p ? KIND_LABEL[p.kind] : ''
@@ -79,6 +83,7 @@ const details = (i: ProgrammeInstance) =>
       venue={venue}
       nextStarts={nextStarts}
       enrolmentOpen={enrolmentOpen}
+      interest={interest}
       noun={noun}
       hasHistory={page.past.length > 0}
     />
@@ -131,9 +136,12 @@ const details = (i: ProgrammeInstance) =>
         </section>
       ))}
 
-    {p.status === 'active' && (
-      <EnrolSection enrolment={page.enrolment} name={p.name} closedText={closedText} privacyHref={site.privacyHref} />
-    )}
+    {p.status === 'active' &&
+      (interest ? (
+        interest.open && <JoinSection name={p.name} slug={p.slug} interestText={p.interestText} nextStarts={nextStarts} />
+      ) : (
+        <EnrolSection enrolment={page.enrolment} name={p.name} closedText={closedText} privacyHref={site.privacyHref} />
+      ))}
   </BaseLayout>
 ) : (
   <BaseLayout title={documentTitle('Page not found')} description={DEFAULT_DESCRIPTION} site={site}>

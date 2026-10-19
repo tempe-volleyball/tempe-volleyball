@@ -48,6 +48,21 @@ describe('planSave', () => {
     expect(plan.settings?.startDate).toBe('2027-02-11')
   })
 
+  it('sends rosterFrom only for teams being added, and only with the team list', () => {
+    const d = saved()
+    const [first, ...rest] = d.competition.settings.teams
+    const without: Draft = { ...d, competition: { ...d.competition, settings: { ...d.competition.settings, teams: rest } } }
+    const added: Draft = {
+      ...d,
+      competition: { ...d.competition, settings: { ...d.competition.settings, teams: [...rest, first!, { id: 'new', name: 'New' }] } },
+      rosterFrom: { [first!.id]: { seasonId: 's0' }, new: { interestId: 'i1' }, gone: { seasonId: 's0' } },
+    }
+    // `first` is already saved: it keeps its own roster. `gone` isn't in the list.
+    expect(planSave(d, added).rosterFrom).toEqual({ new: { interestId: 'i1' } })
+    expect(planSave(d, { ...without, rosterFrom: { gone: { seasonId: 's0' } } }).rosterFrom).toBeNull()
+    expect(planSave(d, { ...d, rosterFrom: { new: { interestId: 'i1' } } })).toMatchObject({ teamIds: null, rosterFrom: null })
+  })
+
   it('never sends a draw for a season without one', () => {
     const d: Draft = { competition: demoCompetition(), setsPerMatch: 2 }
     expect(planSave(d, { ...d, competition: { ...d.competition, edited: true } }).draw).toBe(false)

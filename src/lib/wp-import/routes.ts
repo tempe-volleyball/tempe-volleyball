@@ -101,12 +101,17 @@ export const ROUTE_PAGES: Record<string, string> = { blog: NEWS_ROUTE, news: NEW
 export const THIS_WEEK_TARGET = '/leagues/fixtures'
 
 /**
- * The old enrolment pages (year-stamped, duplicated), all replaced by /enrol (docs/admin.md §3.6, §3.8). The importer
- * writes these as `manual` redirects: they take over once the content map archives the pages (a published page
- * always wins over a redirect), and an import never overwrites one Michael has edited.
+ * The old sign-up pages (year-stamped, duplicated): the "Enrolment" landing pages and the New Player / New Team Google
+ * Forms. They were all expressions of interest (/2023-enrolment too: "If you are … interested in playing in any of the
+ * following leagues … submit one of the below entries"), so they now go to the EOI form at /interest (docs/interest.md).
+ * The importer writes these as `manual` redirects: they take over once the content map archives the pages (a published
+ * page always wins over a redirect), and an import never overwrites one Michael has edited. Rows an earlier import or
+ * content map pointed at /enrol are repointed by the content map (scripts/content/sql.ts) while nobody has edited them.
  */
 export const ENROL_ROUTE = '/enrol'
-export const ENROL_REDIRECTS = [
+/** The EOI form (src/lib/interest.ts INTEREST_ROUTE; repeated here so the importer's rules import nothing else). */
+export const INTEREST_ROUTE = '/interest'
+export const INTEREST_REDIRECTS = [
   '/2023-enrolment',
   '/2021-interest-in-playing',
   '/new-player',

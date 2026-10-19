@@ -141,7 +141,8 @@ async function formPurge(db: AppDb, formId: string): Promise<PurgeTargets> {
     .leftJoin(products, eq(products.programmeId, programmes.id))
     .where(sql`${programmes.enrolmentFormId} = ${formId} or ${products.formId} = ${formId}`)
     .all()
-  return { tags: [tags.page('/enrol'), ...rows.map((r) => tags.page(programmePath(r.kind, r.slug)))] }
+  // The EOI form (/interest and /interest/<slug>, all tagged page:/interest) may ask this form's questions.
+  return { tags: [tags.page('/enrol'), tags.page('/interest'), ...rows.map((r) => tags.page(programmePath(r.kind, r.slug)))] }
 }
 
 export async function updateForm(db: AppDb, actor: Editor, id: string, input: FormInput, now = new Date()) {

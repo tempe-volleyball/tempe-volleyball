@@ -313,6 +313,36 @@ The amber caption is visually hidden on phones (it would scroll away; the sectio
   training, All development programs, All events), and the footer links them too, so `/news`, `/training`,
   `/programs` and `/events` are reachable from every page (QA: they weren't linked).
 
+### Joining: interest programmes and `/interest`
+
+Leagues and events take expressions of interest by default (docs/interest.md, docs/api/interest.md); training and
+development keep enrolment exactly as above. A programme's mode is `leagues.signup_mode` (null = the kind's default).
+
+- **Join section** (`JoinSection.astro`, in place of the enrol section on league and event pages, only while the
+  programme takes EOIs): "Join <name>"; then the programme's own text (`leagues.interest_text`, shown alone, as
+  typed) or else "Next season starts …." when a next start is known (the usual `nextStartsLine`; nothing about dates
+  otherwise) and a line on joining alone or as a team; and an amber **Register your interest** button to
+  `/interest/<slug>`. It **never says closed**. It keeps `id="enrol"` (old `#enrol` links land on it) inside a
+  `#join` wrapper. With EOIs off (`interest_open`) there's no section, badge or button at all.
+- **Programme intro and cards**: no enrolment badge for interest programmes; "Taking sign-ups" (the open badge) while
+  they take EOIs, and **Register interest** instead of Enrol now / Enrol, linking `/interest/<slug>`.
+- **`/enrol`** lists "Leagues and events: register your interest" (each with a Register interest button, and a link
+  to the general form) above what's open for enrolment; "Not open yet" lists the rest. The default lead mentions
+  both; an intro page at `/enrol` still replaces it.
+- **Programme list block** filter "enrolment open / closed" means **taking sign-ups**: an interest programme counts
+  as open while it takes EOIs (they aren't time-windowed), an enrolment programme while its enrolment is open. Lines
+  carry `interest: true` for interest programmes.
+- **`/interest` and `/interest/<slug>`** (`InterestPage.astro` + the `InterestForm` island, `client:visible`, disabled
+  until hydrated like the enrolment form): the H1 ("Register your interest", an intro page's title, or "Join <name>"),
+  Settings → Interest's intro, then the form in a card: **How are you joining?** ("Just me: find me a team" / "A whole
+  team", tiles), **What are you interested in?** (tick boxes by category with the summary line, next start and the
+  deposit for the entry type), then, once the entry type is picked, the team name, the contact's (captain's) details,
+  the form's questions (the enrolment form's `Question` component), **Team members** (optional, "+ Add a team
+  member" up to the limit, each removable, fields per Settings → Interest), the deposit and PayID note, Turnstile and
+  the privacy line. Errors are under each field (team members' too) with a summary at the button, and focus goes to
+  the first one. Success is a green panel with the thank-you text and the deposit instructions without the
+  reference (it's in the email). A `noscript` line points to Contact.
+
 ### Footer
 
 `SiteFooter.astro`, on `brand-deep`: the logo and a line about the club, **Explore** links, **Contact us** (Settings →

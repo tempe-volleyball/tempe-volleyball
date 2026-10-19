@@ -214,6 +214,45 @@ describe('programmes', () => {
     expect(d.result.programme.description.html).toBe('<p>&lt;b&gt;Hi&lt;/b&gt;</p>')
   })
 
+  it('saves the sign-up settings (mode, EOIs on/off, deposits, join text), checked and audited as enrolment', async () => {
+    const { result } = await newLeague()
+    expect(result.generated).toMatchObject({ signupMode: 'interest', defaultSignupMode: 'interest' })
+    expect(result.generated.interestLine).toMatch(/Tell us you’re interested/)
+    const id = result.programme.id
+    const base = result.programme.updatedAt
+    await rejects(updateProgramme(db, admin, id, { baseUpdatedAt: base, signupMode: 'waitlist' }, later(1)), 400, /Sign-ups/)
+    await rejects(updateProgramme(db, admin, id, { baseUpdatedAt: base, depositPlayerCents: -5 }, later(1)), 400, /Player deposit/)
+    await rejects(updateProgramme(db, admin, id, { baseUpdatedAt: base, interestText: 'x'.repeat(501) }, later(1)), 400, /join section/)
+    const r = await updateProgramme(
+      db,
+      admin,
+      id,
+      {
+        baseUpdatedAt: base,
+        signupMode: 'enrolment',
+        interestOpen: false,
+        depositPlayerCents: 2000,
+        depositTeamCents: 10000,
+        interestText: '  Spots for Q1 are going fast.  ',
+      },
+      later(1),
+    )
+    expect(r.result.programme).toMatchObject({
+      signupMode: 'enrolment',
+      interestOpen: false,
+      depositPlayerCents: 2000,
+      depositTeamCents: 10000,
+      interestText: 'Spots for Q1 are going fast.',
+    })
+    expect(r.result.generated.signupMode).toBe('enrolment')
+    const rows = await db.select().from(auditLog).where(eq(auditLog.action, 'programme.enrolment')).all()
+    expect(rows).toHaveLength(1)
+    // '' (the picker's "Default for this kind") clears the mode back to the kind's default.
+    const back = await updateProgramme(db, admin, id, { baseUpdatedAt: r.result.programme.updatedAt, signupMode: '' }, later(2))
+    expect(back.result.programme.signupMode).toBeNull()
+    expect(back.result.generated.signupMode).toBe('interest')
+  })
+
   it('goes live, retires and comes back, purging what it shows on', async () => {
     const { result } = await newLeague({ categoryId: 'cat_mixed_leagues' })
     const id = result.programme.id

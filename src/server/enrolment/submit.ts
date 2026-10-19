@@ -13,8 +13,11 @@ import {
   players,
   products,
   registrations,
+  type Gender,
   type PendingDetails,
   type RegistrationSource,
+  poolOfKind,
+  type PlayerPool,
 } from '../db/schema'
 import { isUniqueFailure } from '../content/common'
 import { getSettings } from '../content/settings'
@@ -110,7 +113,7 @@ const parseEntryType = (v: unknown, allowed: FormEntryType[]): FormEntryType => 
 }
 
 /** The person's player row (matched by email and name, so siblings sharing a parent's email stay separate). */
-async function findPlayer(db: AppDb, person: PersonInput, productId: string) {
+async function findPlayer(db: AppDb, person: PersonInput, productId: string, pool: PlayerPool) {
   return db
     .select({
       id: players.id,
@@ -133,6 +136,7 @@ async function findPlayer(db: AppDb, person: PersonInput, productId: string) {
     )
     .where(
       and(
+        eq(players.pool, pool),
         eq(players.email, person.email),
         sql`lower(${players.firstName}) = lower(${person.firstName})`,
         sql`lower(${players.lastName}) = lower(${person.lastName})`,
@@ -202,7 +206,9 @@ export async function createEntry(
       .get()
     if (taken) throw teamTaken(teamName)
   }
-  const existing = await findPlayer(db, person, product.id)
+  // Competition players (leagues, events) are kept apart from training players (docs/interest.md).
+  const pool = poolOfKind(target.programme.kind)
+  const existing = await findPlayer(db, person, product.id, pool)
   if (existing?.liveId)
     throw duplicate(target, {
       registrationId: existing.liveId,
@@ -228,6 +234,10 @@ export async function createEntry(
     guardianEmail: g?.email ?? null,
     guardianPhone: g?.phone ?? null,
     emergencyContact: mapped.emergencyContact ? `${mapped.emergencyContact.name}, ${mapped.emergencyContact.phone}` : null,
+    // validateEnrolment only lets a listed gender through.
+    gender: (mapped.gender as Gender | undefined) ?? null,
+    suburb: mapped.suburb ?? null,
+    vnswNumber: mapped.vnswNumber ?? null,
   }
   // An unconfirmed (pending_email) entry writes nothing onto a player: anyone can type someone else's address, so
   // its details wait on the registration (pending_details) until the address is confirmed (confirm.ts merges them).
@@ -240,6 +250,8 @@ export async function createEntry(
           firstName: person.firstName,
           lastName: person.lastName,
           email: person.email,
+          pool,
+          source: opts.source === 'public' ? 'enrolment' : opts.source,
           notes: null,
           createdAt: at,
           updatedAt: at,
@@ -255,7 +267,10 @@ export async function createEntry(
             guardianName: sql`coalesce(${players.guardianName}, ${g?.name ?? null})`,
             guardianEmail: sql`coalesce(${players.guardianEmail}, ${g?.email ?? null})`,
             guardianPhone: sql`coalesce(${players.guardianPhone}, ${g?.phone ?? null})`,
-            emergencyContact: sql`coalesce(${players.emergencyContact}, ${mapped.emergencyContact ? `${mapped.emergencyContact.name}, ${mapped.emergencyContact.phone}` : null})`,
+            emergencyContact: sql`coalesce(${players.emergencyContact}, ${details.emergencyContact})`,
+            gender: sql`coalesce(${players.gender}, ${details.gender})`,
+            suburb: sql`coalesce(${players.suburb}, ${details.suburb})`,
+            vnswNumber: sql`coalesce(${players.vnswNumber}, ${details.vnswNumber})`,
             updatedBy: opts.actorId ?? null,
           })
           .where(eq(players.id, playerId))
@@ -265,6 +280,8 @@ export async function createEntry(
           lastName: person.lastName,
           email: person.email,
           ...details,
+          pool,
+          source: opts.source === 'public' ? 'enrolment' : opts.source,
           notes: null,
           createdAt: at,
           updatedAt: at,

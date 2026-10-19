@@ -18,6 +18,8 @@ export const RESERVED_PREFIXES = [
   '/training',
   '/programs',
   '/events',
+  // The expression-of-interest form (src/pages/interest/): /interest itself may hold its intro page (below).
+  '/interest',
 ] as const
 /** Exact paths owned by routes or files. */
 export const RESERVED_PATHS = [
@@ -32,11 +34,11 @@ export const RESERVED_PATHS = [
 ] as const
 
 /**
- * Routes whose editable intro is a published page at the very same path (docs/admin.md §3.13): /enrol, and the
- * kind index pages /training, /programs and /events. A page may live exactly there (not under the prefixes), and
+ * Routes whose editable intro is a published page at the very same path (docs/admin.md §3.13): /enrol, the
+ * kind index pages /training, /programs and /events, and the EOI form /interest. A page may live exactly there (not under the prefixes), and
  * no category may take these slugs, since the route would hide its landing page.
  */
-export const INTRO_PAGE_PATHS = ['/enrol', '/training', '/programs', '/events'] as const
+export const INTRO_PAGE_PATHS = ['/enrol', '/training', '/programs', '/events', '/interest'] as const
 
 export const isIntroPagePath = (path: string) => (INTRO_PAGE_PATHS as readonly string[]).includes(path)
 

@@ -45,14 +45,14 @@ venue and archive changes are in the audit log (actor blank, `source: scripts/co
 | `/tempe-cup-registration`                               | Tempe Cup Registration                                       | Programme **Tempe Cup** (event, under Mixed Leagues for now) → `/events/tempe-cup`.                        | Decide   | Draft. Old page is Autumn 2022 ($300 a team, $500/$100 prizes). Does it still run? Which category (or a new Events one)?                           |
 | `/tempe-volleyball-usyd-junior-rep-team-program`        | Tempe Volleyball USyd Junior Rep Team Program                | Programme **Junior Rep Teams** (development, Juniors) → `/programs/junior-rep-teams`.                      | Decide   | Draft. Old page is 2023 (U16, JSVL, $550/$650). The home page now says “YSVL” rep teams: which league, ages and training night?                    |
 | `/tempe-vb-usyd-junior-rep-team-program-eoi`            | Tempe VB USyd Junior Rep Team Program EOI                    | Merged into Junior Rep Teams (its enrolment form becomes the expression of interest).                      | Decide   | Empty: the form was embedded.                                                                                                                      |
-| `/2023-enrolment`                                       | Enrolment                                                    | `/enrol` (draft intro page; the list is generated).                                                        | Waits    | In the menu as “Enrol”. Lists the **Monday league** and a **Saturday Junior League**. 301 to `/enrol` is written.                                  |
-| `/new-player-2023`                                      | New Player 2026                                              | `/enrol` (each programme's own form).                                                                      | Waits    | Current Google Form; the FAQ and Contact pages link it.                                                                                            |
-| `/new-team-group-2023`                                  | New Team Or Group Entry 2026                                 | `/enrol`.                                                                                                  | Waits    | Current Google Form.                                                                                                                               |
-| `/2021-interest-in-playing`                             | 2022 Enrolment                                               | `/enrol`                                                                                                   | Archived | 2022 Monday league.                                                                                                                                |
-| `/new-player`                                           | New Player                                                   | `/enrol`                                                                                                   | Archived | Empty (2020 form).                                                                                                                                 |
-| `/new-team-group`                                       | New Team/Group                                               | `/enrol`                                                                                                   | Archived | Empty (2020 form).                                                                                                                                 |
-| `/returning-player`                                     | Returning Player                                             | `/enrol`                                                                                                   | Archived | Only the membership note (now in `/enrol`).                                                                                                        |
-| `/returning-team`                                       | Returning Team/Group                                         | `/enrol`                                                                                                   | Archived | Same.                                                                                                                                              |
+| `/2023-enrolment`                                       | Enrolment                                                    | `/interest` (the EOI form; it was an EOI page).                                                            | Waits    | In the menu as “Enrol”. Lists the **Monday league** and a **Saturday Junior League**. 301 to `/interest` is written.                               |
+| `/new-player-2023`                                      | New Player 2026                                              | `/interest` (the EOI form).                                                                                | Waits    | Current Google Form; the FAQ and Contact pages link it.                                                                                            |
+| `/new-team-group-2023`                                  | New Team Or Group Entry 2026                                 | `/interest`.                                                                                               | Waits    | Current Google Form.                                                                                                                               |
+| `/2021-interest-in-playing`                             | 2022 Enrolment                                               | `/interest`                                                                                                | Archived | 2022 Monday league.                                                                                                                                |
+| `/new-player`                                           | New Player                                                   | `/interest`                                                                                                | Archived | Empty (2020 form).                                                                                                                                 |
+| `/new-team-group`                                       | New Team/Group                                               | `/interest`                                                                                                | Archived | Empty (2020 form).                                                                                                                                 |
+| `/returning-player`                                     | Returning Player                                             | `/interest`                                                                                                | Archived | Only the membership note (now in `/enrol`).                                                                                                        |
+| `/returning-team`                                       | Returning Team/Group                                         | `/interest`                                                                                                | Archived | Same.                                                                                                                                              |
 | `/82-2`                                                 | ABOUT                                                        | `/about-tempe-vb`                                                                                          | Archived | 2020 dates, COVID disruptions, “best of 3 sets in 50 minutes”.                                                                                     |
 | `/covid-guidelines-oct-21`                              | Tempe VB League Covid-19 Guidelines (October 2021)           | `/rules`                                                                                                   | Archived | Outdated.                                                                                                                                          |
 | `/sample-page`                                          | Sample Page                                                  | `/`                                                                                                        | Archived | WordPress placeholder.                                                                                                                             |
@@ -92,7 +92,8 @@ All on **staging**, guarded and idempotent like the rest (`scripts/content/conte
 - **/privacy**, a **draft** privacy policy (Admin → Pages → Privacy policy): what's collected (juniors', guardians'
   and emergency contacts' details included), why, who sees it, where it's stored (Cloudflare, Resend, Turnstile,
   analytics), how long (enrolments until deleted, unconfirmed entries 30 days, messages 365 days after handled,
-  sent emails 30 days, backups 30 days, D1 Time Travel 7 days) and how to ask for deletion. Once published, the
+  sent emails 30 days, backups 30 days, D1 Time Travel 7 days; expressions of interest until archived, then 365
+  days) and how to ask for deletion. Once published, the
   footer, the contact form and the enrolment forms link to it on their own.
 - **Redirects** for two old URLs the first import missed: `/category/uncategorized` → `/news` (it 404'd), and
   `/calendar/this-weeks-fixtures` → `/leagues/fixtures` (it went to `/leagues`). The importer now writes both.
@@ -104,7 +105,7 @@ categories, posts: 154 URLs): every one is a page, or a 301 to the right place. 
 leagues, COVID guidelines and Sample Page are archived with 301s; the duplicate Thursday (`/fixtures`,
 `/a-league-fixtures`) and Sunday (`/sal`, `/sunday-pm-league-fixtures-and-results`) pages 301 to the league pages.
 Only these wait, by design, in the go-live steps below: `/2023-enrolment`, `/new-player-2023` and
-`/new-team-group-2023` (until `/enrol` is published), and the nine pages behind `LATER_REDIRECTS` (until their
+`/new-team-group-2023` (until the EOI form at `/interest` is ready), and the nine pages behind `LATER_REDIRECTS` (until their
 programme is active).
 
 ## For Michael
@@ -136,13 +137,20 @@ Questions:
     doesn't mention photos)? Is tempevb@gmail.com the right address for privacy requests? Then publish it.
 14. **Contact form:** messages are emailed to tempevb@gmail.com (the contact email). Add other addresses, or turn on
     the automatic reply, in Settings → Contact form.
+15. **Expressions of interest (EOI overhaul, 2026-10-20):** leagues and events now take expressions of interest at
+    `/interest` (one form, on your own or as a team, open all year) instead of enrolments; the old New Player and New
+    Team Google Forms (and every old enrolment page) now 301 to it. Check Settings → Interest (the questions, how many
+    team-mates, which of their details to ask, who's emailed), each league's deposit and its join line (Admin →
+    Leagues), and Settings → PayID. Are the default questions (copied from the Google Forms) right?
 
 Go-live steps on staging, after review (all in the admin):
 
 1. Restore the proposed revision of each kept page (or edit it), then clear its **Meta description** so it's generated
    from the new text (the imported one quotes the old text).
-2. Publish the `/enrol` draft. Edit the menu's **Enrol** item to link `/enrol` instead of the 2023 page, then archive
-   `/2023-enrolment`, `/new-player-2023` and `/new-team-group-2023` (their 301s to `/enrol` are ready).
+2. Publish the `/enrol` draft (its text points leagues at `/interest`). Check `/interest` (question 15), then edit the
+   menu's **Enrol** item to link `/enrol` (or `/interest`) instead of the 2023 page, and archive `/2023-enrolment`,
+   `/new-player-2023` and `/new-team-group-2023` (their 301s to `/interest` are ready). Optionally publish a page at
+   `/interest` (Admin → Pages) for an intro above the form.
 3. For each draft programme: check it, add its sessions, term or dates, open enrolment if wanted, set it **Active**.
    Then remove its pinned page link from the category's dropdown in Admin → Menu (the dropdown now lists the
    programme by itself) and archive the old page; its 301 is ready. For TVSL, archive
@@ -160,7 +168,11 @@ Go-live steps on staging, after review (all in the admin):
      None is hidden now: the old pages are still the live ones.
 6. **PayID** (Settings → PayID) is still empty, so enrolment emails can't say how to pay. Fill it in before
    enrolments open (the `/enrol` intro's draft uses 0414 911 544, question 9).
-7. **Publish `/privacy`** (question 13). The footer and the forms link to it from then on.
+7. **Publish `/privacy`** (question 13). The footer and the forms link to it from then on. The EOI overhaul added
+   lines about expressions of interest (what's kept, that details are shared with team-mates as the form says, and
+   that archived EOIs are deleted after Settings → Interest's 365 days). A draft that already exists on staging
+   isn't rewritten by the content map: copy those lines in from `scripts/content/drafts.ts` (`PRIVACY_PAGE`) by hand,
+   and change "365 days" if Settings → Interest says otherwise.
 
 ## Production
 

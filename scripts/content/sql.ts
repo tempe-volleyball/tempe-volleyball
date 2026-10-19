@@ -17,7 +17,8 @@
 //   form; the old version stays in its Revisions;
 // - (Phase 7) the importer's redirects for old URLs the first import missed;
 // - archives clearly stale pages (page.unpublish audits) and adds their redirects;
-// - redirects for pages that move later, which wait behind the published page until it's archived.
+// - redirects for pages that move later, which wait behind the published page until it's archived;
+// - (EOI overhaul) the old sign-up pages' redirects repointed from /enrol to /interest, where a script left them.
 
 import { stableId } from '../wp/ids'
 import { sqlLiteral, type SqlValue } from '../../src/lib/wp-import/sql'
@@ -34,6 +35,7 @@ import {
   PAGE_DRAFTS,
   PRIVACY_PAGE,
   REDIRECT_FIXES,
+  REPOINT_REDIRECTS,
   VENUE_DIRECTIONS,
   programmeSlug,
 } from './drafts'
@@ -259,6 +261,13 @@ export function archiveStatements(): string[] {
   })
 }
 
+/** Redirect rows a script aimed at the old target, repointed while nobody has saved them in the admin. */
+export const repointRedirectStatements = () =>
+  REPOINT_REDIRECTS.map(
+    (r) =>
+      `UPDATE "redirects" SET "to_path" = ${q(r.to)}, "updated_at" = ${NOW} WHERE "from_path" = ${q(r.from)} AND "to_path" = ${q(r.was)} AND "updated_by" IS NULL;`,
+  )
+
 export const laterRedirectStatements = () => LATER_REDIRECTS.map((r) => redirectStatement(r.from, r.to))
 
 /** Everything, in order: rows that others reference come first. */
@@ -275,6 +284,7 @@ export function contentMapStatements(): string[] {
     ...archiveStatements(),
     ...laterRedirectStatements(),
     ...redirectFixStatements(),
+    ...repointRedirectStatements(),
   ]
 }
 

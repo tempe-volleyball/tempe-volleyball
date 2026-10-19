@@ -20,7 +20,7 @@ import {
 } from './admin'
 import { CRON_OFFER_LIMIT, respondToOffer, runEnrolmentCron, viewOffer } from './offers'
 import { createForm, deleteForm, setFormProgrammes, updateForm } from './forms'
-import { loadEnrolmentForm } from './public'
+import { listOpenEnrolments, loadEnrolmentForm } from './public'
 import { readOfferToken } from './tokens'
 
 // Enrolment end to end against a migrated in-memory SQLite: caps under concurrent submissions, waitlists, offers
@@ -86,6 +86,8 @@ async function setup(
       slug: 'tnl',
       weekday: 4,
       categoryId: 'cat_mixed_leagues',
+      // Leagues take EOIs by default; these tests enrol into one switched to enrolment mode.
+      signupMode: 'enrolment',
       enrolmentOpen: true,
       capTeams: opts.capTeams === undefined ? 2 : opts.capTeams,
       waitlistEnabled: opts.waitlist ?? true,
@@ -249,6 +251,26 @@ describe('public enrolment', () => {
     expect(repeat.code).toBe('full')
   })
 
+  it('refuses programmes in interest mode (they take EOIs at /interest), including a league left on its default', async () => {
+    const s = await setup()
+    await s.db.update(schema.programmes).set({ signupMode: null }).where(eq(schema.programmes.id, s.league.id))
+    await s.db.update(schema.programmes).set({ signupMode: 'interest' }).where(eq(schema.programmes.id, s.training.id))
+    const league = await failure(
+      enrol(s, {
+        target: { kind: 'season', id: s.season.id },
+        entryType: 'team',
+        person: person(),
+        answers: { team_name: 'Spikers', code_of_conduct: true },
+      }),
+    )
+    expect(league.code).toBe('closed')
+    expect((await failure(enrolSession(s))).code).toBe('closed')
+    expect(await regsOf(s.db)).toEqual([])
+    expect(await s.db.select().from(schema.players).all()).toEqual([])
+    expect(await listOpenEnrolments(s.db, NOW)).toEqual([])
+    expect(await loadEnrolmentForm(s.db, s.training.id, 'site-key', NOW)).toBeNull()
+  })
+
   it('caps team entries by teams and keeps team names unique (case-insensitive)', async () => {
     const s = await setup({ capTeams: 2 })
     const team = (name: string) =>
@@ -329,6 +351,40 @@ describe('public enrolment', () => {
         )
       ).status,
     ).toBe(400)
+  })
+
+  it('saves gender, suburb and VNSW number answers onto the player, filling blanks only', async () => {
+    const s = await setup()
+    const form = await createForm(s.db, s.actor, {
+      name: 'Training',
+      fields: [
+        { key: 'gender', type: 'gender', label: 'Gender', required: true },
+        { key: 'suburb', type: 'suburb', label: 'Suburb' },
+        { key: 'vnsw_number', type: 'vnsw_number', label: 'VNSW number' },
+      ],
+    })
+    await setFormProgrammes(s.db, s.actor, form.id, { programmeIds: [s.training.id] })
+    const p = person()
+    await enrol(s, {
+      target: { kind: 'session', id: s.session.id },
+      entryType: 'player',
+      person: p,
+      answers: { gender: 'female', suburb: 'Tempe', vnsw_number: 'V123' },
+    })
+    const [created] = await s.db.select().from(schema.players).all()
+    expect(created).toMatchObject({ gender: 'female', suburb: 'Tempe', vnswNumber: 'V123' })
+    expect((await regsOf(s.db))[0]!.answers).toEqual({})
+    // The same person again: what's on the player stays, a blank gets filled.
+    await s.db.update(schema.players).set({ suburb: null }).where(eq(schema.players.id, created!.id))
+    await enrol(s, {
+      target: { kind: 'session', id: s.session2.id },
+      entryType: 'player',
+      person: p,
+      answers: { gender: 'male', suburb: 'Marrickville', vnsw_number: 'V999' },
+    })
+    const all = await s.db.select().from(schema.players).all()
+    expect(all).toHaveLength(1)
+    expect(all[0]).toMatchObject({ gender: 'female', suburb: 'Marrickville', vnswNumber: 'V123' })
   })
 
   it('uses the programme form (with versions) when one is set', async () => {

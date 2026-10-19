@@ -2,7 +2,10 @@ import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import {
   MAX_FOOTER_LINKS,
   MAX_TRUST_DEVICE_DAYS,
+  memberDetailKeys,
   type LadderPlacement,
+  type MemberDetailKey,
+  type MemberFieldMode,
   type LinkSetting,
   type SettingKey,
   type SiteSettings,
@@ -14,8 +17,8 @@ import { useUnsavedWarning } from '../unsaved'
 import { LoadError, Skeleton, toast, Button, Card, Field, Notice, Select, TextArea, errorMessage, purgeNote } from '../ui'
 
 // Site settings: contact details, announcement banner, the home page hero, where the ladders go, the footer links,
-// social links, PayID, the Revolutionise link, enrolment and email housekeeping, the contact form, the privacy page
-// and analytics. Each card saves its own key; PayID, Revolutionise, enrolment, the contact form and analytics are
+// social links, PayID, the Revolutionise link, enrolment and email housekeeping, the contact form, expressions of
+// interest, the privacy page and analytics. Each card saves its own key; PayID, Revolutionise, enrolment, the contact form and analytics are
 // admin+ (the server checks too).
 
 type Data = { settings: SiteSettings; minRole: Record<SettingKey, UserRole> }
@@ -91,6 +94,7 @@ const SECTIONS: [SettingKey, string][] = [
   ['revolutioniseUrl', 'Membership'],
   ['enrolment', 'Enrolment and email'],
   ['contactForm', 'Contact form'],
+  ['interest', 'Interest'],
   ['privacy', 'Privacy policy'],
   ['security', 'Sign-in security'],
   ['analytics', 'Analytics'],
@@ -504,6 +508,15 @@ export function Settings({ me }: { me: Me }) {
 
         <Section
           {...common}
+          k="interest"
+          title="Expressions of interest"
+          intro="The form at /interest (and /interest/<programme>), for programmes set to take expressions of interest. Every EOI is kept in Admin → Interest, so nothing is lost if an email doesn’t go."
+        >
+          {(v, set, disabled) => <InterestFields v={v} set={set} contactEmail={data.settings.contact.email} disabled={disabled} />}
+        </Section>
+
+        <Section
+          {...common}
           k="privacy"
           title="Privacy policy"
           intro="The page the footer, the contact form and the enrolment forms link to. They only show the link while a page is published at this path."
@@ -746,6 +759,158 @@ function ContactFormFields({
         value={v.retentionDays}
         hint="Default 365. Counted from when a message is marked handled; open messages are kept."
         onChange={(e) => set({ ...v, retentionDays: Number(e.target.value) })}
+      />
+    </>
+  )
+}
+
+const MEMBER_DETAIL_LABELS: Record<MemberDetailKey, string> = {
+  email: 'Email',
+  phone: 'Phone',
+  gender: 'Gender',
+  birthYear: 'Year of birth',
+  vnswNumber: 'VNSW number',
+}
+const MODE_LABELS: Record<MemberFieldMode, string> = { off: 'Don’t ask', optional: 'Optional', required: 'Required' }
+
+/** Settings → Interest (docs/interest.md): the form, limits, team member details, emails, texts and retention. */
+function InterestFields({
+  v,
+  set,
+  contactEmail,
+  disabled,
+}: {
+  v: SiteSettings['interest']
+  set: (v: SiteSettings['interest']) => void
+  contactEmail: string
+  disabled: boolean
+}) {
+  const [emails, setEmails] = useState(lines(v.notifyEmails))
+  const [forms, setForms] = useState<{ id: string; name: string; archived: boolean }[] | null>(null)
+  useEffect(() => {
+    if (disabled) return
+    api<{ forms: { id: string; name: string; archivedAt: string | null }[] }>('/api/admin/forms').then(
+      (r) => setForms(r.forms.map((f) => ({ id: f.id, name: f.name, archived: !!f.archivedAt }))),
+      () => setForms([]),
+    )
+  }, [disabled])
+  const current = forms?.find((f) => f.id === v.formId)
+  return (
+    <>
+      <Select
+        label="Form"
+        value={v.formId}
+        hint="The questions asked after name, email and phone. Build forms in Admin → Forms. The built-in default is the old site’s Google Form questions."
+        onChange={(e) => set({ ...v, formId: e.target.value })}
+      >
+        <option value="">Built-in default</option>
+        {(forms ?? [])
+          .filter((f) => !f.archived || f.id === v.formId)
+          .map((f) => (
+            <option key={f.id} value={f.id}>
+              {f.name}
+              {f.archived ? ' (archived)' : ''}
+            </option>
+          ))}
+        {v.formId && forms && !current && <option value={v.formId}>A deleted form</option>}
+      </Select>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field
+          label="Most programmes per entry"
+          type="number"
+          min={0}
+          max={20}
+          value={v.maxProgrammes}
+          hint="0 = no limit."
+          onChange={(e) => set({ ...v, maxProgrammes: Number(e.target.value) })}
+        />
+        <Field
+          label="Most team members"
+          type="number"
+          min={1}
+          max={30}
+          value={v.maxMembers}
+          hint="Counting the captain. Default 8."
+          onChange={(e) => set({ ...v, maxMembers: Number(e.target.value) })}
+        />
+      </div>
+      <fieldset className="space-y-2">
+        <legend className="text-sm font-semibold">Team member details</legend>
+        <p className="text-xs text-black/60">
+          Asked for each team member besides the captain. First and last name are always asked; members are optional, so a team can send
+          just its name and captain.
+        </p>
+        <div className="grid gap-x-4 gap-y-2 sm:grid-cols-2">
+          {memberDetailKeys.map((k) => (
+            <Select
+              key={k}
+              label={MEMBER_DETAIL_LABELS[k]}
+              value={v.memberFields[k]}
+              onChange={(e) => set({ ...v, memberFields: { ...v.memberFields, [k]: e.target.value as MemberFieldMode } })}
+            >
+              {(Object.keys(MODE_LABELS) as MemberFieldMode[]).map((m) => (
+                <option key={m} value={m}>
+                  {MODE_LABELS[m]}
+                </option>
+              ))}
+            </Select>
+          ))}
+        </div>
+      </fieldset>
+      <label className="flex items-center gap-2 text-sm font-semibold">
+        <input type="checkbox" checked={v.acknowledge} onChange={(e) => set({ ...v, acknowledge: e.target.checked })} /> Send an
+        acknowledgement
+      </label>
+      <p className="-mt-2 text-xs text-black/60">
+        Emails the person (or captain) what they sent and its reference. It only goes to the address typed, within the mailbox limits.
+      </p>
+      <label className="flex items-center gap-2 text-sm font-semibold">
+        <input type="checkbox" checked={v.notify} onChange={(e) => set({ ...v, notify: e.target.checked })} /> Email me about new
+        expressions of interest
+      </label>
+      <TextArea
+        label="Send them to (one address per line)"
+        rows={2}
+        value={emails}
+        placeholder={contactEmail}
+        hint={`Empty = the contact email (${contactEmail || 'not set'}). Up to 5.`}
+        onChange={(e) => {
+          setEmails(e.target.value)
+          set({ ...v, notifyEmails: fromLines(e.target.value).filter(Boolean) })
+        }}
+      />
+      <Field
+        label="Notification emails a day, at most"
+        type="number"
+        min={1}
+        max={50}
+        value={v.notifyPerDay}
+        hint="Default 30. Keeps a burst of spam from using up the day’s emails; later EOIs still arrive in Admin → Interest."
+        onChange={(e) => set({ ...v, notifyPerDay: Number(e.target.value) })}
+      />
+      <TextArea
+        label="Intro at the top of the form"
+        rows={3}
+        maxLength={1000}
+        value={v.introText}
+        onChange={(e) => set({ ...v, introText: e.target.value })}
+      />
+      <TextArea
+        label="Thank-you text after sending"
+        rows={2}
+        maxLength={1000}
+        value={v.successText}
+        hint="The deposit and PayID details are added when a deposit applies."
+        onChange={(e) => set({ ...v, successText: e.target.value })}
+      />
+      <Field
+        label="Delete archived EOIs after (days)"
+        type="number"
+        min={0}
+        max={3650}
+        value={v.archivedRetentionDays}
+        hint="Default 365. Counted from when an EOI is archived; 0 = keep them. Open EOIs are never deleted. The player records stay."
+        onChange={(e) => set({ ...v, archivedRetentionDays: Number(e.target.value) })}
       />
     </>
   )

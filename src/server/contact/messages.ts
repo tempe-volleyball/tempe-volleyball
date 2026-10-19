@@ -8,7 +8,7 @@ import { getSettings } from '../content/settings'
 import type { Mailer } from '../email'
 import { HttpError } from '../http'
 import { describeError } from '../log'
-import { hashKey, hit, type Limit } from '../ratelimit'
+import { hashKey, hit, take, type Limit } from '../ratelimit'
 import { TURNSTILE_ACTIONS, verifyTurnstile } from '../turnstile'
 
 // The contact form and its inbox (docs/admin.md §3.15, docs/api/contact.md).
@@ -134,14 +134,14 @@ async function notify(
 ) {
   const to = cf.notify ? notifyAddresses(contactEmail, cf.notifyEmails) : []
   if (to.length === 0) return
-  // One count per message (not per address), in a rolling day.
-  const budget = await hit(deps.db, [{ key: 'contact:notify-day', max: cf.notifyPerDay, windowMs: 24 * HOUR }], now)
-  if (!budget.ok) {
-    console.warn('[contact] notification not sent: the daily limit for contact notifications is reached (the message is saved)')
-    return
-  }
+  // One count per email sent (not per message), in a rolling day, so notifyPerDay caps the emails.
+  const allowed = await take(deps.db, { key: 'contact:notify-day', max: cf.notifyPerDay, windowMs: 24 * HOUR }, to.length, now)
+  if (allowed < to.length)
+    console.warn(
+      `[contact] notification sent to ${allowed} of ${to.length} addresses: the daily limit for contact notification emails is reached (the message is saved)`,
+    )
   const url = new URL(`/admin/messages/${m.id}`, deps.siteUrl).toString()
-  for (const addr of to)
+  for (const addr of to.slice(0, allowed))
     await quietly(
       () =>
         deps.mailer.sendEmail(addr, 'contact.notify', {

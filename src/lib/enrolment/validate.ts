@@ -2,6 +2,7 @@ import { safeHref } from '../content/render'
 import {
   FORM_FIELD_KEY_PATTERN,
   FORM_LIMITS,
+  GENDER_OPTIONS,
   displayOnlyFieldTypes,
   formEntryTypes,
   formFieldTypes,
@@ -255,6 +256,9 @@ export type MappedAnswers = {
   birthYear?: number
   teamName?: string
   vnswConfirmed?: boolean
+  gender?: string
+  suburb?: string
+  vnswNumber?: string
 }
 
 export type PersonInput = { firstName: string; lastName: string; email: string; phone: string }
@@ -433,6 +437,26 @@ export function validateEnrolment(
         if (!c.name || c.name.length > 120) fail("Enter the emergency contact's name.")
         else if (!isPhone(c.phone)) fail("Enter the emergency contact's phone number.")
         else mapped.emergencyContact = c
+        break
+      }
+      case 'gender': {
+        const v = oneLine(raw)
+        if (!v) {
+          if (required(f)) fail('Choose one.')
+        } else if (!GENDER_OPTIONS.some((o) => o.value === v)) fail('Choose one of the options.')
+        else mapped.gender = v
+        break
+      }
+      case 'suburb':
+      case 'vnsw_number': {
+        const v = oneLine(typeof raw === 'number' ? String(raw) : raw)
+        const max = f.type === 'suburb' ? 80 : 30
+        if (raw !== undefined && raw !== null && typeof raw !== 'string' && typeof raw !== 'number') fail('Enter text.')
+        else if (!v) {
+          if (required(f)) fail('This question is required.')
+        } else if (v.length > max) fail(`Too long (at most ${max} characters).`)
+        else if (f.type === 'suburb') mapped.suburb = v
+        else mapped.vnswNumber = v
         break
       }
       case 'heading':

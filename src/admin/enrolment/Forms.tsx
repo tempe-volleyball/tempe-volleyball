@@ -47,6 +47,9 @@ export const FIELD_TYPE_LABELS: Record<FormFieldType, string> = {
   birth_year: 'Year of birth',
   team_name: 'Team name (team entries)',
   vnsw_membership: 'Volleyball NSW membership',
+  gender: 'Gender',
+  suburb: 'Suburb',
+  vnsw_number: 'Volleyball NSW rego number',
   heading: 'Heading',
   paragraph: 'Paragraph of text',
 }
@@ -214,6 +217,9 @@ const ADDABLE: FormFieldType[] = [
   'emergency_contact',
   'team_name',
   'vnsw_membership',
+  'vnsw_number',
+  'gender',
+  'suburb',
   'heading',
   'paragraph',
 ]
@@ -225,7 +231,8 @@ export function FormEditor({ id }: { id: string }) {
   const [error, setError] = useState<string | null>(null)
   const [flash, setFlash] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [previewKind, setPreviewKind] = useState<Kind>('league')
+  // 'interest': the EOI form at /interest (Settings → Interest can use this form), as a player or a team.
+  const [previewKind, setPreviewKind] = useState<Kind | 'interest'>('league')
   const [previewEntry, setPreviewEntry] = useState<FormEntryType>('team')
   const [, navigate] = useLocation()
 
@@ -331,7 +338,10 @@ export function FormEditor({ id }: { id: string }) {
   }
 
   const programmesUsing = list.programmes.filter((p) => p.enrolmentFormId === id)
-  const previewTypes = entryTypesFor(previewKind, { allowTeamEntries: true, allowFreeAgents: true })
+  const previewTypes: FormEntryType[] =
+    previewKind === 'interest' ? ['free_agent', 'team'] : entryTypesFor(previewKind, { allowTeamEntries: true, allowFreeAgents: true })
+  const entryLabel = (t: FormEntryType) =>
+    previewKind === 'interest' ? (t === 'team' ? 'A team' : 'A player on their own') : ENTRY_LABELS[t]
   const entryForPreview = previewTypes.includes(previewEntry) ? previewEntry : previewTypes[0]!
   const previewFields = draft.fields.filter((f) => !f.retired)
 
@@ -429,23 +439,30 @@ export function FormEditor({ id }: { id: string }) {
         <div className="space-y-3 lg:sticky lg:top-4 lg:self-start">
           <Card title="Preview">
             <div className="mb-4 grid grid-cols-2 gap-2">
-              <Select label="As a" value={previewKind} onChange={(e) => setPreviewKind(e.target.value as Kind)}>
+              <Select label="As a" value={previewKind} onChange={(e) => setPreviewKind(e.target.value as Kind | 'interest')}>
                 {Object.entries(KIND_LABELS).map(([k, label]) => (
                   <option key={k} value={k}>
                     {label}
                   </option>
                 ))}
+                <option value="interest">Expression of interest</option>
               </Select>
               {previewTypes.length > 1 && (
                 <Select label="Entry" value={entryForPreview} onChange={(e) => setPreviewEntry(e.target.value as FormEntryType)}>
                   {previewTypes.map((t) => (
                     <option key={t} value={t}>
-                      {ENTRY_LABELS[t]}
+                      {entryLabel(t)}
                     </option>
                   ))}
                 </Select>
               )}
             </div>
+            {previewKind === 'interest' && (
+              <p className="mb-3 text-xs text-black/60">
+                The questions as the EOI form asks them, after name, email and phone. Team members are a section of their own on the real
+                form. Choose the form in Settings → Interest.
+              </p>
+            )}
             {programmesUsing.length > 0 && (
               <p className="mb-3 text-xs text-black/60">Used by {programmesUsing.map((p) => p.name).join(', ')}.</p>
             )}
@@ -453,7 +470,7 @@ export function FormEditor({ id }: { id: string }) {
               <EnrolmentForm
                 key={`${previewKind}:${entryForPreview}`}
                 preview
-                programme={{ id: 'preview', name: 'Preview', code: 'PRE', kind: previewKind }}
+                programme={{ id: 'preview', name: 'Preview', code: 'PRE', kind: previewKind === 'interest' ? 'league' : previewKind }}
                 targets={[
                   {
                     kind: 'session',

@@ -1,0 +1,65 @@
+---
+import NotFound from '../NotFound.astro'
+import PageBody from '../PageBody.astro'
+import Breadcrumbs from '../programmes/Breadcrumbs.astro'
+import BaseLayout from '../../layouts/BaseLayout.astro'
+import { DEFAULT_DESCRIPTION, documentTitle, metaDescription } from '../../lib/content'
+import { INTEREST_ROUTE, interestPath } from '../../lib/interest'
+import { programmePath } from '../../lib/programmes'
+import type { InterestRoute } from '../../server/interest/route'
+import InterestForm from './InterestForm'
+
+// The expression-of-interest form's page (docs/interest.md, docs/public-site.md "Joining"): /interest, and
+// /interest/<programme slug> with that programme ticked. Data from interestRoute() (src/server/interest/route.ts).
+type Props = InterestRoute
+const { site, slug, missing, form, programme, intro, titles } = Astro.props
+
+const title = programme ? `Join ${programme.name}` : (intro?.title ?? 'Register your interest')
+const offered = form.groups.flatMap((g) => g.programmes)
+const code = programme && programme.code && !programme.name.includes(programme.code) ? ` (${programme.code})` : ''
+const generated = programme
+  ? `Register your interest in ${programme.name}${code}, on your own or as a team. ${[programme.summary, programme.nextStarts].filter(Boolean).join('. ')}`
+  : offered.length
+    ? `Register your interest in Tempe Volleyball's ${offered.map((p) => p.name).join(', ')}: come on your own and we'll find you a team, or enter a whole team.`
+    : 'Register your interest in Tempe Volleyball’s social volleyball leagues in Sydney’s inner west, on your own or as a team.'
+const description = metaDescription(intro?.metaDescription ?? generated, { bodyHtml: intro?.bodyHtml ?? '' })
+const crumbs = programme ? [{ label: 'Register your interest', href: INTEREST_ROUTE }, { label: programme.name }] : [{ label: title }]
+---
+
+{missing ? (
+  <BaseLayout title={documentTitle('Page not found')} description={DEFAULT_DESCRIPTION} site={site}>
+    <NotFound site={site} />
+  </BaseLayout>
+) : (
+  <BaseLayout title={documentTitle(title)} description={description} site={site} canonicalPath={interestPath(slug)}>
+    <PageBody title={title} html={intro?.html ?? ''} titles={titles}>
+      <Breadcrumbs slot="before" items={crumbs} />
+      {programme && (
+        <div class="page-lead">
+          <p>{programme.summary}</p>
+          {programme.nextStarts && <p class="mt-1 font-semibold">{programme.nextStarts}.</p>}
+          <p class="mt-1 text-base">
+            <a class="link" href={programmePath(programme.kind, programme.slug)}>
+              About {programme.name}
+            </a>
+          </p>
+        </div>
+      )}
+      <div class="mt-8 max-w-3xl">
+        {form.introText && offered.length > 0 && <p class="mb-6 whitespace-pre-line">{form.introText}</p>}
+        <div class="card">
+          <InterestForm client:visible {...form} privacyHref={site.privacyHref} />
+          <noscript>
+            <p class="notice mt-4">
+              This form needs JavaScript. Email or phone us instead (see{' '}
+              <a class="link" href="/contact">
+                Contact
+              </a>
+              ) and we’ll put your name down.
+            </p>
+          </noscript>
+        </div>
+      </div>
+    </PageBody>
+  </BaseLayout>
+)}

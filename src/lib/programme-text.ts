@@ -1,3 +1,4 @@
+import { JOIN_INVITE, joinLine } from './interest'
 import type { ProgrammeLineSource } from './content/blocks'
 import { parseISO } from './fixtures/dates'
 import type { ProgrammeKind } from '../server/db/schema/enums'
@@ -134,4 +135,13 @@ export function programmeLineSource(
     nextStarts: nextStartsLine(p, nextInstanceDate),
     summaryLine: p.summaryLine?.trim() ?? '',
   }
+}
+
+/**
+ * The generated line of an interest-mode programme's join section (docs/interest.md), shown when
+ * leagues.interest_text is empty: the next start, when known, then the invitation.
+ */
+export function generatedInterestLine(nextStarts: string): string {
+  const line = joinLine(null, nextStarts)
+  return line ? `${line} ${JOIN_INVITE}` : JOIN_INVITE
 }

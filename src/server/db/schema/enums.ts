@@ -201,6 +201,18 @@ export const auditActions = [
   'analytics.fetch',
   'auth.device_trust',
   'auth.devices_revoke',
+  // Expressions of interest, players and rosters (docs/interest.md)
+  'interest.create',
+  'interest.update',
+  'interest.delete',
+  'interest.export',
+  'player.create',
+  'player.update',
+  'player.merge',
+  'player.delete',
+  'player.export',
+  'roster.update',
+  'roster.export',
 ] as const
 export type AuditAction = (typeof auditActions)[number]
 
@@ -270,3 +282,41 @@ export type AnalyticsFetchStatus = (typeof analyticsFetchStatuses)[number]
 /** A contact message: new (unread), read (opened in the admin), handled (done; pruned after the retention period). */
 export const contactMessageStatuses = ['new', 'read', 'handled'] as const
 export type ContactMessageStatus = (typeof contactMessageStatuses)[number]
+
+// ── Expressions of interest, players and rosters (docs/interest.md) ───────────
+
+/** How a programme takes sign-ups (leagues.signup_mode). Null there = the kind's default (defaultSignupMode). */
+export const signupModes = ['interest', 'enrolment'] as const
+export type SignupMode = (typeof signupModes)[number]
+
+/** Leagues and events take expressions of interest by default; training and development take enrolments. */
+export const defaultSignupMode = (kind: ProgrammeKind): SignupMode => (kind === 'league' || kind === 'event' ? 'interest' : 'enrolment')
+
+/** players.pool: competition players (leagues, events) are kept apart from training players (training, development). */
+export const playerPools = ['competition', 'training'] as const
+export type PlayerPool = (typeof playerPools)[number]
+
+export const poolOfKind = (kind: ProgrammeKind): PlayerPool => (kind === 'league' || kind === 'event' ? 'competition' : 'training')
+
+/** Where a player row came from (players.source). */
+export const playerSources = ['interest', 'enrolment', 'admin', 'import'] as const
+export type PlayerSource = (typeof playerSources)[number]
+
+export const genders = ['male', 'female', 'non_binary', 'prefer_not_to_say'] as const
+export type Gender = (typeof genders)[number]
+
+/** An EOI is from one player (to be placed in a team) or a whole team. */
+export const interestKinds = ['player', 'team'] as const
+export type InterestKind = (typeof interestKinds)[number]
+
+/** Per programme on an EOI (interest_programmes.status). Open = new or contacted. */
+export const interestStatuses = ['new', 'contacted', 'placed', 'declined', 'withdrawn'] as const
+export type InterestStatus = (typeof interestStatuses)[number]
+export const openInterestStatuses = ['new', 'contacted'] as const satisfies readonly InterestStatus[]
+
+export const interestSources = ['public', 'admin', 'import'] as const
+export type InterestSource = (typeof interestSources)[number]
+
+/** interest_members.role and season_team_players.role. */
+export const rosterRoles = ['captain', 'player'] as const
+export type RosterRole = (typeof rosterRoles)[number]

@@ -3,7 +3,7 @@ import { canonicalMailbox } from '../lib/enrolment/validate'
 import { createTestDb } from './db/testing'
 import { emailDailyCount, emailOutbox, players, products, programmes, registrations, user, type UserRole } from './db/schema'
 import { RoleError } from './auth/roles'
-import { ENROLMENT_PER_DAY, ENROLMENT_PER_HOUR, createMailer } from './email/mailer'
+import { ENROLMENT_PER_DAY, ENROLMENT_PER_HOUR, INTEREST_ACK_PER_DAY, INTEREST_ACK_PER_HOUR, createMailer } from './email/mailer'
 import { ADMIN_BODY_LIMIT, HttpError, PUBLIC_BODY_LIMIT, describeError, errorResponse, readJson, requireRole } from './http'
 import { TURNSTILE_TEST_KEYS, turnstileKeys, verifyTurnstile } from './turnstile'
 import { hashKey } from './ratelimit'
@@ -173,6 +173,40 @@ describe('mailer: enrolment emails', () => {
     }
     expect((await mailer.sendEmail('victim@gmail.com', 'enrolment.waitlisted', enrolmentEmail)).status).toBe('limited')
     expect(r.sent.length).toBeLessThanOrEqual(ENROLMENT_PER_DAY + 1)
+  })
+
+  it('counts EOI acknowledgements apart from enrolment emails, so forged EOIs cannot block a confirm link', async () => {
+    const { db } = createTestDb()
+    const r = resend()
+    let clock = NOW
+    const mailer = createMailer({
+      db,
+      env: { SITE_ENV: 'production', RESEND_API_KEY: 'k' },
+      fetch: r.fn,
+      now: () => clock,
+      hashSalt: 'salt',
+    })
+    const ack = { name: 'Pat', reference: 'EOI-AAAA', kind: 'player' as const, programmes: ['TNL'], text: 'Thanks.' }
+    const statuses: string[] = []
+    for (let h = 0; h < 3; h++) {
+      clock = new Date(NOW.getTime() + h * HOUR + 1000)
+      for (let i = 0; i < INTEREST_ACK_PER_HOUR + 2; i++)
+        statuses.push((await mailer.sendEmail('victim+eoi@gmail.com', 'interest.ack', ack)).status)
+    }
+    expect(statuses.slice(0, INTEREST_ACK_PER_HOUR).every((x) => x === 'sent')).toBe(true)
+    expect(statuses[INTEREST_ACK_PER_HOUR]).toBe('queued')
+    expect(statuses.at(-1)).toBe('limited')
+    expect(statuses.filter((x) => x === 'sent').length).toBeLessThanOrEqual(INTEREST_ACK_PER_DAY)
+    // The same mailbox still gets its enrolment emails, up to their own limit.
+    const confirm = {
+      name: 'Pat',
+      programme: 'Scrim',
+      target: 'Wed 21 Oct 2026',
+      url: 'https://x/enrol/confirm#t',
+      expiresAt: NOW.toISOString(),
+    }
+    for (let i = 0; i < ENROLMENT_PER_HOUR; i++)
+      expect((await mailer.sendEmail('victim@gmail.com', 'enrolment.confirm_email', confirm)).status).toBe('sent')
   })
 
   it('keeps part of the daily pool for priority emails', async () => {

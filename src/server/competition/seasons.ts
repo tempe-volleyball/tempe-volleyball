@@ -42,6 +42,7 @@ import {
 import { HttpError } from '../http'
 import { audit, isUniqueFailure, notFound, type Changed, type Editor } from '../content/common'
 import { seasonTeamRow, toCompetition, type SeasonData } from './adapter'
+import { copySeasonRostersStatements, parseRosterFrom, rosterCopyStatements, unplaceStatement, type RosterCopySummary } from './rosters'
 import {
   chunkByParams,
   courtResolver,
@@ -440,6 +441,10 @@ export async function createSeason(db: AppDb, actor: Editor, input: CreateSeason
     await runBatch(db, [
       db.insert(seasons).values(row),
       ...chunkByParams(members).map((chunk) => db.insert(seasonTeams).values(chunk)),
+      // The copied teams bring their rosters (retired players stay behind), and their open EOIs become placed.
+      ...(source && members.length
+        ? copySeasonRostersStatements(db, { fromSeasonId: source.season.id, toSeasonId: seasonId, leagueId, at, actorId: actor.id })
+        : []),
       audit(
         db,
         actor,
@@ -833,35 +838,67 @@ function dayUpdatedAt(
 
 // ── Teams in a season ─────────────────────────────────────────────────────────
 
-export type SetTeamsInput = { baseUpdatedAt?: unknown; teamIds?: unknown }
+export type SetTeamsInput = { baseUpdatedAt?: unknown; teamIds?: unknown; rosterFrom?: unknown }
 
-/** Replaces a draft season's teams (in this order, which is the order shapeKey() sees). */
+/**
+ * Replaces a draft season's teams (in this order, which is the order shapeKey() sees). Rosters follow in the same
+ * batch (rosters.ts rosterCopyStatements): teams leaving lose their roster for this season, and teams joining can
+ * bring one with `rosterFrom` ({ [teamId]: { seasonId } | { interestId } }: last time's roster or a team EOI's
+ * members). The result's rosterCopy says how many players were copied and who was skipped.
+ */
 export async function setSeasonTeams(
   db: AppDb,
   actor: Editor,
   seasonId: string,
   input: SetTeamsInput,
   now = new Date(),
-): Promise<SeasonView> {
+): Promise<SeasonView & { rosterCopy: RosterCopySummary }> {
   const base = baseUpdatedAt(input.baseUpdatedAt)
   if (!Array.isArray(input.teamIds)) throw invalid('teamIds must be a list of team ids.')
   if (input.teamIds.length > 40) throw invalid('A season can have at most 40 teams.')
   const ids = input.teamIds.map((t, i) => id(t, `Team ${i + 1}`))
   if (new Set(ids).size !== ids.length) throw invalid('A team is listed twice.')
+  const rosterFrom = parseRosterFrom(input.rosterFrom, seasonId)
   const d = await loadSeason(db, seasonId, { draw: false })
   assertWritable(d, base)
   if (d.season.status !== 'draft') throw drawLocked('The team list')
-  const found = ids.length ? await db.select({ id: teams.id }).from(teams).where(inArray(teams.id, ids)).all() : []
+  const found = ids.length ? await db.select({ id: teams.id, name: teams.name }).from(teams).where(inArray(teams.id, ids)).all() : []
   if (found.length !== ids.length) throw invalid('One of those teams doesn’t exist.')
   const at = now.toISOString()
   const rows = ids.map((teamId, sort) => ({ seasonId, teamId, sort, updatedAt: at }))
-  await runBatch(db, [
+  const rosters = await rosterCopyStatements(db, actor, {
+    seasonId,
+    leagueId: d.league.id,
+    at,
+    teamIds: ids,
+    previousTeamIds: d.teams.map((t) => t.id),
+    rosterFrom,
+    teamName: (teamId) => found.find((t) => t.id === teamId)?.name ?? teamId,
+  })
+  const batch = [
     db.delete(seasonTeams).where(eq(seasonTeams.seasonId, seasonId)),
     ...chunkByParams(rows).map((chunk) => db.insert(seasonTeams).values(chunk)),
+    ...rosters.statements,
     db.update(seasons).set({ updatedAt: at, updatedBy: actor.id }).where(eq(seasons.id, seasonId)),
-    audit(db, actor, 'season.teams', { type: 'season', id: seasonId }, { teams: d.teams.map((t) => t.name) }, { teamIds: ids }, at),
-  ])
-  return getSeason(db, seasonId)
+    audit(
+      db,
+      actor,
+      'season.teams',
+      { type: 'season', id: seasonId },
+      { teams: d.teams.map((t) => t.name) },
+      { teamIds: ids, ...(rosterFrom.size ? { rosterFrom: Object.fromEntries(rosterFrom), rosterCopy: rosters.summary } : {}) },
+      at,
+    ),
+  ]
+  try {
+    await runBatch(db, batch)
+  } catch (e) {
+    // A roster change put a copied player in another team meanwhile (one team per season).
+    if (isUniqueFailure(e, 'season_team_players'))
+      throw new HttpError(409, 'roster_changed', 'Someone changed this season’s rosters while you saved. Reload, then save again.')
+    throw e
+  }
+  return { ...(await getSeason(db, seasonId)), rosterCopy: rosters.summary }
 }
 
 // ── Status ────────────────────────────────────────────────────────────────────
@@ -943,7 +980,10 @@ export async function setSeasonStatus(
   return { result: await getSeason(db, seasonId), purge }
 }
 
-/** Deletes a draft season (and its draft draw). Published and archived seasons can't be deleted. */
+/**
+ * Deletes a draft season (and its draft draw and rosters); EOIs placed in it go back to contacted. Published and
+ * archived seasons can't be deleted.
+ */
 export async function deleteSeason(db: AppDb, actor: Editor, seasonId: string, input: { baseUpdatedAt?: unknown }, now = new Date()) {
   const base = baseUpdatedAt(input.baseUpdatedAt)
   const d = await loadSeason(db, seasonId, { draw: false })
@@ -951,6 +991,9 @@ export async function deleteSeason(db: AppDb, actor: Editor, seasonId: string, i
   if (d.season.status !== 'draft') throw new HttpError(409, 'not_draft', 'Only draft seasons can be deleted. Archive this one instead.')
   const at = now.toISOString()
   await runBatch(db, [
+    // EOIs placed in it (player or team) go back to contacted, season and team cleared; otherwise the delete's
+    // ON DELETE SET NULL would leave them "placed" nowhere.
+    unplaceStatement(db, { seasonId, leagueId: d.league.id, at, actorId: actor.id }, { kinds: 'any' }),
     db.delete(seasons).where(eq(seasons.id, seasonId)),
     audit(db, actor, 'season.delete', { type: 'season', id: seasonId }, { name: d.season.name, slug: d.season.slug }, null, at),
   ])

@@ -39,6 +39,12 @@ export const formFieldTypes = [
   'team_name',
   /** "I hold a Volleyball NSW membership" (links to Revolutionise), saved to registrations.vnsw_confirmed. */
   'vnsw_membership',
+  /** Gender (GENDER_OPTIONS), saved to players.gender. Mixed leagues balance teams by it. */
+  'gender',
+  /** Suburb they live in, saved to players.suburb. */
+  'suburb',
+  /** Volleyball NSW membership (rego) number, saved to players.vnsw_number. */
+  'vnsw_number',
   // Display only (no answer)
   'heading',
   'paragraph',
@@ -55,7 +61,18 @@ export const mappedFieldTypes = [
   'birth_year',
   'team_name',
   'vnsw_membership',
+  'gender',
+  'suburb',
+  'vnsw_number',
 ] as const satisfies readonly FormFieldType[]
+
+/** The choices a `gender` field offers (values are players.gender). */
+export const GENDER_OPTIONS: readonly FormOption[] = [
+  { value: 'female', label: 'Female' },
+  { value: 'male', label: 'Male' },
+  { value: 'non_binary', label: 'Non-binary' },
+  { value: 'prefer_not_to_say', label: 'Prefer not to say' },
+]
 
 /** Which kind of entry a field is asked on. Missing = every entry. */
 export const formEntryTypes = ['player', 'team', 'free_agent'] as const

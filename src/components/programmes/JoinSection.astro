@@ -1,0 +1,36 @@
+---
+import { JOIN_INVITE, interestPath, joinLine } from '../../lib/interest'
+
+// An interest programme's join section (docs/interest.md, docs/public-site.md "Joining"), in place of the enrol
+// section: "Join <name>", then the programme's own text (leagues.interest_text, shown alone and as typed) or else
+// "Next season starts …" when a next start is known (never "closed") and a line on joining alone or as a team; and the
+// button to the EOI form with this programme ticked. Only shown while the programme takes EOIs. It keeps the enrol
+// section's id, so old "#enrol" links land here, and answers to "#join" too.
+type Props = { name: string; slug: string; interestText: string | null; nextStarts: string }
+const { name, slug, interestText, nextStarts } = Astro.props
+const own = interestText?.trim() ?? ''
+const line = joinLine(interestText, nextStarts)
+---
+
+<div id="join" class="scroll-mt-4">
+  <section id="enrol" aria-labelledby="join-heading" class="mt-14 scroll-mt-4">
+    <h2 id="join-heading" class="section-title">
+      Join {name}
+    </h2>
+    <div class="card max-w-2xl">
+      {own ? (
+        <p class="whitespace-pre-line">{own}</p>
+      ) : (
+        <>
+          {line && <p class="font-display text-lg font-bold">{line}</p>}
+          <p class:list={[line && 'mt-2']}>{JOIN_INVITE}</p>
+        </>
+      )}
+      <p class="mt-5">
+        <a class="btn btn-enrol px-6 text-lg" href={interestPath(slug)}>
+          Register your interest<span class="sr-only"> in {name}</span>
+        </a>
+      </p>
+    </div>
+  </section>
+</div>

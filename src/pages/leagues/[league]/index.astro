@@ -1,16 +1,18 @@
 ---
 // A league's page (docs/admin.md §3.5, §3.6): breadcrumb, when and where, the description, then its current season
 // as Fixtures / Ladder / Results tabs (old #ladder and #fixtures links open the right tab), the season archive and
-// the enrol section. A retired league keeps its page ("This league has finished") with its past seasons; a draft is
+// the enrol section (interest mode, the league default: the join section linking /interest/<slug>). A retired league keeps its page ("This league has finished") with its past seasons; a draft is
 // a 404. An old slug follows the 301 the programmes admin left; a slug of another kind goes to that page.
 import NotFound from '../../../components/NotFound.astro'
 import Breadcrumbs from '../../../components/programmes/Breadcrumbs.astro'
 import EnrolSection from '../../../components/programmes/EnrolSection.astro'
+import JoinSection from '../../../components/programmes/JoinSection.astro'
 import ProgrammeIntro from '../../../components/programmes/ProgrammeIntro.astro'
 import SeasonView, { type CalendarLinks } from '../../../components/SeasonView.astro'
 import BaseLayout from '../../../layouts/BaseLayout.astro'
 import { DEFAULT_DESCRIPTION, documentTitle } from '../../../lib/content'
 import { leagueCalendarPath, teamCalendarPath } from '../../../lib/fixture-lists'
+import { interestPath, isInterestMode, takesInterest } from '../../../lib/interest'
 import { webcalUrl } from '../../../lib/ical'
 import { nextStartsLine, summaryLine } from '../../../lib/programme-text'
 import { categoryPath } from '../../../lib/programmes'
@@ -50,6 +52,8 @@ const crumbs = league
   ? [...(page?.category ? [{ label: page.category.name, href: categoryPath(page.category.slug) }] : []), { label: league.name }]
   : []
 const enrolmentOpen = !!page?.enrolment?.targets.length
+// Interest mode (the league default, docs/interest.md): a join section linking the EOI form instead of enrolment.
+const interest = league && isInterestMode(league) ? { open: takesInterest(league), href: interestPath(league.slug) } : null
 const closedText = `Enrolment for ${league?.name ?? 'this league'} is closed right now.${nextStarts ? ` ${nextStarts}.` : ''}`
 
 // Calendar feeds follow the current season, so they're offered only on the current (published) season.
@@ -95,7 +99,14 @@ if (league && page)
     {view ? (
       <SeasonView view={view} others={publicSeasons(site.seasons, view.league.id)} current today={today} calendar={calendar}>
         <Breadcrumbs slot="before" items={crumbs} />
-        <ProgrammeIntro programme={league} venue={venue} nextStarts={nextStarts} enrolmentOpen={enrolmentOpen} noun="league" />
+        <ProgrammeIntro
+          programme={league}
+          venue={venue}
+          nextStarts={nextStarts}
+          enrolmentOpen={enrolmentOpen}
+          interest={interest}
+          noun="league"
+        />
       </SeasonView>
     ) : (
       <>
@@ -106,6 +117,7 @@ if (league && page)
           venue={venue}
           nextStarts={nextStarts}
           enrolmentOpen={enrolmentOpen}
+          interest={interest}
           noun="league"
           hasHistory={archive.length > 0}
         />
@@ -133,9 +145,12 @@ if (league && page)
         )}
       </>
     )}
-    {league.status === 'active' && (
-      <EnrolSection enrolment={page.enrolment} name={league.name} closedText={closedText} privacyHref={site.privacyHref} />
-    )}
+    {league.status === 'active' &&
+      (interest ? (
+        interest.open && <JoinSection name={league.name} slug={league.slug} interestText={league.interestText} nextStarts={nextStarts} />
+      ) : (
+        <EnrolSection enrolment={page.enrolment} name={league.name} closedText={closedText} privacyHref={site.privacyHref} />
+      ))}
   </BaseLayout>
 ) : (
   <BaseLayout title={documentTitle('Page not found')} description={DEFAULT_DESCRIPTION} site={site}>

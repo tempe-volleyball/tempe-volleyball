@@ -1,0 +1,10 @@
+---
+// /interest: the expression-of-interest form (src/components/interest/InterestPage.astro).
+import InterestPage from '../../components/interest/InterestPage.astro'
+import { interestRoute } from '../../server/interest/route'
+
+const route = await interestRoute(Astro, null)
+if (route instanceof Response) return route
+---
+
+<InterestPage {...route} />

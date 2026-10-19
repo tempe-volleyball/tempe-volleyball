@@ -2,9 +2,10 @@
 import type { CardTarget, ProgrammeCard } from '../../server/programmes/public'
 
 // Programme cards for category pages, /enrol and the kind index pages (docs/public-site.md, "Cards"): the
-// enrolment badge, name, summary line, the "Next season starts …" sentence, when and where (only under a
-// hand-written summary; the generated one says them), the open sessions, terms or seasons with spots left and a
-// meter, then the actions: Enrol while open, Details, and Fixtures for a league.
+// enrolment badge (interest programmes: "Taking sign-ups" while they take EOIs, else none), name, summary line, the
+// "Next season starts …" sentence, when and where (only under a hand-written summary; the generated one says them),
+// the open sessions, terms or seasons with spots left and a meter, then the actions: Enrol while open (Register
+// interest → /interest/<slug> for interest programmes), Details, and Fixtures for a league.
 type Props = { cards: ProgrammeCard[]; headingLevel?: 2 | 3; showTargets?: boolean }
 const { cards, headingLevel = 2, showTargets = false } = Astro.props
 const H = headingLevel === 2 ? 'h2' : 'h3'
@@ -16,9 +17,18 @@ const filled = (t: CardTarget) => (t.meter ? Math.round(((t.meter.cap - t.meter.
 <ul class="grid gap-4 md:grid-cols-2">
   {cards.map((c) => (
     <li class="card flex flex-col">
-      <p class="mb-3 flex flex-wrap gap-2">
-        {c.enrolmentOpen ? <span class="badge badge-open">Enrolling now</span> : <span class="badge badge-closed">Enrolment closed</span>}
-      </p>
+      {/* Interest programmes (docs/interest.md) never say "closed": a badge while they take EOIs, else nothing. */}
+      {c.interest ? (
+        c.interest.open && (
+          <p class="mb-3 flex flex-wrap gap-2">
+            <span class="badge badge-open">Taking sign-ups</span>
+          </p>
+        )
+      ) : (
+        <p class="mb-3 flex flex-wrap gap-2">
+          {c.enrolmentOpen ? <span class="badge badge-open">Enrolling now</span> : <span class="badge badge-closed">Enrolment closed</span>}
+        </p>
+      )}
       <H class="font-display text-xl leading-snug font-bold sm:text-2xl">
         <a class="text-ink hover:text-link hover:underline" href={c.path}>
           {c.name}
@@ -71,6 +81,11 @@ const filled = (t: CardTarget) => (t.meter ? Math.round(((t.meter.cap - t.meter.
         {c.enrolmentOpen && (
           <a class="btn btn-enrol btn-sm" href={`${c.path}#enrol`}>
             Enrol<span class="sr-only"> in {c.name}</span>
+          </a>
+        )}
+        {c.interest?.open && (
+          <a class="btn btn-enrol btn-sm" href={c.interest.href}>
+            Register interest<span class="sr-only"> in {c.name}</span>
           </a>
         )}
         {c.kind === 'league' && (

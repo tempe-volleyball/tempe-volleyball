@@ -129,13 +129,15 @@ describe('submitContact', () => {
     expect(await t.rows()).toHaveLength(CONTACT_RATE.perEmailHour)
   })
 
-  it('emails the chosen addresses, at most notifyPerDay a day, and still stores the rest', async () => {
-    const s = await setup({ notifyEmails: ['a@example.com', 'b@example.com'], notifyPerDay: 1 })
+  it('emails the chosen addresses, at most notifyPerDay emails a day (not messages), and still stores the rest', async () => {
+    const s = await setup({ notifyEmails: ['a@example.com', 'b@example.com'], notifyPerDay: 3 })
     await submitContact(s.deps(), msg())
     await submitContact(s.deps({ ip: '198.51.100.7' }), msg({ email: 'sam@example.com' }))
-    expect(await s.rows()).toHaveLength(2)
+    await submitContact(s.deps({ ip: '198.51.100.8' }), msg({ email: 'jo@example.com' }))
+    expect(await s.rows()).toHaveLength(3)
     const notes = s.sent('contact.notify')
-    expect(notes.map((l) => /to=(\S+)/.exec(l)?.[1])).toEqual(['a@example.com', 'b@example.com'])
+    // Two for the first message, one of two for the second, none for the third.
+    expect(notes.map((l) => /to=(\S+)/.exec(l)?.[1])).toEqual(['a@example.com', 'b@example.com', 'a@example.com'])
   })
 
   it('sends no notification when notifications are off, and the automatic reply only when it is on', async () => {

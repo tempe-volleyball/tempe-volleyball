@@ -3,6 +3,7 @@ import { Link, Redirect, Route, Router, Switch, useLocation } from 'wouter'
 import { api, type Me } from './api'
 import { authClient } from './auth-client'
 import { aroundNav } from './leave-guard'
+import { INTEREST_CHANGED } from './interest/events'
 import { bottomBar, isCurrent, navFor, navItemFor, HOME, type NavItem } from './nav'
 import { SignIn } from './screens/SignIn'
 import { AcceptInvite } from './screens/AcceptInvite'
@@ -42,6 +43,10 @@ const FormList = lazy(() => import('./enrolment/Forms').then((m) => ({ default: 
 const TargetPage = lazy(() => import('./enrolment/TargetPage').then((m) => ({ default: m.TargetPage })))
 const SeasonList = lazy(() => import('./seasons/SeasonList').then((m) => ({ default: m.SeasonList })))
 const SeasonPage = lazy(() => import('./seasons/SeasonPage').then((m) => ({ default: m.SeasonPage })))
+const InterestInbox = lazy(() => import('./interest/Inbox').then((m) => ({ default: m.InterestInbox })))
+const InterestPage = lazy(() => import('./interest/InterestPage').then((m) => ({ default: m.InterestPage })))
+const Players = lazy(() => import('./players/Players').then((m) => ({ default: m.Players })))
+const PlayerPage = lazy(() => import('./players/PlayerPage').then((m) => ({ default: m.PlayerPage })))
 
 // ── Icons (inline, decorative) ────────────────────────────────────────────────
 
@@ -73,38 +78,42 @@ function Icon({ name }: { name: string }) {
 // ── Navigation ───────────────────────────────────────────────────────────────
 
 /**
- * Unread contact messages, for the Messages badge (admins and owners): fetched when the admin opens, when the tab
- * comes back into view, every five minutes, and when the Messages screen changes something ('tvb:messages-changed').
+ * A count for a nav badge (admins and owners): fetched when the admin opens, when the tab comes back into view,
+ * every five minutes, and when a screen says it changed something (`event`). Unread contact messages for Messages
+ * ('tvb:messages-changed'), new expressions of interest for Interest ('tvb:interest-changed').
  */
-function useUnreadMessages(me: Me) {
-  const [unread, setUnread] = useState(0)
+function useBadgeCount(me: Me, url: string, key: string, event: string) {
+  const [count, setCount] = useState(0)
   const allowed = me.user.role !== 'editor' && !me.totpRequired
   useEffect(() => {
     if (!allowed) return
     let live = true
     const refresh = () =>
-      api<{ unread: number }>('/api/admin/messages/unread').then(
-        (r) => live && setUnread(r.unread),
+      api<Record<string, number>>(url).then(
+        (r) => live && setCount(Number(r[key] ?? 0)),
         () => undefined,
       )
     void refresh()
     const onVisible = () => document.visibilityState === 'visible' && void refresh()
     const timer = setInterval(() => document.visibilityState === 'visible' && void refresh(), 5 * 60_000)
-    window.addEventListener('tvb:messages-changed', refresh)
+    window.addEventListener(event, refresh)
     document.addEventListener('visibilitychange', onVisible)
     return () => {
       live = false
       clearInterval(timer)
-      window.removeEventListener('tvb:messages-changed', refresh)
+      window.removeEventListener(event, refresh)
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [allowed])
-  return allowed ? unread : 0
+  }, [allowed, url, key, event])
+  return allowed ? count : 0
 }
 
 function NavLinks({ me, onNavigate }: { me: Me; onNavigate?: () => void }) {
   const [location] = useLocation()
-  const unread = useUnreadMessages(me)
+  const badges: Record<string, { n: number; label: string }> = {
+    '/messages': { n: useBadgeCount(me, '/api/admin/messages/unread', 'unread', 'tvb:messages-changed'), label: 'unread' },
+    '/interest': { n: useBadgeCount(me, '/api/admin/interest/count', 'new', INTEREST_CHANGED), label: 'new' },
+  }
   const groups = me.totpRequired ? [] : navFor({ role: me.user.role, canManageUsers: me.canManageUsers })
   const link = (item: NavItem) => {
     const current = isCurrent(item, location)
@@ -119,10 +128,10 @@ function NavLinks({ me, onNavigate }: { me: Me; onNavigate?: () => void }) {
         }`}
       >
         {item.label}
-        {item.href === '/messages' && unread > 0 && (
+        {(badges[item.href]?.n ?? 0) > 0 && (
           <span className={`ml-2 rounded-full px-1.5 py-0.5 text-xs font-bold ${current ? 'bg-white text-ink' : 'bg-accent text-ink'}`}>
-            {unread}
-            <span className="sr-only"> unread</span>
+            {badges[item.href]!.n}
+            <span className="sr-only"> {badges[item.href]!.label}</span>
           </span>
         )}
       </Link>
@@ -371,6 +380,29 @@ function SignedIn({ me }: { me: Me }) {
           </Route>
         )}
         {admin && <Route path="/messages/:id">{(p) => <MessagePage key={p.id} id={p.id} />}</Route>}
+        {admin && (
+          <Route path="/interest">
+            <InterestInbox />
+          </Route>
+        )}
+        {admin && <Route path="/interest/:id">{(p) => <InterestPage key={p.id} id={p.id} />}</Route>}
+        {admin && (
+          <Route path="/players">
+            <Redirect to="/players/competition" replace />
+          </Route>
+        )}
+        {admin && (
+          <Route path="/players/:pool">
+            {(p) =>
+              p.pool === 'competition' || p.pool === 'training' ? (
+                <Players key={p.pool} pool={p.pool} />
+              ) : (
+                <Redirect to="/players/competition" replace />
+              )
+            }
+          </Route>
+        )}
+        {admin && <Route path="/players/:pool/:id">{(p) => <PlayerPage key={p.id} pool={p.pool} id={p.id} />}</Route>}
         {admin && (
           <Route path="/forms">
             <FormList />
