@@ -7053,6 +7053,14 @@
         }
       },
       "indexes": {
+        "season_team_players_season_player_unique": {
+          "name": "season_team_players_season_player_unique",
+          "columns": [
+            "season_id",
+            "player_id"
+          ],
+          "isUnique": true
+        },
         "season_team_players_player_id_idx": {
           "name": "season_team_players_player_id_idx",
           "columns": [

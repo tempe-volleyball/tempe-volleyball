@@ -87,20 +87,27 @@ year. Our league pages said "Enrolment … is closed right now" between seasons,
   each linked to a player row and keeping the details as sent (JSON).
 - `interest_programmes`: one row per programme picked, with its own status, because Michael may place someone in TNL
   and turn down FNL: `new` → `contacted` → `placed` / `declined` / `withdrawn`, plus the season and team they were
-  placed into. Placing a player or team on a season roster from the EOI sets `placed` automatically.
+  placed into. Placing a player or team on a season roster from the EOI sets `placed` automatically. Placed by hand,
+  the team must be in that season's team list. While someone is on a roster because of an EOI, that EOI can't leave
+  `placed` (the admin says to take them out of the team first, which reverts it to `contacted`): taking someone off
+  a roster stays a deliberate act in the season builder.
 - **Admin → Interest** (admin+; editors can't see personal details): the inbox, newest first, filtered by programme
   (default: everything open), status, kind and "since the last season started"; each EOI's page with its people,
   answers, programmes and statuses, deposit (mark paid / unpaid with method and note), note, "Add to season" (the
   team or the player, into a chosen draft season and team), archive, delete; add an EOI by hand (phone calls); CSV
   export (audited). The dashboard shows new EOIs. Retention: Settings → Interest → "Delete archived EOIs after" days
-  (default 365, 0 = keep); the privacy policy says so.
+  (default 365, 0 = keep), which also deletes the player rows those EOIs created when nothing else uses them; the
+  privacy policy says so. A public EOI matched to a player already on file is shown as "Matched by email and name, not
+  verified", and "Use these details" asks first.
 
 ### Season rosters
 
 - `season_team_players` (season, team, player, `role` captain/player, sort, where they came from: an EOI or a
   previous season): who played in each team each season. Rosters are admin-only (never public: they're personal
-  data) and stay editable after a season is published (they don't change the draw). Removing a team from a season
-  deletes its roster for that season; team merges move rosters to the kept team.
+  data) and stay editable after a season is published (they don't change the draw). One team per player per season,
+  enforced by a unique index. Removing a team from a season deletes its roster for that season; deleting a draft
+  season puts the EOIs placed in it back to `contacted`; team merges move rosters to the kept team (and undo moves
+  them back by season); a player merge that would put one person in two teams of a season is refused.
 - **The season builder** (season Setup → Teams) gets:
   - **Add all of last season's teams**, with their rosters (one click; skips withdrawn teams, which stay offered).
   - **Returning teams:** a list of teams from this league's earlier seasons (newest first, with when they last

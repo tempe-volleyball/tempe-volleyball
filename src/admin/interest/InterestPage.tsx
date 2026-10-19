@@ -10,7 +10,6 @@ import {
   Breadcrumbs,
   Button,
   Card,
-  Checkbox,
   Dialog,
   EmailText,
   Field,
@@ -211,6 +210,11 @@ export function InterestPage({ id }: { id: string }) {
                       {p.status === 'placed' && (p.seasonName || p.teamName) && (
                         <span className="ml-2">{[p.seasonName, p.teamName].filter(Boolean).join(', ')}</span>
                       )}
+                      {p.status === 'placed' && p.seasonId && (
+                        <Link href={`/seasons/${p.seasonId}/setup`} className="text-brand ml-2 underline underline-offset-2">
+                          Rosters
+                        </Link>
+                      )}
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
@@ -287,7 +291,7 @@ export function InterestPage({ id }: { id: string }) {
             )}
             <ul className="space-y-4">
               {d.members.map((m) => (
-                <MemberCard key={m.id} m={m} kind={i.kind} pool={d.pool} busy={busy} onApply={act} />
+                <MemberCard key={m.id} m={m} kind={i.kind} pool={d.pool} source={i.source} busy={busy} onApply={act} />
               ))}
             </ul>
           </Card>
@@ -462,16 +466,20 @@ function MemberCard({
   m,
   kind,
   pool,
+  source,
   busy,
   onApply,
 }: {
   m: InterestMemberView
   kind: string
   pool: string
+  source: string
   busy: string | null
   onApply: (body: Record<string, unknown>, what: string, done: string) => Promise<boolean>
 }) {
   const [chosen, setChosen] = useState<Set<string>>(new Set())
+  // Anyone can send the public form with someone else's email and name: a match to a player on file is a guess.
+  const unverified = source === 'public' && !!m.player && !m.createdHere
   const d = m.details
   const sent = Object.entries(DETAIL_LABELS).filter(([k]) => k !== 'firstName' && k !== 'lastName' && d[k as keyof typeof d])
   const role = kind === 'team' ? (m.role === 'captain' ? 'Captain' : 'Member') : null
@@ -483,10 +491,13 @@ function MemberCard({
           {role && <span className="ml-2 text-xs font-semibold text-black/60 uppercase">{role}</span>}
         </p>
         {m.player ? (
-          <Link href={`/players/${pool}/${m.player.id}`} className="text-brand text-sm underline underline-offset-2">
-            {m.createdHere ? 'New player (added by this EOI)' : `On file since ${formatWhen(m.player.createdAt).split(',')[0]}`}
-            {m.player.retiredAt ? ' · retired' : ''}
-          </Link>
+          <span className="text-right text-sm">
+            <Link href={`/players/${pool}/${m.player.id}`} className="text-brand underline underline-offset-2">
+              {m.createdHere ? 'New player (added by this EOI)' : `On file since ${formatWhen(m.player.createdAt).split(',')[0]}`}
+              {m.player.retiredAt ? ' · retired' : ''}
+            </Link>
+            {unverified && <span className="block text-xs text-black/60">Matched by email and name, not verified</span>}
+          </span>
         ) : (
           <span className="text-sm text-black/60">Player record deleted</span>
         )}
@@ -556,6 +567,21 @@ function MemberCard({
               busy={busy === `apply-${m.id}`}
               onClick={async () => {
                 if (
+                  unverified &&
+                  !(await confirmAction({
+                    title: 'Use these details?',
+                    body: (
+                      <p>
+                        This form was matched to {m.player ? personName(m.player) : 'a player'} by email and name only. Anyone can send the
+                        public form with someone else’s details, so check it’s really them (call or reply to them) before overwriting their
+                        record.
+                      </p>
+                    ),
+                    confirmLabel: 'Use these details',
+                  }))
+                )
+                  return
+                if (
                   await onApply({ action: 'apply_details', memberId: m.id, fields: [...chosen] }, `apply-${m.id}`, 'Player record updated.')
                 )
                   setChosen(new Set())
@@ -564,6 +590,7 @@ function MemberCard({
               Use these details
             </Button>
             <span className="text-xs text-black/60">
+              {unverified ? 'Matched by email and name, not verified. ' : ''}
               Copies the ticked details onto their player record. Forms never do this on their own.
             </span>
           </div>
@@ -731,7 +758,6 @@ function PlaceDialog({
   const [error, setError] = useState<string | null>(null)
   const [seasonId, setSeasonId] = useState(row.seasonId ?? '')
   const [teamId, setTeamId] = useState(row.teamId ?? '')
-  const [allTeams, setAllTeams] = useState(false)
   const [busy, setBusy] = useState(false)
   useEffect(() => {
     Promise.all([api<{ leagues: LeagueListItem[] }>('/api/admin/leagues'), api<{ teams: TeamListItem[] }>('/api/admin/teams')]).then(
@@ -745,9 +771,9 @@ function PlaceDialog({
     )
   }, [row.programmeId, row.seasonId])
   const seasons = leagues?.find((l) => l.id === row.programmeId)?.seasons ?? []
-  // Teams in the chosen season first; "every team" shows the rest.
+  // A team must play in the chosen season (the server checks its team list); with no seasons, any team.
   const inSeason = (teams ?? []).filter((t) => t.history.some((h) => h.id === seasonId))
-  const teamChoices = (allTeams || inSeason.length === 0 ? (teams ?? []) : inSeason).toSorted((a, b) => a.name.localeCompare(b.name))
+  const teamChoices = (seasons.length === 0 ? (teams ?? []) : seasonId ? inSeason : []).toSorted((a, b) => a.name.localeCompare(b.name))
   return (
     <Dialog title={`Placed in ${row.code}`} onCancel={onCancel}>
       {error && <LoadError message={error} />}
@@ -758,7 +784,8 @@ function PlaceDialog({
           onSubmit={(e) => {
             e.preventDefault()
             setBusy(true)
-            void onSave(seasonId || null, teamId || null).finally(() => setBusy(false))
+            const team = teamChoices.some((t) => t.id === teamId) ? teamId : ''
+            void onSave(seasonId || null, team || null).finally(() => setBusy(false))
           }}
         >
           {seasons.length > 0 ? (
@@ -774,7 +801,12 @@ function PlaceDialog({
           ) : (
             <p className="text-sm text-black/70">{row.code} has no seasons, so it’s placed without one.</p>
           )}
-          <Select label="Team (optional)" value={teamId} onChange={(e) => setTeamId(e.target.value)}>
+          <Select
+            label="Team (optional)"
+            value={teamChoices.some((t) => t.id === teamId) ? teamId : ''}
+            onChange={(e) => setTeamId(e.target.value)}
+            disabled={seasons.length > 0 && !seasonId}
+          >
             <option value="">Not saying</option>
             {teamChoices.map((t) => (
               <option key={t.id} value={t.id}>
@@ -782,7 +814,9 @@ function PlaceDialog({
               </option>
             ))}
           </Select>
-          {inSeason.length > 0 && <Checkbox label="Show every team, not just this season’s" checked={allTeams} onChange={setAllTeams} />}
+          {seasons.length > 0 && seasonId && teamChoices.length === 0 && (
+            <p className="text-xs text-black/60">That season has no teams yet. Add them in the season’s Setup → Teams.</p>
+          )}
           <p className="text-xs text-black/60">
             This only records where they went. To put them on the season’s roster, use the season builder.
           </p>

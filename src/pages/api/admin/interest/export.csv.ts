@@ -8,12 +8,14 @@ export const GET: APIRoute = ({ locals, request, url }) =>
   handle(async () => {
     const { db } = getServices()
     const actor = await requireRole(locals.user, 'admin', request, db, { fresh: true })
-    const { csv, filename } = await exportInterests(db, actor, parseInterestFilter(url.searchParams))
+    const { csv, filename, truncated } = await exportInterests(db, actor, parseInterestFilter(url.searchParams))
     return new Response(csv, {
       headers: {
         'Content-Type': 'text/csv; charset=utf-8',
         'Content-Disposition': `attachment; filename="${filename}"`,
         'Cache-Control': 'no-store',
+        // More matched than the export writes (EXPORT_LIMIT); the filename says "first-5000" too.
+        ...(truncated ? { 'X-Export-Truncated': '1' } : {}),
       },
     })
   })

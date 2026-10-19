@@ -42,7 +42,7 @@ import {
 import { HttpError } from '../http'
 import { audit, isUniqueFailure, notFound, type Changed, type Editor } from '../content/common'
 import { seasonTeamRow, toCompetition, type SeasonData } from './adapter'
-import { copySeasonRostersStatement, parseRosterFrom, rosterCopyStatements, type RosterCopySummary } from './rosters'
+import { copySeasonRostersStatements, parseRosterFrom, rosterCopyStatements, unplaceStatement, type RosterCopySummary } from './rosters'
 import {
   chunkByParams,
   courtResolver,
@@ -441,9 +441,9 @@ export async function createSeason(db: AppDb, actor: Editor, input: CreateSeason
     await runBatch(db, [
       db.insert(seasons).values(row),
       ...chunkByParams(members).map((chunk) => db.insert(seasonTeams).values(chunk)),
-      // The copied teams bring their rosters (retired players stay behind).
+      // The copied teams bring their rosters (retired players stay behind), and their open EOIs become placed.
       ...(source && members.length
-        ? [copySeasonRostersStatement(db, { fromSeasonId: source.season.id, toSeasonId: seasonId, at, actorId: actor.id })]
+        ? copySeasonRostersStatements(db, { fromSeasonId: source.season.id, toSeasonId: seasonId, leagueId, at, actorId: actor.id })
         : []),
       audit(
         db,
@@ -875,7 +875,7 @@ export async function setSeasonTeams(
     rosterFrom,
     teamName: (teamId) => found.find((t) => t.id === teamId)?.name ?? teamId,
   })
-  await runBatch(db, [
+  const batch = [
     db.delete(seasonTeams).where(eq(seasonTeams.seasonId, seasonId)),
     ...chunkByParams(rows).map((chunk) => db.insert(seasonTeams).values(chunk)),
     ...rosters.statements,
@@ -889,7 +889,15 @@ export async function setSeasonTeams(
       { teamIds: ids, ...(rosterFrom.size ? { rosterFrom: Object.fromEntries(rosterFrom), rosterCopy: rosters.summary } : {}) },
       at,
     ),
-  ])
+  ]
+  try {
+    await runBatch(db, batch)
+  } catch (e) {
+    // A roster change put a copied player in another team meanwhile (one team per season).
+    if (isUniqueFailure(e, 'season_team_players'))
+      throw new HttpError(409, 'roster_changed', 'Someone changed this season’s rosters while you saved. Reload, then save again.')
+    throw e
+  }
   return { ...(await getSeason(db, seasonId)), rosterCopy: rosters.summary }
 }
 
@@ -972,7 +980,10 @@ export async function setSeasonStatus(
   return { result: await getSeason(db, seasonId), purge }
 }
 
-/** Deletes a draft season (and its draft draw). Published and archived seasons can't be deleted. */
+/**
+ * Deletes a draft season (and its draft draw and rosters); EOIs placed in it go back to contacted. Published and
+ * archived seasons can't be deleted.
+ */
 export async function deleteSeason(db: AppDb, actor: Editor, seasonId: string, input: { baseUpdatedAt?: unknown }, now = new Date()) {
   const base = baseUpdatedAt(input.baseUpdatedAt)
   const d = await loadSeason(db, seasonId, { draw: false })
@@ -980,6 +991,9 @@ export async function deleteSeason(db: AppDb, actor: Editor, seasonId: string, i
   if (d.season.status !== 'draft') throw new HttpError(409, 'not_draft', 'Only draft seasons can be deleted. Archive this one instead.')
   const at = now.toISOString()
   await runBatch(db, [
+    // EOIs placed in it (player or team) go back to contacted, season and team cleared; otherwise the delete's
+    // ON DELETE SET NULL would leave them "placed" nowhere.
+    unplaceStatement(db, { seasonId, leagueId: d.league.id, at, actorId: actor.id }, { kinds: 'any' }),
     db.delete(seasons).where(eq(seasons.id, seasonId)),
     audit(db, actor, 'season.delete', { type: 'season', id: seasonId }, { name: d.season.name, slug: d.season.slug }, null, at),
   ])

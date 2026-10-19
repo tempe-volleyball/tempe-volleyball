@@ -9,7 +9,7 @@ import { runEnrolmentCron } from './enrolment/offers'
 import { pruneRateLimits } from './ratelimit'
 import { sweepAbandonedUploads, type SweepBucket } from './content/media-sweep'
 import { pruneMessagesStatement } from './contact/messages'
-import { pruneInterestsStatement } from './interest/admin'
+import { pruneInterestsStatement, prunePlayersOfInterestsStatement } from './interest/admin'
 
 /**
  * Cron Trigger entry point (see `triggers.crons` in wrangler.jsonc; schedules are UTC). Hourly. Every job is
@@ -95,13 +95,16 @@ export async function runHousekeeping(db: AppDb, mailer: Partial<Pick<Mailer, 'p
   const days = settings.enrolment.emailRetentionDays
   const cutoff = new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString()
   const interestPrune = pruneInterestsStatement(db, settings.interest.archivedRetentionDays, now)
+  // The players those EOIs created and nothing else uses go first (the EOIs' members say who they are).
+  const interestPlayersPrune = prunePlayersOfInterestsStatement(db, settings.interest.archivedRetentionDays, now)
   const results = await runBatch(db, [
-    ...(interestPrune ? [interestPrune] : []),
+    ...(interestPrune && interestPlayersPrune ? [interestPlayersPrune, interestPrune] : []),
     pruneMessagesStatement(db, settings.contactForm.retentionDays, now),
     ...expirePendingStatements(db, at),
     ...pruneUnconfirmedStatements(db, cutoff),
     ...(mailer.pruneStatement ? [mailer.pruneStatement(days, now)] : []),
   ])
+  if (interestPrune) results.shift()
   const interestsPruned = interestPrune ? (results.shift() as unknown[]).length : 0
   const messagesPruned = (results.shift() as unknown[]).length
   const pruned = results[3] as { playerId: string }[]

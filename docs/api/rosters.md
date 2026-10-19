@@ -15,8 +15,11 @@ Implemented in `src/server/competition/rosters.ts`; routes in `src/pages/api/adm
   concurrency token; a change aimed at a row someone just removed is a `404` or `409 roster_changed`.
 - **Team list changes stay with the season's Save** (`PUT /teams` below), so the season's concurrency token keeps
   meaning what it did.
-- **One team per season.** A player is on at most one roster per season. Adding someone who's in another team is
-  `409 already_in_team` with `players: [{ playerId, name, teamId, teamName }]`, unless the request says `move: true`.
+- **One team per season.** A player is on at most one roster per season, enforced by a unique index on
+  `season_team_players (season_id, player_id)`. Adding someone who's in another team is `409 already_in_team` with
+  `players: [{ playerId, name, teamId, teamName }]`, unless the request says `move: true`. Two adds racing to put one
+  player in two teams: the second hits the index and gets the same `409 already_in_team` (or `409 roster_changed`
+  when it can't tell who); a Save racing a roster change is `409 roster_changed`.
 - **Captains.** At most one per team.
 - **EOIs.** Placing a player from an individual EOI marks that EOI's programme row for this league `placed` (with the
   season and team); moving them updates the team; removing or replacing them reverts it to `contacted`. This happens
@@ -59,8 +62,11 @@ those out). About ten D1 queries.
 
 The player picker's list: `competitionDirectory()` (`src/server/players/directory.ts`) for this season's league, with
 this season as the target (so "Last season" is the one before it). Each player has `group` (`interest` / `last` /
-`past` / `retired` / `other`), `lastInLeague`, `lastAnywhere`, their newest open EOI (`level`, `position`) and
-`inSeason`. The browser filters and searches it (`src/admin/seasons/roster-helpers.ts`).
+`past` / `retired` / `other`, from `groupContext()`'s SQL, the same as the Players screen), `lastInLeague`,
+`lastAnywhere`, their newest open EOI (`level`, `position`) and `inSeason`. The browser filters and searches it
+(`src/admin/seasons/roster-helpers.ts`). Reads: the league's seasons, the competition players (newest first, at most
+3000, `truncated` past that) with their group, this league's roster rows, each player's latest spot anywhere (one
+window query) and the open EOIs for the league.
 
 ### `GET /api/admin/seasons/:id/rosters.csv`
 
@@ -75,14 +81,14 @@ text starting with `= + - @` (or a tab or CR) gets a leading apostrophe (`src/li
 One change, `{ action, teamId, … }`, where `teamId` is a team in the season (`409 team_not_in_season` otherwise, for
 example a team added in the working copy and not saved yet):
 
-| `action`  | Body                                                                                | Does                                                                                                                                                                                                                                                                                                            |
-| --------- | ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `add`     | `playerIds?: string[]`, `newPlayers?: NewPlayer[]`, `move?: boolean`, `interestId?` | Adds existing competition players (training players are refused) and new ones; anyone already in the team is skipped. At most 40 ids and 20 new players. `interestId`: a team EOI these are the members of (its programme row becomes placed in this team), for a team EOI whose team is already in the season. |
-| `remove`  | `playerId`                                                                          | Takes them off the roster.                                                                                                                                                                                                                                                                                      |
-| `move`    | `playerId`, `toTeamId`                                                              | To the end of another team's roster; a captain stays captain only if that team has none.                                                                                                                                                                                                                        |
-| `replace` | `playerId`, `withPlayerId` or `newPlayer`, `move?: boolean`                         | The new player takes the old one's role and place.                                                                                                                                                                                                                                                              |
-| `captain` | `playerId`, `captain?: boolean` (default true)                                      | Makes them captain (the old captain becomes a player), or not.                                                                                                                                                                                                                                                  |
-| `order`   | `playerIds`: the team's whole roster in its new order                               | `409 roster_changed` if the list isn't exactly the roster.                                                                                                                                                                                                                                                      |
+| `action`  | Body                                                                                | Does                                                                                                                                                                                                                                                                                                                                                                             |
+| --------- | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `add`     | `playerIds?: string[]`, `newPlayers?: NewPlayer[]`, `move?: boolean`, `interestId?` | Adds existing competition players (training players are refused) and new ones; anyone already in the team is skipped. At most 40 ids and 20 new players. `interestId`: a team EOI these are the members of (its programme row becomes placed in this team), for a team EOI whose team is already in the season; it must still be open for this league (`409 interest_not_open`). |
+| `remove`  | `playerId`                                                                          | Takes them off the roster.                                                                                                                                                                                                                                                                                                                                                       |
+| `move`    | `playerId`, `toTeamId`                                                              | To the end of another team's roster; a captain stays captain only if that team has none.                                                                                                                                                                                                                                                                                         |
+| `replace` | `playerId`, `withPlayerId` or `newPlayer`, `move?: boolean`                         | The new player takes the old one's role and place.                                                                                                                                                                                                                                                                                                                               |
+| `captain` | `playerId`, `captain?: boolean` (default true)                                      | Makes them captain (the old captain becomes a player), or not.                                                                                                                                                                                                                                                                                                                   |
+| `order`   | `playerIds`: the team's whole roster in its new order                               | `409 roster_changed` if the list isn't exactly the roster.                                                                                                                                                                                                                                                                                                                       |
 
 `NewPlayer = { firstName, lastName?, email?, phone?, gender? }` (gender one of `male`, `female`, `non_binary`,
 `prefer_not_to_say`). A new player is matched to an existing competition player with the same email and name
@@ -105,7 +111,9 @@ In the same batch as the new team list:
   (roles and order kept, `fromSeasonId` recorded); `{ interestId }` copies a team EOI's members (the captain as
   captain, `interestId` recorded) and marks the EOI's programme row for this league `placed` in this season and team.
   Copies skip retired players and anyone already in a team this season (the first team in `teamIds` wins), and
-  copied players' own open individual EOIs become placed.
+  copied players' own open individual EOIs become placed. `{ interestId }` must be a team EOI whose programme row for
+  this league is still open (new or contacted) and not archived (`409 interest_not_open`), with competition players
+  only (`409 wrong_pool`); a player EOI is a `400`.
 - Entries for teams already in the season are ignored (they keep their own roster); an entry for a team that isn't
   in `teamIds` is a `400`, and so is copying from the same season.
 
@@ -118,7 +126,15 @@ adds it to the working copy with `{ interestId }`.
 ### Other places rosters follow
 
 - **New season copying the latest** (`POST /api/admin/seasons`, `copyFrom`): the copied teams bring their rosters
-  (minus retired players), in one `INSERT … SELECT`. EOIs aren't touched.
+  (minus retired players), in one `INSERT … SELECT`, and copied players' open individual EOIs for the league become
+  placed in their team, like any other add (one `UPDATE` after it in the same batch).
+- **Deleting a draft season** (`DELETE /api/admin/seasons/:id`): EOIs placed in it (player or team) go back to
+  `contacted` with the season and team cleared, in the same batch.
 - **Team merges** (`POST /api/admin/teams/:id/merge`): B's roster rows and EOI placements move to A before B is
   deleted (a row that would collide with one of A's is dropped; merges across one season are refused anyway, and
-  roster seasons count for that check). The undo record keeps B's roster seasons and EOI rows, so undo puts them back.
+  roster seasons count for that check). Undo puts them back **by season**: in B's seasons every roster row and EOI
+  placement of A's goes to B, including players added or EOIs placed into "A" there after the merge (A never played
+  in B's seasons, or the merge would have been refused); placements recorded without a season go back by the EOI
+  rows the merge recorded.
+- **Player merges** (Admin → Players): two rows for one person on different teams of one season are refused
+  (`409 two_teams`), same season and team are folded.

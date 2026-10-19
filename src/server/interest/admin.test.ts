@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { DEFAULT_SETTINGS } from '../../lib/content/settings'
 import { runHousekeeping } from '../cron'
-import { createTestDb, type TestDb } from '../db/testing'
+import { createTestDb, type QueryStats, type TestDb } from '../db/testing'
 import {
   auditLog,
   interestMembers,
@@ -13,6 +13,8 @@ import {
   registrations,
   products,
   seasons,
+  seasonTeamPlayers,
+  seasonTeams,
   siteSettings,
   teams,
   user,
@@ -81,6 +83,7 @@ const rejects = async (p: Promise<unknown>, status: number, message?: RegExp) =>
 }
 
 let db: TestDb
+let stats: QueryStats
 const eoi = (
   at: string,
   opts: {
@@ -106,7 +109,7 @@ const eoi = (
   })
 
 beforeEach(async () => {
-  db = createTestDb().db
+  ;({ db, stats } = createTestDb())
   await db.insert(user).values({ id: 'adm', name: 'Michael', email: 'michael@example.com', emailVerified: true, role: 'admin' })
   await db.insert(leagues).values([
     { id: 'tnl', code: 'TNL', name: 'Thursday Night League', slug: 'tnl', weekday: 4, depositPlayerCents: 2000, depositTeamCents: 10000 },
@@ -118,6 +121,7 @@ beforeEach(async () => {
   await db.insert(seasons).values([season('tnl3', 'tnl', '2026-07-09', 3), season('tnl4', 'tnl', '2026-10-08', 4)])
   await db.insert(seasons).values([season('fnl3', 'fnl', '2026-07-10', 3), season('fnl1', 'fnl', '2027-01-15', 1)])
   await db.insert(teams).values({ id: 'aces', name: 'ACES', slug: 'aces' })
+  await db.insert(seasonTeams).values({ seasonId: 'tnl4', teamId: 'aces', sort: 0 })
 })
 
 describe('the inbox', () => {
@@ -306,10 +310,11 @@ describe('one EOI', () => {
     const r = await runHousekeeping(db, {}, NOW)
     expect(r.interestsPruned).toBe(1)
     expect((await db.select().from(interests)).map((i) => i.id).sort()).toEqual([open.id, recent.id].sort())
-    // Its members and programmes went with it; the player stays in the directory.
+    // Its members and programmes went with it, and so did the player it created (nothing else used them).
     expect(await db.select().from(interestMembers).where(eq(interestMembers.interestId, old.id))).toHaveLength(0)
     expect(await db.select().from(interestProgrammes).where(eq(interestProgrammes.interestId, old.id))).toHaveLength(0)
-    expect(await db.select().from(players).where(eq(players.firstName, 'Sam'))).toHaveLength(1)
+    expect(await db.select().from(players).where(eq(players.firstName, 'Sam'))).toHaveLength(0)
+    expect(await db.select().from(players).where(eq(players.firstName, 'Jo'))).toHaveLength(1)
 
     // Unarchived, it's back in the inbox.
     await interestAction(db, admin, recent.id, { action: 'unarchive' }, NOW)
@@ -358,7 +363,7 @@ describe('one EOI', () => {
     const a = await db.select().from(auditLog).where(eq(auditLog.action, 'interest.delete'))
     expect(a).toHaveLength(1)
     expect(JSON.stringify(a[0])).not.toMatch(/Kim|Lou|example\.com/)
-    expect(a[0]!.before).toMatchObject({ references: [r.reference], people: 3 })
+    expect(a[0]).toMatchObject({ targetType: 'interest', targetId: r.id, before: { reference: r.reference, people: 3 } })
 
     const kept = await eoi('2026-10-13T00:00:00Z', { members: [person('Neo', 'Ra', 'neo@example.com')] })
     expect(await deleteInterests(db, admin, [kept.id], { keepPlayers: true }, NOW)).toEqual({ deleted: 1, playersDeleted: 0 })
@@ -524,5 +529,127 @@ describe('CSV', () => {
     expect(csv).toContain('"old_q"')
     expect(csv).toContain('"TNL: Placed (TNL Q4 2026, ACES)"')
     expect(csv).toContain('"25.00"')
+  })
+})
+
+describe('review fixes', () => {
+  it('placing checks the team plays in that season, and a team needs the season when the programme has seasons', async () => {
+    await db.insert(teams).values({ id: 'kbu', name: 'KBU', slug: 'kbu' })
+    const r = await eoi('2026-10-12T00:00:00Z')
+    await rejects(
+      interestAction(db, admin, r.id, { action: 'status', programmeId: 'tnl', status: 'placed', seasonId: 'tnl4', teamId: 'kbu' }, NOW),
+      400,
+      /isn’t in that season’s team list/,
+    )
+    await rejects(
+      interestAction(db, admin, r.id, { action: 'status', programmeId: 'tnl', status: 'placed', teamId: 'aces' }, NOW),
+      400,
+      /Pick the season/,
+    )
+    // A programme with no seasons (TVSL here) can record a team on its own.
+    const t = await eoi('2026-10-12T00:00:00Z', { programmes: ['ssl'], members: [person('Ana', 'Cruz', 'ana@example.com')] })
+    const d = await interestAction(db, admin, t.id, { action: 'status', programmeId: 'ssl', status: 'placed', teamId: 'aces' }, NOW)
+    expect(d.programmes[0]).toMatchObject({ status: 'placed', seasonId: null, teamId: 'aces' })
+  })
+
+  it('refuses to take an EOI off placed while its person is on the roster because of it (409 on_roster)', async () => {
+    const r = await eoi('2026-10-12T00:00:00Z', { programmes: ['tnl', 'fnl'] })
+    const playerId = r.members[0]!.playerId
+    await interestAction(db, admin, r.id, { action: 'status', programmeId: 'tnl', status: 'placed', seasonId: 'tnl4', teamId: 'aces' }, NOW)
+    await db.insert(seasonTeamPlayers).values({ seasonId: 'tnl4', teamId: 'aces', playerId, interestId: r.id })
+    const e = await rejects(
+      interestAction(db, admin, r.id, { action: 'status', programmeId: 'tnl', status: 'declined' }, NOW),
+      409,
+      /on ACES’s roster in TNL Q4 2026\. Take them out of ACES first/,
+    )
+    expect(e.code).toBe('on_roster')
+    expect(e.details?.rosters).toEqual([expect.objectContaining({ seasonId: 'tnl4', teamId: 'aces', path: '/seasons/tnl4/setup' })])
+    await rejects(bulkInterestAction(db, admin, { action: 'status', ids: [r.id], status: 'contacted' }, NOW), 409, /Take them out/)
+    await rejects(interestAction(db, admin, r.id, { action: 'remove_programme', programmeId: 'tnl' }, NOW), 409, /Take them out/)
+    // FNL isn't held by the TNL roster.
+    await bulkInterestAction(db, admin, { action: 'status', ids: [r.id], status: 'contacted', programmeId: 'fnl' }, NOW)
+    // Off the roster, the status can change.
+    await db.delete(seasonTeamPlayers)
+    const d = await interestAction(db, admin, r.id, { action: 'status', programmeId: 'tnl', status: 'declined' }, NOW)
+    expect(d.programmes.find((p) => p.code === 'TNL')).toMatchObject({ status: 'declined', seasonId: null })
+  })
+
+  it('refuses a programme from the other pool (409 wrong_pool)', async () => {
+    const r = await eoi('2026-10-12T00:00:00Z')
+    const e = await rejects(
+      interestAction(db, admin, r.id, { action: 'add_programme', programmeId: 'adp' }, NOW),
+      409,
+      /competition players/,
+    )
+    expect(e.code).toBe('wrong_pool')
+  })
+
+  it('bulk actions write one audit row per EOI, so each EOI’s history shows them', async () => {
+    const a = await eoi('2026-10-12T00:00:00Z')
+    const b = await eoi('2026-10-13T00:00:00Z', { members: [person('Ana', 'Cruz', 'ana@example.com')] })
+    await bulkInterestAction(db, admin, { action: 'status', ids: [a.id, b.id], status: 'contacted' }, NOW)
+    await bulkInterestAction(db, admin, { action: 'archive', ids: [a.id, b.id] }, NOW)
+    for (const x of [a, b]) {
+      const h = (await getInterest(db, x.id)).history
+      expect(h.map((r) => (r.after as { action: string }).action).sort()).toEqual(['archive', 'status'])
+    }
+    expect(await db.select().from(auditLog).where(eq(auditLog.targetId, 'bulk'))).toHaveLength(0)
+  })
+
+  it('bulk delete takes every player the EOIs created (not just 90), within D1’s limits', async () => {
+    const ids: string[] = []
+    for (let i = 0; i < 90; i++) {
+      const r = await eoi(`2026-10-12T00:${String(Math.floor(i / 60)).padStart(2, '0')}:${String(i % 60).padStart(2, '0')}Z`, {
+        kind: 'team',
+        teamName: `T${i}`,
+        members: [person('Cap', `T${i}`, `cap${i}@example.com`), person('Mem', `T${i}`, null), person('Two', `T${i}`, null)],
+      })
+      ids.push(r.id)
+    }
+    expect(await db.select().from(players)).toHaveLength(270)
+    stats.reset()
+    const res = await deleteInterests(db, admin, ids, {}, NOW)
+    expect(res).toEqual({ deleted: 90, playersDeleted: 270 })
+    expect(stats.queries).toBeLessThanOrEqual(10)
+    expect(stats.maxParams).toBeLessThan(100)
+    expect(await db.select().from(players)).toHaveLength(0)
+    expect(await db.select().from(auditLog).where(eq(auditLog.action, 'interest.delete'))).toHaveLength(90)
+  })
+
+  it('the retention prune keeps players something else uses', async () => {
+    const old = await eoi('2025-01-01T00:00:00Z', {
+      kind: 'team',
+      members: [person('Sam', 'Lee', 'sam@example.com'), person('Kim', 'Ng', null)],
+    })
+    await interestAction(db, admin, old.id, { action: 'archive' }, new Date('2025-06-01T00:00:00Z'))
+    // Kim has played since: kept.
+    await db.insert(seasonTeamPlayers).values({ seasonId: 'tnl4', teamId: 'aces', playerId: old.members[1]!.playerId })
+    expect((await runHousekeeping(db, {}, NOW)).interestsPruned).toBe(1)
+    expect((await db.select().from(players)).map((p) => p.firstName)).toEqual(['Kim'])
+  })
+
+  it('exports thousands of EOIs in a fixed number of queries', async () => {
+    const sqlite = createTestDb()
+    db = sqlite.db
+    stats = sqlite.stats
+    await db.insert(leagues).values({ id: 'tnl', code: 'TNL', name: 'Thursday Night League', slug: 'tnl', weekday: 4 })
+    const raw = sqlite.sqlite
+    raw.exec('BEGIN')
+    const i1 = raw.prepare("insert into interests (id, kind, reference, created_at) values (?, 'player', ?, ?)")
+    const i2 = raw.prepare('insert into interest_members (id, interest_id, details) values (?, ?, ?)')
+    const i3 = raw.prepare("insert into interest_programmes (interest_id, programme_id, status, created_at) values (?, 'tnl', 'new', ?)")
+    for (let i = 0; i < 3000; i++) {
+      const at = `2026-10-${String((i % 28) + 1).padStart(2, '0')}T00:00:00.000Z`
+      i1.run(`e${i}`, `EOI-${String(i).padStart(4, '0')}`, at)
+      i2.run(`m${i}`, `e${i}`, JSON.stringify(person('P', `N${i}`, `p${i}@example.com`)))
+      i3.run(`e${i}`, at)
+    }
+    raw.exec('COMMIT')
+    stats.reset()
+    const r = await exportInterests(db, admin, filter({ programmeId: 'tnl' }), NOW)
+    expect(stats.queries).toBeLessThanOrEqual(10)
+    expect(stats.maxParams).toBeLessThan(100)
+    expect(r.truncated).toBe(false)
+    expect(r.csv.trim().split('\r\n')).toHaveLength(3001)
   })
 })

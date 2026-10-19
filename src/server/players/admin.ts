@@ -2,7 +2,7 @@ import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, notInArray, or, sql
 import { alias } from 'drizzle-orm/sqlite-core'
 import { toCsv } from '../../lib/enrolment/csv'
 import { isEmail, isPhone, normaliseEmail } from '../../lib/enrolment/validate'
-import { matchesSearch, PLAYER_GROUP_LABELS, playerGroups, type PlayerGroup } from '../../lib/players/groups'
+import { PLAYER_GROUP_LABELS, playerGroups, type PlayerGroup } from '../../lib/players/groups'
 import { sydneyDate } from '../../lib/time'
 import { runBatch, type AppDb } from '../db'
 import {
@@ -30,19 +30,20 @@ import {
   type ProgrammeKind,
   type RosterRole,
 } from '../db/schema'
-import { audit, auditEntry, conflict, invalid, likeEscaped, likePattern, notFound, optionalText, type Editor } from '../content/common'
+import { audit, conflict, invalid, isUniqueFailure, likeEscaped, likePattern, notFound, optionalText, type Editor } from '../content/common'
 import { HttpError } from '../http'
 import { joinTargetRows, labelOfRow, refOfProduct, targetLabelColumns } from '../enrolment/core'
 import type { TargetRef } from '../../lib/enrolment/targets'
-import { competitionDirectory, type DirectoryPlayer, type RosterSpot } from './directory'
+import { groupContext, latestSpots, newestInterestBy, openInterestRows, type DirectoryPlayer, type RosterSpot } from './directory'
 
 // Admin → Players (docs/interest.md "Players", docs/admin.md §3.16, docs/api/players.md): competition and training
 // players kept apart (players.pool), each a searchable, filterable list; a player's page with every EOI, enrolment
 // and roster spot; add by hand, edit, retire, merge two duplicates, delete (only with no history), CSV export.
 // Admins and owners only (personal data).
 //
-// Competition lists come from competitionDirectory() (five reads, everyone in the pool, grouped in memory: a few
-// hundred players), so the groups match the season builder's picker exactly. Training lists are SQL pages.
+// Both pools are SQL pages (search, filters, sort and counts in SQL). Competition groups come from the directory's
+// groupContext() SQL, so they match the season builder's picker exactly; reads grow with the number of players, not
+// with seasons of history.
 
 export const PAGE_SIZE = 50
 /** Request bodies of the players routes: a handful of fields. */
@@ -125,7 +126,10 @@ export type PlayerList = {
   interestSince: string | null
   /** For the filters: leagues and events (competition) or training and development programmes (training). */
   programmes: { id: string; code: string; name: string; kind: ProgrammeKind }[]
+  /** Always false now (both pools page in SQL); kept for older admin bundles. */
   truncated: boolean
+  /** The most rows the CSV export writes (the screen says so when the list is longer). */
+  exportLimit: number
 }
 
 const listProgrammes = (db: AppDb, pool: PlayerPool) =>
@@ -135,73 +139,100 @@ const listProgrammes = (db: AppDb, pool: PlayerPool) =>
     .where(pool === 'competition' ? inArray(programmes.kind, ['league', 'event']) : inArray(programmes.kind, ['training', 'development']))
     .orderBy(programmes.kind, programmes.sort, programmes.name)
 
-const byName = (a: { lastName: string; firstName: string }, b: { lastName: string; firstName: string }) =>
-  a.lastName.localeCompare(b.lastName, 'en', { sensitivity: 'base' }) ||
-  a.firstName.localeCompare(b.firstName, 'en', { sensitivity: 'base' })
-
 /** A page of a pool's players, with group counts for competition players. */
 export async function listPlayers(db: AppDb, q: PlayerQuery, now = new Date()): Promise<PlayerList> {
   return q.pool === 'competition' ? listCompetition(db, q, now) : listTraining(db, q)
 }
 
+/** The competition list's WHERE: search, then the group (or, for Everyone, the retired filter). */
+const competitionWhere = (q: PlayerQuery, groupSql: SQL<PlayerGroup>, withGroup: boolean) =>
+  and(
+    eq(players.pool, 'competition'),
+    searchWhere(q.q),
+    withGroup ? (q.group === 'all' ? retiredWhere(q.retired) : sql`${groupSql} = ${q.group}`) : undefined,
+  )
+
+const spotOnly = (s: RosterSpot): RosterSpot => ({
+  seasonId: s.seasonId,
+  seasonName: s.seasonName,
+  startDate: s.startDate,
+  leagueId: s.leagueId,
+  leagueCode: s.leagueCode,
+  teamId: s.teamId,
+  teamName: s.teamName,
+})
+
+/**
+ * Competition players: paged, counted and searched in SQL, with each player's group from groupContext() (the
+ * same SQL as the season builder's picker, so the two agree). Reads: the window (two), then one batch (the group
+ * counts, the page, the programmes), then the page's latest spots and open EOIs (50 players).
+ */
 async function listCompetition(db: AppDb, q: PlayerQuery, now: Date): Promise<PlayerList> {
-  const [dir, progs, extra] = await Promise.all([
-    competitionDirectory(db, { leagueId: q.leagueId, today: sydneyDate(now) }),
-    listProgrammes(db, 'competition'),
-    // The directory leaves out createdAt; one small read for sorting by newest.
+  const ctx = await groupContext(db, { leagueId: q.leagueId, today: sydneyDate(now) })
+  const [countRows, rows, progs] = (await runBatch(db, [
     db
-      .select({ id: players.id, createdAt: players.createdAt, updatedAt: players.updatedAt })
+      .select({ group: sql<PlayerGroup>`${ctx.groupSql}`.as('grp'), n: sql<number>`count(*)`.as('n') })
       .from(players)
-      .where(eq(players.pool, 'competition')),
-  ])
-  const times = new Map(extra.map((e) => [e.id, e]))
-  const searched = dir.players.filter((p) => matchesSearch(p, q.q ?? ''))
+      .where(competitionWhere(q, ctx.groupSql, false))
+      .groupBy(sql`grp`),
+    db
+      .select({
+        id: players.id,
+        firstName: players.firstName,
+        lastName: players.lastName,
+        email: players.email,
+        phone: players.phone,
+        gender: players.gender,
+        retiredAt: players.retiredAt,
+        createdAt: players.createdAt,
+        group: sql<PlayerGroup>`${ctx.groupSql}`.as('grp'),
+      })
+      .from(players)
+      .where(competitionWhere(q, ctx.groupSql, true))
+      .orderBy(...orderOf(q.sort))
+      .limit(PAGE_SIZE)
+      .offset((q.page - 1) * PAGE_SIZE),
+    listProgrammes(db, 'competition'),
+  ])) as unknown as [
+    { group: PlayerGroup; n: number }[],
+    (Pick<PlayerListItem, 'id' | 'firstName' | 'lastName' | 'email' | 'phone' | 'gender' | 'retiredAt' | 'createdAt'> & {
+      group: PlayerGroup
+    })[],
+    PlayerList['programmes'],
+  ]
   // The retired filter: Retired is its own group, so "hide" only applies to Everyone.
   const counts = Object.fromEntries([...playerGroups, 'all'].map((g) => [g, 0])) as Record<GroupFilter, number>
-  for (const p of searched) {
-    counts[p.group]++
-    if (q.retired !== 'hide' || !p.retiredAt) counts.all++
+  for (const c of countRows) {
+    counts[c.group] = Number(c.n)
+    if (q.retired === 'only' ? c.group === 'retired' : q.retired === 'any' || c.group !== 'retired') counts.all += Number(c.n)
   }
-  let list = searched.filter((p) =>
-    q.group === 'all' ? (q.retired === 'only' ? !!p.retiredAt : q.retired === 'hide' ? !p.retiredAt : true) : p.group === q.group,
-  )
-  const created = (id: string) => times.get(id)?.createdAt ?? ''
-  const updated = (id: string) => times.get(id)?.updatedAt ?? ''
-  list = list.toSorted(
-    q.sort === 'newest'
-      ? (a, b) => created(b.id).localeCompare(created(a.id))
-      : q.sort === 'updated'
-        ? (a, b) => updated(b.id).localeCompare(updated(a.id))
-        : byName,
-  )
-  const pages = Math.max(1, Math.ceil(list.length / PAGE_SIZE))
-  const page = Math.min(q.page, pages)
+  const total = counts[q.group]
+  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  // Past the end (the list shrank since the link was made): the last page instead.
+  if (rows.length === 0 && q.page > pages && total > 0) return listCompetition(db, { ...q, page: pages }, now)
+  const ids = rows.map((r) => r.id)
+  const [spots, open] = await Promise.all([
+    latestSpots(db, { preferLeagueId: q.leagueId, playerIds: ids }),
+    ids.length ? openInterestRows(db, { leagueId: q.leagueId, playerIds: ids }) : Promise.resolve([]),
+  ])
+  const spotBy = new Map(spots.map((s) => [s.playerId, s]))
+  const eoi = newestInterestBy(open)
   return {
     pool: 'competition',
-    rows: list.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map((p) => ({
-      id: p.id,
-      firstName: p.firstName,
-      lastName: p.lastName,
-      email: p.email,
-      phone: p.phone,
-      gender: p.gender,
-      retiredAt: p.retiredAt,
-      createdAt: created(p.id),
-      group: p.group,
-      lastSpot: p.lastInLeague ?? p.lastAnywhere,
-      interest: p.interest,
-      enrolments: null,
-      lastEnrolment: null,
-    })),
-    total: list.length,
-    page,
+    rows: rows.map((p) => {
+      const s = spotBy.get(p.id)
+      return { ...p, lastSpot: s ? spotOnly(s) : null, interest: eoi.get(p.id) ?? null, enrolments: null, lastEnrolment: null }
+    }),
+    total,
+    page: Math.min(q.page, pages),
     pages,
     groupCounts: counts,
-    league: dir.league,
-    lastSeason: dir.lastSeason,
-    interestSince: dir.interestSince,
+    league: ctx.league,
+    lastSeason: ctx.lastSeason,
+    interestSince: ctx.interestSince,
     programmes: progs,
-    truncated: dir.truncated,
+    truncated: false,
+    exportLimit: EXPORT_LIMIT,
   }
 }
 
@@ -304,6 +335,7 @@ async function listTraining(db: AppDb, q: PlayerQuery): Promise<PlayerList> {
     interestSince: null,
     programmes: progs,
     truncated: false,
+    exportLimit: EXPORT_LIMIT,
   }
 }
 
@@ -692,6 +724,14 @@ export async function setRetired(db: AppDb, actor: Editor, id: string, retired: 
 
 // ── Merge ─────────────────────────────────────────────────────────────────────
 
+const twoTeams = (clashes: { seasonId: string; seasonName: string; keepTeam: string; mergeTeam: string }[]) =>
+  new HttpError(
+    409,
+    'two_teams',
+    `They’re in different teams in ${clashes.map((c) => `${c.seasonName} (${c.keepTeam} and ${c.mergeTeam})`).join(', ')}. A player is in one team a season, so take one of them out of their team first, then merge.`,
+    { seasons: clashes },
+  )
+
 /** Why a duplicate's live enrolment was cancelled in a merge (the kept player already has one for that target). */
 export const MERGE_CANCEL_REASON = 'Duplicate player merged: the kept player already has this enrolment'
 
@@ -703,10 +743,12 @@ const CLOSED = [...closedRegistrationStatuses]
  *   (MERGE_CANCEL_REASON), not deleted, so payments keep their registration (the live unique index allows one);
  * - every registration, EOI membership and team captaincy moves to the kept player;
  * - roster spots: where both are in the same season and team, the duplicate's row goes (the kept one becomes
- *   captain if the duplicate was); the rest move;
+ *   captain if the duplicate was); the rest move. Both in one season but in different teams is refused (409
+ *   `two_teams`, naming the season and teams): one player plays for one team a season, so take one of them out first;
  * - with `fillBlanks` (default on), the kept player's empty details are filled from the duplicate's, and notes are
  *   joined;
- * - the duplicate is deleted, and the merge audited on the kept player with the duplicate's id, name and what moved.
+ * - the duplicate is deleted, and the merge audited (in the same batch) on the kept player with the duplicate's id,
+ *   initials, source and created date, the names of the fields filled and how many rows moved.
  */
 export async function mergePlayers(
   db: AppDb,
@@ -727,6 +769,28 @@ export async function mergePlayers(
   if (!keep) throw notFound('player')
   if (!dupe) throw notFound('player to merge in')
   if (keep.pool !== dupe.pool) throw invalid('Competition and training players are kept apart, so they can’t be merged.')
+  // One team per season: both in one season but different teams can't become one player.
+  const spots = await db
+    .select({
+      playerId: seasonTeamPlayers.playerId,
+      seasonId: seasonTeamPlayers.seasonId,
+      teamId: seasonTeamPlayers.teamId,
+      seasonName: seasons.name,
+      teamName: teams.name,
+    })
+    .from(seasonTeamPlayers)
+    .innerJoin(seasons, eq(seasons.id, seasonTeamPlayers.seasonId))
+    .innerJoin(teams, eq(teams.id, seasonTeamPlayers.teamId))
+    .where(inArray(seasonTeamPlayers.playerId, [keepId, mergeId]))
+    .all()
+  const clashes = spots.flatMap((k) =>
+    k.playerId !== keepId
+      ? []
+      : spots
+          .filter((d) => d.playerId === mergeId && d.seasonId === k.seasonId && d.teamId !== k.teamId)
+          .map((d) => ({ seasonId: k.seasonId, seasonName: k.seasonName, keepTeam: k.teamName, mergeTeam: d.teamName })),
+  )
+  if (clashes.length) throw twoTeams(clashes)
   const at = now.toISOString()
   const touch = { updatedAt: at, updatedBy: actor.id }
 
@@ -743,73 +807,94 @@ export async function mergePlayers(
   }
 
   const liveDupe = and(eq(registrations.playerId, mergeId), notInArray(registrations.status, CLOSED))
-  const results = (await runBatch(db, [
-    // 1. Collisions on the live unique index: cancel the duplicate's.
-    db
-      .update(registrations)
-      .set({
-        status: 'cancelled',
-        cancelledAt: at,
-        cancelReason: MERGE_CANCEL_REASON,
-        waitlistPosition: null,
-        offerExpiresAt: null,
-        updatedAt: at,
-        updatedBy: actor.id,
-      })
-      .where(
-        and(
-          liveDupe,
-          sql`exists (select 1 from registrations kr where kr.player_id = ${keepId} and kr.product_id = ${registrations.productId} and kr.status not in ('cancelled', 'expired', 'refunded'))`,
+  const liveClash = sql`exists (select 1 from registrations kr where kr.player_id = ${keepId} and kr.product_id = ${registrations.productId} and kr.status not in ('cancelled', 'expired', 'refunded'))`
+  const sameTeam = (other: string) =>
+    sql`exists (select 1 from season_team_players ks where ks.player_id = ${other} and ks.season_id = ${seasonTeamPlayers.seasonId} and ks.team_id = ${seasonTeamPlayers.teamId})`
+  // The audit row goes first in the batch, so its counts are what the statements below then move (same
+  // transaction). Privacy (docs/admin.md §3.16): the duplicate's id, initials, source and created date, no name.
+  const initials = `${dupe.firstName.slice(0, 1)}. ${dupe.lastName.slice(0, 1)}.`.toUpperCase()
+  const before = { merged: { id: dupe.id, initials, source: dupe.source, createdAt: dupe.createdAt } }
+  const counted = sql`json_object(
+      'registrationsMoved', (select count(*) from registrations where player_id = ${mergeId}),
+      'registrationsCancelled', (select count(*) from registrations where player_id = ${mergeId} and status not in ('cancelled', 'expired', 'refunded')
+        and exists (select 1 from registrations kr where kr.player_id = ${keepId} and kr.product_id = registrations.product_id and kr.status not in ('cancelled', 'expired', 'refunded'))),
+      'interestsMoved', (select count(*) from interest_members where player_id = ${mergeId}),
+      'captaincies', (select count(*) from groups where captain_player_id = ${mergeId}),
+      'rosterDuplicatesDropped', (select count(*) from season_team_players d where d.player_id = ${mergeId}
+        and exists (select 1 from season_team_players ks where ks.player_id = ${keepId} and ks.season_id = d.season_id and ks.team_id = d.team_id)),
+      'rostersMoved', (select count(*) from season_team_players d where d.player_id = ${mergeId}
+        and not exists (select 1 from season_team_players ks where ks.player_id = ${keepId} and ks.season_id = d.season_id and ks.team_id = d.team_id)),
+      'filled', json(${JSON.stringify(Object.keys(fill))}))`
+  const auditRow = db
+    .insert(auditLog)
+    .select(
+      sql`select ${crypto.randomUUID()}, ${at}, ${actor.id}, 'player.merge', 'player', ${keepId}, ${JSON.stringify(before)}, ${counted}, ${actor.ip ?? null} where true`,
+    )
+  let results: unknown[][]
+  try {
+    results = (await runBatch(db, [
+      auditRow,
+      // 1. Collisions on the live unique index: cancel the duplicate's.
+      db
+        .update(registrations)
+        .set({
+          status: 'cancelled',
+          cancelledAt: at,
+          cancelReason: MERGE_CANCEL_REASON,
+          waitlistPosition: null,
+          offerExpiresAt: null,
+          updatedAt: at,
+          updatedBy: actor.id,
+        })
+        .where(and(liveDupe, liveClash))
+        .returning({ id: registrations.id }),
+      db
+        .update(registrations)
+        .set({ playerId: keepId, updatedAt: at })
+        .where(eq(registrations.playerId, mergeId))
+        .returning({ id: registrations.id }),
+      db
+        .update(interestMembers)
+        .set({ playerId: keepId, updatedAt: at })
+        .where(eq(interestMembers.playerId, mergeId))
+        .returning({ id: interestMembers.id }),
+      db
+        .update(groups)
+        .set({ captainPlayerId: keepId, updatedAt: at })
+        .where(eq(groups.captainPlayerId, mergeId))
+        .returning({ id: groups.id }),
+      // 2. Rosters: same season and team → the kept row stays (captain if either was), the duplicate's goes.
+      db
+        .update(seasonTeamPlayers)
+        .set({ role: 'captain', ...touch })
+        .where(
+          and(
+            eq(seasonTeamPlayers.playerId, keepId),
+            sql`exists (select 1 from season_team_players ks where ks.player_id = ${mergeId} and ks.season_id = ${seasonTeamPlayers.seasonId} and ks.team_id = ${seasonTeamPlayers.teamId} and ks.role = 'captain')`,
+          ),
         ),
-      )
-      .returning({ id: registrations.id }),
-    db
-      .update(registrations)
-      .set({ playerId: keepId, updatedAt: at })
-      .where(eq(registrations.playerId, mergeId))
-      .returning({ id: registrations.id }),
-    db
-      .update(interestMembers)
-      .set({ playerId: keepId, updatedAt: at })
-      .where(eq(interestMembers.playerId, mergeId))
-      .returning({ id: interestMembers.id }),
-    db
-      .update(groups)
-      .set({ captainPlayerId: keepId, updatedAt: at })
-      .where(eq(groups.captainPlayerId, mergeId))
-      .returning({ id: groups.id }),
-    // 2. Rosters: same season and team → the kept row stays (captain if either was), the duplicate's goes.
-    db
-      .update(seasonTeamPlayers)
-      .set({ role: 'captain', ...touch })
-      .where(
-        and(
-          eq(seasonTeamPlayers.playerId, keepId),
-          sql`exists (select 1 from season_team_players ks where ks.player_id = ${mergeId} and ks.season_id = ${seasonTeamPlayers.seasonId} and ks.team_id = ${seasonTeamPlayers.teamId} and ks.role = 'captain')`,
-        ),
-      ),
-    db
-      .delete(seasonTeamPlayers)
-      .where(
-        and(
-          eq(seasonTeamPlayers.playerId, mergeId),
-          sql`exists (select 1 from season_team_players ks where ks.player_id = ${keepId} and ks.season_id = ${seasonTeamPlayers.seasonId} and ks.team_id = ${seasonTeamPlayers.teamId})`,
-        ),
-      )
-      .returning({ seasonId: seasonTeamPlayers.seasonId }),
-    db
-      .update(seasonTeamPlayers)
-      .set({ playerId: keepId, ...touch })
-      .where(eq(seasonTeamPlayers.playerId, mergeId))
-      .returning({ seasonId: seasonTeamPlayers.seasonId }),
-    // 3. The kept player's details, then the duplicate goes.
-    db
-      .update(players)
-      .set({ ...fill, ...touch })
-      .where(eq(players.id, keepId)),
-    db.delete(players).where(eq(players.id, mergeId)),
-  ])) as unknown as unknown[][]
-  const n = (i: number) => (results[i] as unknown[]).length
+      db
+        .delete(seasonTeamPlayers)
+        .where(and(eq(seasonTeamPlayers.playerId, mergeId), sameTeam(keepId)))
+        .returning({ seasonId: seasonTeamPlayers.seasonId }),
+      db
+        .update(seasonTeamPlayers)
+        .set({ playerId: keepId, ...touch })
+        .where(eq(seasonTeamPlayers.playerId, mergeId))
+        .returning({ seasonId: seasonTeamPlayers.seasonId }),
+      // 3. The kept player's details, then the duplicate goes.
+      db
+        .update(players)
+        .set({ ...fill, ...touch })
+        .where(eq(players.id, keepId)),
+      db.delete(players).where(eq(players.id, mergeId)),
+    ])) as unknown as unknown[][]
+  } catch (e) {
+    // Someone put one of them in another team of a shared season meanwhile (the one-team-per-season index).
+    if (isUniqueFailure(e, 'season_team_players')) throw conflict('Their rosters changed while merging. Reload and try again.')
+    throw e
+  }
+  const n = (i: number) => (results[i + 1] as unknown[]).length
   const summary = {
     registrationsMoved: n(1),
     registrationsCancelled: n(0),
@@ -819,17 +904,6 @@ export async function mergePlayers(
     rosterDuplicatesDropped: n(5),
     filled: Object.keys(fill),
   }
-  await db.insert(auditLog).values(
-    auditEntry(
-      actor,
-      'player.merge',
-      { type: 'player', id: keepId },
-      // Enough to understand it later: who the duplicate was (id and name) and where it came from.
-      { merged: { id: dupe.id, firstName: dupe.firstName, lastName: dupe.lastName, source: dupe.source, createdAt: dupe.createdAt } },
-      summary,
-      at,
-    ),
-  )
   return { ...(await getPlayer(db, keepId)), merge: summary }
 }
 
@@ -952,34 +1026,41 @@ export function playersCsv(pool: PlayerPool, rows: readonly CsvPlayer[]): string
   ])
 }
 
-/** A pool's players matching the list's filters (every page), as CSV. Audited as player.export. */
+/**
+ * A pool's players matching the list's filters (every page, at most EXPORT_LIMIT, in name order unless sorted
+ * otherwise), as CSV. Competition rows add the group and last team (two queries: the players with their group, and
+ * each one's latest spot). `truncated` says the list was longer; the filename says so too. Audited as player.export.
+ */
 export async function exportPlayers(db: AppDb, actor: Editor, q: PlayerQuery, now = new Date()) {
   let rows: CsvPlayer[]
+  let more: boolean
   if (q.pool === 'competition') {
-    // Every page: the directory already has everyone; fetch the full rows for those matched (chunks of 90 ids).
-    const all = await listCompetitionIds(db, q, now)
-    const full: Player[] = []
-    const chunks: string[][] = []
-    for (let i = 0; i < all.ids.length; i += 90) chunks.push(all.ids.slice(i, i + 90))
-    if (chunks.length) {
-      const res = (await runBatch(
-        db,
-        chunks.map((ids) => db.select().from(players).where(inArray(players.id, ids))) as never,
-      )) as unknown as Player[][]
-      for (const r of res) full.push(...r)
-    }
-    const byId = new Map(full.map((p) => [p.id, p]))
-    rows = all.ids.flatMap((id) => {
-      const p = byId.get(id)
-      return p ? [{ ...p, group: all.meta.get(id)?.group ?? null, lastSpot: all.meta.get(id)?.lastSpot ?? null }] : []
+    const ctx = await groupContext(db, { leagueId: q.leagueId, today: sydneyDate(now) })
+    const found = await db
+      .select({ p: players, group: sql<PlayerGroup>`${ctx.groupSql}`.as('grp') })
+      .from(players)
+      .where(competitionWhere(q, ctx.groupSql, true))
+      .orderBy(...orderOf(q.sort))
+      .limit(EXPORT_LIMIT + 1)
+      .all()
+    more = found.length > EXPORT_LIMIT
+    const list = found.slice(0, EXPORT_LIMIT)
+    // Every latest spot (one window over the rosters); only these players' are kept.
+    const spots = list.length ? await latestSpots(db, { preferLeagueId: q.leagueId }) : []
+    const spotBy = new Map(spots.map((s) => [s.playerId, s]))
+    rows = list.map(({ p, group }) => {
+      const s = spotBy.get(p.id)
+      return { ...p, group, lastSpot: s ? spotOnly(s) : null }
     })
   } else {
-    rows = await db
+    const found = await db
       .select()
       .from(players)
       .where(trainingWhere(q))
       .orderBy(...orderOf(q.sort))
-      .limit(EXPORT_LIMIT)
+      .limit(EXPORT_LIMIT + 1)
+    more = found.length > EXPORT_LIMIT
+    rows = found.slice(0, EXPORT_LIMIT)
   }
   await audit(
     db,
@@ -987,24 +1068,13 @@ export async function exportPlayers(db: AppDb, actor: Editor, q: PlayerQuery, no
     'player.export',
     { type: 'player', id: q.pool },
     null,
-    { pool: q.pool, group: q.group, leagueId: q.leagueId, programmeId: q.programmeId, rows: rows.length },
+    { pool: q.pool, group: q.group, leagueId: q.leagueId, programmeId: q.programmeId, rows: rows.length, truncated: more },
     now.toISOString(),
   )
-  return { csv: playersCsv(q.pool, rows), filename: `players-${q.pool}-${now.toISOString().slice(0, 10)}.csv` }
-}
-
-/** Every competition player id matching the filters, in list order, with their group and last spot. */
-async function listCompetitionIds(db: AppDb, q: PlayerQuery, now: Date) {
-  const dir = await competitionDirectory(db, { leagueId: q.leagueId, today: sydneyDate(now) })
-  const list = dir.players
-    .filter((p) => matchesSearch(p, q.q ?? ''))
-    .filter((p) =>
-      q.group === 'all' ? (q.retired === 'only' ? !!p.retiredAt : q.retired === 'hide' ? !p.retiredAt : true) : p.group === q.group,
-    )
-    .toSorted(byName)
-    .slice(0, EXPORT_LIMIT)
+  const day = now.toISOString().slice(0, 10)
   return {
-    ids: list.map((p) => p.id),
-    meta: new Map(list.map((p) => [p.id, { group: p.group, lastSpot: p.lastInLeague ?? p.lastAnywhere }])),
+    csv: playersCsv(q.pool, rows),
+    filename: `players-${q.pool}-${day}${more ? `-first-${EXPORT_LIMIT}` : ''}.csv`,
+    truncated: more,
   }
 }

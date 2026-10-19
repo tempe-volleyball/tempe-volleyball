@@ -55,7 +55,14 @@ type Method = 'run' | 'all' | 'values' | 'get'
  * What the client has run, so tests can hold code to D1's free-plan limits: 50 queries per request (each statement
  * in a batch counts) and 100 bound parameters per statement. Reset it with `stats.reset()` before the call measured.
  */
-export type QueryStats = { queries: number; batches: number; maxParams: number; reset(): void }
+export type QueryStats = {
+  queries: number
+  batches: number
+  maxParams: number
+  /** Every statement run since the last reset, for EXPLAIN QUERY PLAN checks (planOf below). */
+  log: { sql: string; params: unknown[] }[]
+  reset(): void
+}
 
 /**
  * The message drizzle's D1 driver fails with when a raw db.run/db.all(sql`…${param}`) is in a batch: its batch()
@@ -81,15 +88,18 @@ export const createTestDb = () => {
     queries: 0,
     batches: 0,
     maxParams: 0,
+    log: [],
     reset() {
       this.queries = 0
       this.batches = 0
       this.maxParams = 0
+      this.log = []
     },
   }
   const exec = (sql: string, params: unknown[], method: Method) => {
     stats.queries++
     stats.maxParams = Math.max(stats.maxParams, params.length)
+    stats.log.push({ sql, params })
     const stmt = sqlite.prepare(sql)
     const args = params as SQLInputValue[]
     if (method === 'run') {
@@ -108,6 +118,7 @@ export const createTestDb = () => {
     if (method === 'run') return exec(sql, params, method)
     stats.queries++
     stats.maxParams = Math.max(stats.maxParams, params.length)
+    stats.log.push({ sql, params })
     const stmt = sqlite.prepare(sql)
     stmt.setReturnArrays(true)
     const names = stmt.columns().map((c) => c.name)
@@ -156,3 +167,10 @@ export const createTestDb = () => {
 }
 
 export type TestDb = ReturnType<typeof createTestDb>['db']
+
+/**
+ * SQLite's plan for a logged statement (EXPLAIN QUERY PLAN), one line per step: "SCAN players", "SEARCH h USING
+ * COVERING INDEX …". D1 bills rows read, so a SCAN of a table that grows with history is what tests look for.
+ */
+export const planOf = (sqlite: DatabaseSync, q: { sql: string; params: unknown[] }) =>
+  (sqlite.prepare(`EXPLAIN QUERY PLAN ${q.sql}`).all(...(q.params as SQLInputValue[])) as { detail: string }[]).map((r) => r.detail)

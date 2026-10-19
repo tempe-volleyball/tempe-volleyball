@@ -777,7 +777,18 @@ Decisions (each the more robust or more configurable option):
   names only. Names compare case-insensitively and phones without spaces, so formatting isn't flagged.
 - **Delete takes the players it created with it** by default (same `created_at` as the EOI, source interest or
   admin, and nothing else uses them: no other EOI, enrolment, roster or captaincy), so a spam EOI leaves nothing; a
-  "Keep the player records" choice keeps them. Archived EOIs pruned by the cron keep their players (the directory).
+  "Keep the player records" choice keeps them. The cron's retention prune does the same for the EOIs it deletes
+  (2026-10-20 review: a person whose only trace was an expired EOI shouldn't outlive it). One SQL condition
+  (`createdOnlyBy`) for both, with the ids as one JSON parameter, so a bulk delete of 90 team EOIs takes every player
+  they created.
+- **Bulk actions audit each EOI** (one row per EOI, one statement), so an EOI's history shows the bulk "contacted" or
+  archive it was part of.
+- **An EOI can't leave `placed` while its people are on a roster because of it** (`409 on_roster`: "take them out of
+  <team> first", with the season's Setup link). Refusing, rather than removing the roster row in the same change,
+  keeps roster removals deliberate and in one place (the season builder, which reverts the EOI itself). Placing by hand
+  needs a team from that season's team list.
+- **"Matched by email and name, not verified"** marks a public EOI's person matched to a player already on file; "Use
+  these details" asks for a confirm for them (anyone can type someone else's email and name into the public form).
 - **EOIs typed in by hand** go through `createInterest()` (source admin, audited), never change an existing player,
   need a name and an email or phone for the contact, check the form's answers with nothing required, and drop
   unanswered questions (an unticked consent isn't recorded as "No"). The deposit is worked out like the public form's
@@ -788,12 +799,15 @@ Decisions (each the more robust or more configurable option):
   first (`409 duplicate`, "Add anyway").
 - **Merging cancels, rather than deletes, a duplicate's clashing enrolment** (the live unique index allows one per
   target, and payments point at registrations), folds same-season same-team roster rows (captain wins), moves
-  everything else, fills the kept player's blanks (optional) and joins notes. The audit row keeps the duplicate's id,
-  name, source and created date, so a merge can be understood later; names in the audit log are the exception to
-  "field names, not values", on purpose.
+  everything else, fills the kept player's blanks (optional) and joins notes. Two rows for one person in different
+  teams of one season are refused (`409 two_teams`, naming the season and teams): one team per season. The audit row
+  (written in the merge's batch) keeps the duplicate's id, initials, source and created date and the counts, not
+  their name: the audit log stays "ids and field names, not values".
 - **Delete a player only with no history**; otherwise the page says what they have and offers retire or merge.
-- **Competition lists use the directory** (everyone in the pool, grouped in memory), so the Players screen and the
-  season builder's picker always agree on groups; fine for hundreds of players, and it pages past 3000.
+- **Competition lists page in SQL** with the groups as one SQL CASE (`groupContext()` in `players/directory.ts`), the
+  same SQL the season builder's picker uses, so the two always agree. Reads grow with players, not with seasons of
+  history (2026-10-20 review: loading every roster row on each request would have cost ~30k D1 rows after three
+  years). The CSV export pages its own query up to 5,000 rows and says when it stopped (filename and the screen).
 - **Admins and owners only, with the role re-read on every route** (GETs too), bodies capped at 64 KB (interest) and
   32 KB (players), nothing cached; a test (`src/server/interest/routes.test.ts`) fails the build if a handler under
   these routes doesn't. Every export is audited; deletes record references and counts, never who.
@@ -856,15 +870,22 @@ Decisions (each the more robust or more configurable option):
   still be added by hand from the Retired tab.
 - **EOIs follow the roster automatically**: any player with an open individual EOI for the league who joins a team
   (picked from any tab, or copied with last season's roster) has it marked placed; taking them out reverts it to
-  contacted. A team EOI becomes placed when its team is saved into the season (or its members are added).
-- **"New season" copying the latest brings the rosters** of the teams it copies (it already copied the teams); EOIs
-  aren't touched there.
+  contacted. A team EOI becomes placed when its team is saved into the season (or its members are added); it must
+  still be open for the league, with competition players only.
+- **"New season" copying the latest brings the rosters** of the teams it copies (it already copied the teams), and
+  places their open EOIs (2026-10-20 review).
 - **A returning team's roster comes from its latest season in this league** (last season for last season's teams),
   else its latest season anywhere; the dialog shows which.
 - **The picker's All tab leaves out retired players** (they're "hidden unless asked for"): a search that would have
   found one says so and points to the Retired tab.
-- **The picker loads the whole directory once** (a few hundred players) and filters in the browser; "In <team>"
-  comes from the rosters on screen, so it's right after each change without reloading the directory.
+- **The picker loads the whole directory once** (a few hundred players; at most 3,000) and filters in the browser;
+  "In <team>" comes from the rosters on screen, so it's right after each change without reloading the directory. Its
+  roster reads are this league's seasons plus one latest spot per player (a window query), not every roster row.
+- **One team per season is also a unique index** (`season_team_players (season_id, player_id)`), so two admins adding
+  one player to two teams at once can't both win: the loser gets the usual "already in … Move them?".
+- **"New season" copying the latest places the copied players' open EOIs**, like every other add; **deleting a draft
+  season** puts EOIs placed in it back to contacted; **undoing a team merge** moves rosters and EOI placements back by
+  season, including ones made into the kept team after the merge.
 
 ## 4. Admin UI/UX
 
