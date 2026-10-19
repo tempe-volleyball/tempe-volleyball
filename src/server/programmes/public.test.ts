@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { tags } from '../cache'
-import { seasonCalendarEvents } from '../competition/calendar'
 import { createTestDb, type QueryStats, type TestDb } from '../db/testing'
 import {
   developmentTerms,
@@ -15,7 +14,6 @@ import {
   teams,
   venues,
 } from '../db/schema'
-import { loadSite } from '../site'
 import {
   categoryPageTags,
   groupByCategory,
@@ -30,9 +28,8 @@ import {
   spotsText,
 } from './public'
 
-// The public category, programme and /enrol loaders (src/server/programmes/public.ts) and the iCal events built
-// from a season (src/server/competition/calendar.ts), against the migrated in-memory DB (categories are seeded by
-// migration 0003).
+// The public category, programme and /enrol loaders (src/server/programmes/public.ts), against the migrated
+// in-memory DB (categories are seeded by migration 0003).
 
 const NOW = new Date('2026-10-18T00:00:00.000Z') // Sunday 18 October 2026, 11am in Sydney
 const opts = { turnstileSiteKey: 'site-key', now: NOW }
@@ -338,36 +335,5 @@ describe('text helpers', () => {
         description: 'Hand-written description that is long enough to use.',
       },
     )
-  })
-})
-
-describe('season calendar events', () => {
-  it("builds a league's events in UTC with stable UIDs, and one team's games and duties", async () => {
-    const site = await loadSite(db)
-    const tnl = site.current.find((c) => c.league.slug === 'tnl')!
-    const venue = site.venues[0]
-    const all = seasonCalendarEvents(tnl, { venue, pageUrl: 'https://www.tempevb.com/leagues/tnl' })
-    expect(all).toEqual([
-      {
-        uid: 'm1@tempevb.com',
-        // 8pm Sydney in October is AEDT (UTC+11).
-        start: '2026-10-15T09:00:00.000Z',
-        end: '2026-10-15T10:00:00.000Z',
-        summary: 'TNL: Aces vs Blockers',
-        location: 'Robyn Webster Sports Centre, Holbeach Ave, Tempe NSW 2044',
-        description: 'Match day 1\nDuty: Chaos',
-        status: 'CONFIRMED',
-        url: 'https://www.tempevb.com/leagues/tnl',
-      },
-      expect.objectContaining({
-        uid: 'm2@tempevb.com',
-        start: '2026-10-22T10:00:00.000Z',
-        summary: 'Cancelled: TNL: Blockers vs Chaos',
-        status: 'CANCELLED',
-      }),
-    ])
-    const aces = seasonCalendarEvents(tnl, { teamId: 'a' })
-    expect(aces.map((e) => e.summary)).toEqual(['TNL: Aces vs Blockers', 'Cancelled: TNL duty: Blockers vs Chaos'])
-    expect(seasonCalendarEvents(tnl, { teamId: 'zz' })).toEqual([])
   })
 })

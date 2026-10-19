@@ -117,7 +117,3 @@ export function filterFixtureRows<T extends ListRow>(
 
 /** The cross-league fixture list ("This week" / "Upcoming"). Under /leagues so no content page can take it. */
 export const FIXTURE_LIST_ROUTE = '/leagues/fixtures'
-
-/** iCal feeds that follow a league's current season: the whole league, or one team's games and duties. */
-export const leagueCalendarPath = (leagueSlug: string) => `/leagues/${leagueSlug}/calendar.ics`
-export const teamCalendarPath = (leagueSlug: string, teamSlug: string) => `/leagues/${leagueSlug}/teams/${teamSlug}.ics`

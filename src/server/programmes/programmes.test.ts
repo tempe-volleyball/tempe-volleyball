@@ -329,7 +329,7 @@ describe('programmes', () => {
       { from: '/tnl-ladder', to: '/leagues/thursday' },
       { from: '/tnl2', to: '/leagues/tnl2' },
     ])
-    // The calendar feeds and ?league= follow the old slug through that 301.
+    // The fixture list's ?league= follows the old slug through that 301.
     expect(await renamedLeagueSlug(db, 'tnl')).toBe('thursday')
     expect(await renamedLeagueSlug(db, 'thursday')).toBeNull()
     expect(await renamedLeagueSlug(db, '../x')).toBeNull()

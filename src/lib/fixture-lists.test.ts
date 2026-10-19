@@ -1,14 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  defaultLeagueTab,
-  filterFixtureRows,
-  fixtureQueryString,
-  leagueCalendarPath,
-  parseFixtureQuery,
-  splitFixtures,
-  teamCalendarPath,
-  weekRange,
-} from './fixture-lists'
+import { defaultLeagueTab, filterFixtureRows, fixtureQueryString, parseFixtureQuery, splitFixtures, weekRange } from './fixture-lists'
 
 const weeks = [
   { date: '2026-10-01', kind: 'regular', resultsPublishedAt: '2026-10-02T00:00:00Z' },
@@ -102,9 +93,4 @@ describe('filterFixtureRows', () => {
     expect(filterFixtureRows(rows, { from: '2026-01-01', to: null, teamId: 'd' })).toHaveLength(2)
     expect(filterFixtureRows(rows, { from: '2026-01-01', to: null, teamId: 'zz' })).toHaveLength(0)
   })
-})
-
-it('builds calendar paths', () => {
-  expect(leagueCalendarPath('tnl')).toBe('/leagues/tnl/calendar.ics')
-  expect(teamCalendarPath('tnl', 'ice-cold')).toBe('/leagues/tnl/teams/ice-cold.ics')
 })

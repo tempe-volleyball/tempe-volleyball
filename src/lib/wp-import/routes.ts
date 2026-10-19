@@ -8,7 +8,7 @@ import type { LeagueCode } from '../../server/db/schema/enums'
 //   /leagues                        league index
 //   /leagues/<league-slug>          a league and its current season: Fixtures / Ladder / Results tabs (#fixtures, #ladder, #results)
 //   /leagues/fixtures               this week's / upcoming games across leagues (?view=upcoming&league=&team=)
-//   /leagues/<league-slug>/calendar.ics, /leagues/<league-slug>/teams/<team-slug>.ics   iCal feeds
+//   /teams/<team-slug>              a team's page
 //   /training/<slug>, /programs/<slug>, /events/<slug>   other programmes;  /<category-slug>  category pages
 //   /enrol                          everything open for enrolment
 //   /leagues/<league-slug>/<season-slug>   one season (archive), e.g. /leagues/tnl/tnl-q4-2026
