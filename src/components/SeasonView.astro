@@ -1,6 +1,7 @@
 ---
 import { defaultLeagueTab, FIXTURE_LIST_ROUTE, LEAGUE_TAB_LABELS, LEAGUE_TABS, splitFixtures, type LeagueTab } from '../lib/fixture-lists'
 import { ladderTitle, ladderUpdatedLabel, ladderWeekLabel } from '../lib/fixtures'
+import { teamHrefFor } from '../lib/teams'
 import { seasonRoute } from '../lib/wp-import/routes'
 import { fixtureRows } from '../server/competition/adapter'
 import type { SeasonSummary } from '../server/competition/load'
@@ -25,6 +26,7 @@ const { upcoming, played } = splitFixtures(rows, competition.weeks, today)
 const hasFinals = competition.weeks.some((w) => w.kind === 'semi' || w.kind === 'final')
 const initial: LeagueTab = current ? defaultLeagueTab(competition.weeks, today) : 'ladder'
 const showDuty = view.data.season.dutyEnabled
+const teamHref = teamHrefFor(view.data.teams)
 // splitFixtures already returns Results newest night first, each night's games in their usual order.
 const playedNewestFirst = played
 ---
@@ -66,6 +68,7 @@ const playedNewestFirst = played
       rows={upcoming}
       caption={`${summary.name} Fixtures`}
       showDuty={showDuty}
+      teamHref={teamHref}
       emptyText={rows.length === 0 ? "The draw hasn't been published yet." : 'No more games this season. See the results.'}
     />
     {calendar && (
@@ -109,7 +112,7 @@ const playedNewestFirst = played
     <h2 id="ladder-heading" class="section-title">
       {ladderHeading}
     </h2>
-    <LadderTable rows={view.ladder} caption={`${summary.name} Ladder`} />
+    <LadderTable rows={view.ladder} caption={`${summary.name} Ladder`} teamHref={teamHref} />
     <div class="text-muted mt-3 flex flex-wrap justify-between gap-2 text-sm">
       <p>{hasFinals ? 'Round-robin matches only; finals are in the fixtures and results.' : ''}</p>
       {updated && <p class="text-ink font-semibold">{updated}</p>}
@@ -120,7 +123,13 @@ const playedNewestFirst = played
     <h2 id="results-heading" class="section-title">
       Results
     </h2>
-    <FixturesTable rows={playedNewestFirst} caption={`${summary.name} Results`} showDuty={showDuty} emptyText="No results yet." />
+    <FixturesTable
+      rows={playedNewestFirst}
+      caption={`${summary.name} Results`}
+      showDuty={showDuty}
+      emptyText="No results yet."
+      teamHref={teamHref}
+    />
   </section>
 
   <script is:inline>

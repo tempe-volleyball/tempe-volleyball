@@ -61,7 +61,8 @@ src/admin/           The admin React app (one client:only island at /admin/*, wo
 src/pages/           Routes. api/health.ts is the deploy smoke test. robots.txt.ts disallows all outside production.
                      Public: index (home page row), [...path] (content pages by pages.path, else the redirects table
                      → 301, else 404), leagues/ (index, [league] = current season #ladder/#fixtures, [league]/[season]
-                     archive), news/, media/[id]/[file].ts (R2 MEDIA, immutable caching). Each calls cachePublic().
+                     archive), news/, media/[id]/[file].ts (R2 MEDIA, immutable caching), teams/[slug] (team pages).
+                     Each calls cachePublic().
 src/layouts/         BaseLayout.astro: the public shell (hero header + <details> menu, optional ladder sidebar, footer).
 src/components/      Public Astro components: SiteHeader, SiteFooter, LadderTable/Widget, FixturesTable, SeasonView. Design
                      system: docs/public-site.md; styles in src/styles/ (tokens.css shared, site.css components,

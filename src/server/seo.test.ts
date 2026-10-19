@@ -95,7 +95,7 @@ describe('loadSitemapRows', () => {
     stats.reset()
     const rows = await loadSitemapRows(db)
     expect(stats.batches).toBe(1)
-    expect(stats.queries).toBe(5)
+    expect(stats.queries).toBe(6)
     const paths = sitemapEntries(rows).map((e) => e.path)
     expect(paths).toEqual(
       expect.arrayContaining([

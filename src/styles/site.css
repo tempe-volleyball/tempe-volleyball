@@ -374,7 +374,7 @@ h4 {
   border-top: 1px solid rgb(255 255 255 / 0.1);
 }
 .data-table tbody tr:nth-child(even) > * {
-  background: #0e3c88;
+  background: var(--color-brand-alt);
 }
 .data-table tbody:last-child tr:last-child > :first-child {
   border-bottom-left-radius: 0.5rem;
@@ -430,6 +430,78 @@ h4 {
 .data-table .badge-bye {
   background: rgb(255 255 255 / 0.16);
   color: #fff;
+}
+
+/* Team names link to their team pages. */
+.data-table a.team-link {
+  color: inherit;
+  text-decoration: none;
+}
+.data-table a.team-link:hover,
+.data-table a.team-link:focus-visible {
+  text-decoration: underline;
+  text-decoration-color: var(--color-accent);
+}
+
+/* Ladder widgets (sidebar, footer): an amber bar with the league and the week, the grey header row, blue rows, and a
+   fixed layout so long team names are cut with "…" instead of widening the table (the full name is the title). */
+.ladder-widget .lw-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  background: var(--color-accent);
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1rem;
+  line-height: 1.25;
+  padding: 0.625rem 0.75rem;
+  border-radius: 0.5rem 0.5rem 0 0;
+}
+.ladder-widget .lw-week {
+  flex-shrink: 0;
+  font-family: var(--font-body);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+.ladder-widget .table-scroll {
+  border-radius: 0 0 0.5rem 0.5rem;
+  overflow: hidden;
+}
+.ladder-widget .data-table thead th {
+  border-radius: 0;
+}
+.ladder-widget .ladder-table {
+  table-layout: fixed;
+}
+.ladder-widget .ladder-table .lt-pos {
+  width: 2.5rem;
+}
+.ladder-widget .ladder-table .num {
+  width: 1.75rem;
+  padding-left: 0.25rem;
+  padding-right: 0.25rem;
+}
+.ladder-widget .ladder-table thead .num:nth-child(3),
+.ladder-widget .ladder-table .lt-pts {
+  width: 2.25rem;
+}
+.ladder-widget .ladder-table .num:last-child {
+  width: 2.25rem;
+  padding-right: 0.75rem;
+}
+.ladder-widget .ladder-table .lt-team {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ladder-widget .lw-links {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
 }
 
 /* Tables scroll sideways when they must; the scroller is focusable so keyboard users can scroll it, and it's the
@@ -1086,4 +1158,99 @@ h4 {
   content: '';
   display: table;
   clear: both;
+}
+
+/* ── The home page calendar (src/components/HomeCalendar.astro): the old site's blue month bar, grey day names and
+   amber days. Game nights are bold links in dark ink (amber fails contrast with white text); today is white. ── */
+
+.cal {
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+.cal-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--color-brand);
+  color: #fff;
+  padding: 0.375rem;
+}
+.cal-month {
+  flex: 1;
+  text-align: center;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.0625rem;
+}
+.cal-nav {
+  display: inline-grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 0.375rem;
+  color: #fff;
+}
+.cal-nav[hidden] {
+  display: none;
+}
+.cal-nav:hover {
+  background: rgb(255 255 255 / 0.14);
+}
+.cal-nav:focus-visible {
+  outline: 3px solid var(--color-accent);
+  outline-offset: -3px;
+}
+.cal-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.cal-table thead th {
+  background: var(--color-header-row);
+  color: #fff;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  padding: 0.5rem 0;
+  text-align: center;
+}
+.cal-table abbr {
+  text-decoration: none;
+}
+.cal-table tbody td {
+  background: var(--color-accent);
+  color: var(--color-ink);
+  text-align: center;
+  padding: 0;
+  height: 2.75rem;
+  font-size: 0.875rem;
+}
+.cal-table .cal-day {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  min-height: 2.75rem;
+}
+.cal-table .cal-games {
+  font-weight: 800;
+  color: var(--color-ink);
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+.cal-table .cal-games:hover {
+  background: var(--color-accent-dark);
+}
+.cal-table .cal-games:focus-visible {
+  outline: 3px solid var(--color-brand);
+  outline-offset: -3px;
+}
+.cal-table td:not(:has(.cal-games)) .cal-day {
+  color: rgb(27 35 48 / 0.72);
+}
+.cal-table .cal-off .cal-day {
+  text-decoration: line-through;
+}
+.cal-table .cal-today {
+  background: #fff;
 }

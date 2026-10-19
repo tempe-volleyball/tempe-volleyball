@@ -307,9 +307,10 @@ export const DEFAULT_SETTINGS: SiteSettings = {
     heading: "Social volleyball in Sydney's inner west",
     intro:
       'Mixed social leagues from Thursday to Sunday, the Super League, and training and development programs for adults and juniors, in Tempe, Burwood and Five Dock. Come on your own or bring a team: every level is welcome.',
-    primary: { label: 'Enrol now', url: '/enrol' },
-    secondary: { label: 'Fixtures and ladders', url: '/leagues' },
-    showLeagues: true,
+    // No buttons and no "Leagues this season" cards by default (2026-10-20); both stay in Settings → Home page.
+    primary: { label: '', url: '' },
+    secondary: { label: '', url: '' },
+    showLeagues: false,
   },
   ladders: { placement: 'sidebar', rows: 4 },
   footer: {

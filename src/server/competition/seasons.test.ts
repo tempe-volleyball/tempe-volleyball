@@ -14,6 +14,7 @@ import {
 import { createTestDb, type QueryStats, type TestDb } from '../db/testing'
 import {
   auditLog,
+  redirects,
   courts,
   leagues,
   matchDays,
@@ -1003,11 +1004,22 @@ describe('teams', () => {
     const a = await createTeam(db, admin, { name: 'Ice Cold' }, NOW)
     const c = await createTeam(db, admin, { name: 'Ice Cold Two' }, NOW)
     await rejects(renameTeam(db, admin, c.id, { name: 'ICE COLD' }), 409, 'team_exists')
+    // An old WordPress link to the team's page.
+    await db.insert(redirects).values({ fromPath: '/team/ice-cold', toPath: '/teams/ice-cold', source: 'wp-import' })
     const renamed = await renameTeam(db, admin, a.id, { name: 'Ice Colder' }, at(1))
-    expect(renamed.result).toMatchObject({ name: 'Ice Colder', slug: 'ice-cold' })
+    // The slug follows the name; the old page 301s, and links to it are re-pointed (no chains).
+    expect(renamed.result).toMatchObject({ name: 'Ice Colder', slug: 'ice-colder' })
     expect(renamed.purge).toEqual({ tags: [tags.site] })
-    // Changing only the case is fine.
-    expect((await renameTeam(db, admin, a.id, { name: 'ICE COLDER' }, at(2))).result.name).toBe('ICE COLDER')
+    const paths = async () =>
+      Object.fromEntries((await db.select({ from: redirects.fromPath, to: redirects.toPath }).from(redirects)).map((r) => [r.from, r.to]))
+    expect(await paths()).toEqual({ '/team/ice-cold': '/teams/ice-colder', '/teams/ice-cold': '/teams/ice-colder' })
+    // Changing only the case keeps the slug.
+    const cased = await renameTeam(db, admin, a.id, { name: 'ICE COLDER' }, at(2))
+    expect(cased.result).toMatchObject({ name: 'ICE COLDER', slug: 'ice-colder' })
+    // A new team may take the freed slug: its page stops redirecting; the old WordPress link still finds Ice Colder.
+    const fresh = await createTeam(db, admin, { name: 'Ice Cold' }, at(3))
+    expect(fresh.slug).toBe('ice-cold')
+    expect(await paths()).toEqual({ '/team/ice-cold': '/teams/ice-colder' })
     const v = await draftSeason(2)
     const list = await listTeams(db)
     expect(list.find((t) => t.name === 'Aces')).toMatchObject({ seasons: 1, lastSeason: { id: v.season.id, name: 'TNL Q1 2027' } })

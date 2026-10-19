@@ -1,8 +1,9 @@
 ---
-// Home (docs/public-site.md, "Home page"): the hero says what Tempe Volleyball is and how to join (Settings →
-// Home page; the H1 falls back to the home page's title), then each league this season with its fixtures and
-// ladder, then the home page's own body (pages.path '/', template 'home') under its title as an H2. The ladder
-// widgets sit alongside when Settings → Ladders puts them in the sidebar.
+// Home (docs/public-site.md, "Home page"): the hero says what Tempe Volleyball is (Settings → Home page; the H1
+// falls back to the home page's title; buttons only if set there), then the home page's own body (pages.path '/',
+// template 'home') under its title as an H2, after the "Leagues this season" cards if they're switched on. The sidebar has the calendar of game nights and, when Settings →
+// Ladders puts them there, the ladder widgets.
+import HomeCalendar from '../components/HomeCalendar.astro'
 import PageBody from '../components/PageBody.astro'
 import BaseLayout from '../layouts/BaseLayout.astro'
 import { documentTitle, metaDescription } from '../lib/content'
@@ -10,15 +11,18 @@ import { safeHref } from '../lib/content/render'
 import { FIXTURE_LIST_ROUTE } from '../lib/fixture-lists'
 import { scheduleText, venueSuburb } from '../lib/programme-text'
 import { SITE_NAME } from '../lib/site'
+import { sydneyDate } from '../lib/time'
 import { leagueFixturesRoute, leagueLadderRoute, leagueRoute } from '../lib/wp-import/routes'
 import { cachePublic, tags } from '../server/cache'
+import { calendarNights } from '../server/competition/month-calendar'
 import { renderBody } from '../server/content/blocks'
 import { getTurnstileKeys } from '../server/services'
 import { publicDb, publicSite } from '../server/public'
 import { lookupPath } from '../server/site'
 
 const db = publicDb()
-const [site, found] = await Promise.all([publicSite(db), lookupPath(db, '/')])
+const [site, found, nights] = await Promise.all([publicSite(db), lookupPath(db, '/'), calendarNights(db)])
+const today = sydneyDate(new Date())
 const page = found.page
 const body = page ? await renderBody(db, site, page.body, new Date(), { turnstileSiteKey: getTurnstileKeys()?.siteKey ?? null }) : null
 cachePublic(Astro.cache, tags.page('/'), ...(body?.tags ?? []))
@@ -34,6 +38,7 @@ const links = [
 const heading = hero.heading || page?.title || `Welcome to ${SITE_NAME}`
 // The page's own title is the H2 above its body, unless it would just repeat the hero's H1.
 const bodyTitle = page && page.title !== heading ? page.title : ''
+// "Leagues this season" cards: off by default (Settings → Home page).
 const leagues = hero.showLeagues ? site.current : []
 const venueOf = (id: string | null) => site.venues.find((v) => v.id === id)
 ---
@@ -47,6 +52,7 @@ const venueOf = (id: string | null) => site.venues.find((v) => v.id === id)
   seo={{ imageIds: [page?.ogImageId], noindex: page?.noindex ?? false }}
   home={{ heading, intro: hero.intro, links }}
 >
+  <HomeCalendar slot="calendar" nights={nights} today={today} />
   {leagues.length > 0 && (
     <section aria-labelledby="home-leagues" class="mb-12">
       <div class="mb-4 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">

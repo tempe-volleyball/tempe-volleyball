@@ -31,7 +31,7 @@ export function searchTerms(q: string): string[] {
 }
 
 export type SearchHit = {
-  kind: 'page' | 'programme' | 'category' | 'post'
+  kind: 'page' | 'programme' | 'category' | 'post' | 'team'
   path: string
   title: string
   text: string

@@ -19,6 +19,8 @@ import {
 import { loadSeason, loadSite, lookupPath } from '../site'
 import { fixtureRows, ladderRows, toCompetition } from './adapter'
 import { currentSeason, publicSeasons } from './load'
+import { calendarNights, seasonsOnDate } from './month-calendar'
+import { loadTeamPage } from './team-page'
 
 // A small TNL season in the in-memory DB: 3 teams (so a bye every week), two courts, two played weeks, a week off,
 // and a final with placeholder sides. Plus an archived older season and a draft one.
@@ -296,5 +298,59 @@ describe('ladderRows', () => {
       ['B', 1],
       ['A', 0],
     ])
+  })
+})
+
+describe('team pages', () => {
+  let db: TestDb
+  beforeEach(async () => {
+    db = createTestDb().db
+    await seed(db)
+  })
+
+  it("shows a team's current season (position, its games and duties) and its past seasons", async () => {
+    const site = await loadSite(db)
+    const page = await loadTeamPage(db, site, 'aces', '2026-10-10')
+    expect(page?.team.name).toBe('ACES')
+    expect(page?.current.map((c) => c.view.summary.slug)).toEqual(['tnl-q4-2026'])
+    const [now] = page!.current
+    expect(now!.row?.pos).toBeGreaterThan(0)
+    expect(now!.teamsOnLadder).toBe(3)
+    // Its games (m1 at home, m3 away), its duty (m2), the night off; never other teams' games only.
+    const keys = [...now!.played, ...now!.upcoming].map((r) => r.key)
+    expect(keys).toEqual(expect.arrayContaining(['m1', 'm2', 'm3', 'dx']))
+    expect(page?.past.map((p) => [p.seasonSlug, p.position, p.teamsOnLadder])).toEqual([['tnl-q3-2026', 1, 1]])
+  })
+
+  it('has no page for a team only in a draft season, or for an unknown slug', async () => {
+    await db.insert(teams).values({ id: 'd', name: 'DRAFTEES', slug: 'draftees' })
+    await db.insert(seasonTeams).values({ seasonId: 's1', teamId: 'd' })
+    const site = await loadSite(db)
+    expect(await loadTeamPage(db, site, 'draftees', '2026-10-10')).toBeNull()
+    expect(await loadTeamPage(db, site, 'nobody', '2026-10-10')).toBeNull()
+  })
+})
+
+describe('the home page calendar', () => {
+  let db: TestDb
+  beforeEach(async () => {
+    db = createTestDb().db
+    await seed(db)
+  })
+
+  it('lists published and archived game nights, not weeks off or drafts, and loads the seasons of a night', async () => {
+    await db.insert(matchDays).values([
+      { id: 'old', seasonId: 's3', date: '2026-07-02', kind: 'regular', number: 1 },
+      { id: 'dr', seasonId: 's1', date: '2027-01-07', kind: 'regular', number: 1 },
+      { id: 'off', seasonId: 's4', date: '2026-10-29', kind: 'regular', number: 5, status: 'cancelled', note: 'Venue unavailable' },
+    ])
+    const nights = await calendarNights(db)
+    expect(nights.map((n) => n.date)).toEqual(['2026-07-02', '2026-09-24', '2026-10-01', '2026-10-15', '2026-10-22', '2026-10-29'])
+    expect(nights.find((n) => n.date === '2026-09-24')).toMatchObject({ code: 'TNL', games: 1, status: 'scheduled', note: '' })
+    expect(nights.find((n) => n.date === '2026-10-29')).toMatchObject({ status: 'cancelled', note: 'Venue unavailable' })
+    const site = await loadSite(db)
+    expect((await seasonsOnDate(db, site, '2026-07-02')).map((s) => s.summary.slug)).toEqual(['tnl-q3-2026'])
+    expect((await seasonsOnDate(db, site, '2026-10-01')).map((s) => s.summary.slug)).toEqual(['tnl-q4-2026'])
+    expect(await seasonsOnDate(db, site, '2027-01-07')).toEqual([])
   })
 })

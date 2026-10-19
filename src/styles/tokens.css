@@ -69,7 +69,8 @@
   --color-muted: #4a5568; /* secondary text on paper and white (7:1 on white) */
   --color-paper: #f2f4f8; /* page background */
   --color-line: #d5dce7; /* card borders and rules */
-  --color-header-row: #0b3170; /* table header rows (was the old site's grey #555) */
+  --color-header-row: #555555; /* table header rows: the old site's grey (white on it 7.5:1) */
+  --color-brand-alt: #1b52ab; /* every other table row, a lighter blue (white on it 7:1) */
   --color-footer: #071d44; /* footer */
   --color-link: #0d3a85; /* links on paper: amber fails contrast there, so links are brand blue + amber underline */
   --color-danger: #9b1c1c;

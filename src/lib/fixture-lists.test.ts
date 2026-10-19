@@ -65,18 +65,23 @@ describe('fixture list query', () => {
       view: 'upcoming',
       league: 'tnl',
       team: 'ice-cold',
+      date: '',
     })
-    expect(parseFixtureQuery(new URLSearchParams('view=all&league=../x&team=' + 'a'.repeat(101)))).toEqual({
+    expect(parseFixtureQuery(new URLSearchParams('view=all&league=../x&team=' + 'a'.repeat(101) + '&date=2026-02-30'))).toEqual({
       view: 'week',
       league: '',
       team: '',
+      date: '',
     })
+    expect(parseFixtureQuery(new URLSearchParams('date=2026-10-22')).date).toBe('2026-10-22')
   })
   it('round-trips with defaults left out', () => {
     expect(fixtureQueryString({ view: 'week', league: '', team: '' })).toBe('')
     expect(fixtureQueryString({ view: 'upcoming', league: 'tnl' })).toBe('?view=upcoming&league=tnl')
-    const q = { view: 'upcoming' as const, league: 'fnl', team: 'aces' }
+    const q = { view: 'upcoming' as const, league: 'fnl', team: 'aces', date: '' }
     expect(parseFixtureQuery(new URLSearchParams(fixtureQueryString(q).slice(1)))).toEqual(q)
+    // A date replaces the view.
+    expect(fixtureQueryString({ view: 'upcoming', league: 'tnl', date: '2026-10-22' })).toBe('?date=2026-10-22&league=tnl')
   })
 })
 

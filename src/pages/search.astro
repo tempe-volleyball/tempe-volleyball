@@ -14,7 +14,7 @@ const q = normaliseQuery(Astro.url.searchParams.get('q'))
 const db = publicDb()
 const [site, result] = await Promise.all([publicSite(db), q ? searchSite(db, q) : Promise.resolve(null)])
 cachePublic(Astro.cache, tags.news, tags.programmes)
-const KIND = { page: '', programme: 'Programme', category: 'Category', post: 'News' } as const
+const KIND = { page: '', programme: 'Programme', category: 'Category', post: 'News', team: 'Team' } as const
 ---
 
 <BaseLayout

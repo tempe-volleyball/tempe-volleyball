@@ -1,25 +1,32 @@
 ---
 import { ladderWeekLabel } from '../lib/fixtures'
-import { leagueLadderRoute } from '../lib/wp-import/routes'
+import { teamHrefFor } from '../lib/teams'
+import { leagueFixturesRoute, leagueLadderRoute } from '../lib/wp-import/routes'
 import type { LeagueSeason } from '../server/site'
 import LadderTable from './LadderTable.astro'
 
-// A league's current ladder, top N (Settings → Ladders), with a link to the full table. Used in the sidebar and,
-// when the ladders go there instead, across the footer (`dark`). The H3 sits under the "Ladders" H2.
+// A league's current ladder, top N (Settings → Ladders), in the old site's colours: an amber bar with the league
+// and "Week 4 of 9", the grey header row and blue rows. Long team names are cut with "…" (the table has a fixed
+// layout, so it never scrolls). Under it: the full ladder on the left, the league's fixtures on the right. Used in
+// the sidebar and, when the ladders go there instead, across the footer (`dark`). The H3 sits under "Ladders".
 type Props = { item: LeagueSeason; rows: number; dark?: boolean }
 const { item, rows, dark = false } = Astro.props
 const week = ladderWeekLabel(item.competition.weeks)
+const linkClass = dark ? 'footer-link' : 'link'
 ---
 
-<section class="min-w-0">
-  <div class="mb-2 flex items-baseline justify-between gap-3">
-    <h3 class:list={['font-display text-lg leading-tight font-bold', dark && 'text-white']}>{item.league.name}</h3>
-    {week && <p class:list={['shrink-0 text-xs font-semibold', dark ? 'text-white/75' : 'text-muted']}>{week}</p>}
-  </div>
-  <LadderTable rows={item.ladder} compact limit={rows} />
-  <p class="mt-2 text-sm">
-    <a href={leagueLadderRoute(item.league.slug)} class={dark ? 'footer-link' : 'link'}>
+<section class="ladder-widget min-w-0">
+  <h3 class="lw-head">
+    <span class="min-w-0">{item.league.name}</span>
+    {week && <span class="lw-week">{week}</span>}
+  </h3>
+  <LadderTable rows={item.ladder} compact limit={rows} teamHref={teamHrefFor(item.data.teams)} />
+  <p class="lw-links">
+    <a href={leagueLadderRoute(item.league.slug)} class={linkClass}>
       Full {item.league.code} ladder<span class="sr-only"> ({item.summary.name})</span>
+    </a>
+    <a href={leagueFixturesRoute(item.league.slug)} class={linkClass}>
+      {item.league.code} fixtures<span class="sr-only"> ({item.summary.name})</span>
     </a>
   </p>
 </section>

@@ -247,13 +247,19 @@ site name, the social icons and an amber **Menu** button; the menu opens as a pa
 
 The hero says what Tempe Volleyball is and how to join: **Settings → Home page** (`home`): heading, intro, two
 buttons (amber and outline; empty text and link hide one) and a switch for "Leagues this season". Defaults:
-"Social volleyball in Sydney's inner west", a line on the leagues, programs and venues, **Enrol now** → `/enrol`
-and **Fixtures and ladders** → `/leagues`.
+"Social volleyball in Sydney's inner west", a line on the leagues, programs and venues, **no buttons** and
+"Leagues this season" **off** (2026-10-20; both can be turned back on there).
 
 - The hero heading is the page's only H1. An empty heading uses the home page's title (Pages → Home). The home
   page's own title then heads its body as an H2 (unless it's the same text), and the body's headings shift down a
   level, so heading order holds.
-- **Leagues this season:** a card per league with a current season (night, suburb, Fixtures and Ladder buttons),
+- **Calendar** (`HomeCalendar.astro`, in the sidebar above the ladders; after them on phones): the old site's month
+  grid in its colours (blue month bar, grey day names, amber days, today white), weeks starting Monday. Every game
+  night of every published or archived season is in the page (dates and league codes, a few KB), so the arrows
+  switch months instantly with no requests; without JavaScript it shows this month. A game night is a link to
+  `/leagues/fixtures?date=YYYY-MM-DD` (that night's games across leagues, past seasons included) with "TNL, FNL ·
+  7 games" as its title; a night that's off is struck through with the reason; weeks off and drafts don't show.
+- **Leagues this season:** (off by default) a card per league with a current season (night, suburb, Fixtures and Ladder buttons),
   plus a link to this week's games in every league. It's generated, so a new league appears by itself.
 
 ### Ladders: where the widgets go (QA "sidebar and footer ladders")
@@ -267,8 +273,10 @@ footer. **Settings → Ladders** (`ladders`) decides:
 | `footer`            | across the top of the footer on every page; no sidebar anywhere              | the widgets                 |
 | `off`               | none (league pages always have their full ladder)                            | "Ladders: …" links          |
 
-`rows` (1–12, default 4) is how many teams each widget shows. Widgets are compact (Pos to L), headed by the league
-name and "Week 4 of 9", with a "Full TNL ladder" link. Why the sidebar by default: it's where the old site's players
+`rows` (1–12, default 4) is how many teams each widget shows. Widgets are compact (Pos to L) in the old site's
+colours: an amber bar with the league name and "Week 4 of 9", the grey header row, alternating blue rows. They have
+a fixed layout, so a long team name is cut with "…" (full name on hover) and the widget never scrolls. Under each:
+"Full TNL ladder" on the left, "TNL fixtures" (the league page's Fixtures tab) on the right. Why the sidebar by default: it's where the old site's players
 look, and on a phone it stacks after the page's content rather than before it.
 
 ### Tables
@@ -293,6 +301,30 @@ notes), Court, Duty (none for TVSL). Byes get a "Bye" badge; weeks off one itali
 sideways with Pos and Team sticky (a shadow marks the edge), a fade at the right edge that goes once you reach the
 end (scroll-driven animation; it just stays where unsupported), and "Swipe the table for sets and points" under it.
 The amber caption is visually hidden on phones (it would scroll away; the section heading names the table).
+
+**Colours** (both tables): amber caption, the old site's grey header row (`--color-header-row`, #555), and blue rows
+alternating with a lighter blue (`--color-brand-alt`); white text passes AA on all three.
+
+**Team names link to their team pages** wherever a table shows a team (ladders, fixtures, results, duty, byes, the
+page-editor blocks); finals placeholders ("Winner SF1") stay text. Renderers take a `teamHref` (`teamHrefFor()` in
+`src/lib/teams.ts`).
+
+### Team pages (`/teams/<slug>`)
+
+One page per team across leagues (`src/pages/teams/[slug].astro`, `src/server/competition/team-page.ts`): the
+leagues it's in this season; for each, its ladder position ("6th of 9 · 6 pts"), its fixtures and results (games,
+duties, byes, nights off; the league page's tables) and a calendar subscribe link; then its past seasons with the
+final position, each linking to that season's page. Generated only; nothing to edit. Player names never show
+(rosters are admin-only).
+
+- **Which teams:** any team in a published or archived season. A team only in a draft season gets a 404, so next
+  season's line-up isn't public early.
+- **Renaming** moves the slug to the new name (`renameTeam`, src/server/competition/teams.ts): the old page and
+  feeds 301 to the new ones, and redirects that pointed at the old page are re-pointed (no chains). A new team may
+  take a freed slug; its page and feeds then stop redirecting. **Merging** 301s the merged team's page to the kept
+  team's (undo puts it back). Old WordPress `/team/<slug>/` links go to the team they were imported from.
+- In the sitemap and site search ("Team"); Admin → Teams has a "View page" link. Purged with the site (`site`
+  tag) on results and team changes.
 
 ### Cards and programme pages
 

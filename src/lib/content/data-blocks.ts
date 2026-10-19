@@ -452,6 +452,7 @@ export type LadderRowLike = {
   pointsFor: number
   pointsAgainst: number
   ratio: string
+  teamId?: string
 }
 
 /** A league's current season as the Ladder and Fixtures blocks read it. */
@@ -467,7 +468,11 @@ export type LeagueBlockData = {
   /** Fixture row key -> the team ids it involves (home, away, duty; or the bye team), for the team filter. */
   rowTeams: ReadonlyMap<string, readonly string[]>
   dutyEnabled: boolean
+  /** Team id -> its public page (/teams/<slug>), for linking team names. */
+  teamPaths?: ReadonlyMap<string, string>
 }
+
+const hrefOf = (data: LeagueBlockData) => (id: string) => data.teamPaths?.get(id) ?? null
 
 const link = (href: string, label: string) => `<p class="data-block-link"><a href="${escapeHtml(href)}">${label}</a></p>`
 
@@ -485,6 +490,7 @@ export function renderLadder(attrs: LadderAttrs, data: LeagueBlockData | undefin
       label: `${data.seasonName} ladder`,
       compact: !full,
       narrow: true,
+      teamHref: hrefOf(data),
       ...(attrs.rows ? { limit: attrs.rows } : {}),
     }),
     attrs.showLink ? link(leagueLadderRoute(data.league.slug), `Full ${escapeHtml(data.league.code)} ladder`) : '',
@@ -513,6 +519,8 @@ export type FixtureRowLike = {
   note?: string
   referee?: string
   movedFrom?: string
+  parts?: { title: string; home: string; away: string }
+  teamIds?: { home: string | null; away: string | null; duty: string | null }
 }
 
 /**
@@ -561,6 +569,7 @@ export function renderFixtures(attrs: FixturesAttrs, data: LeagueBlockData | und
       court: attrs.showCourt,
       details: full,
       legend: full,
+      teamHref: hrefOf(data),
       emptyText: EMPTY_FIXTURES[attrs.range],
     }),
     attrs.showLink ? link(leagueFixturesRoute(data.league.slug), `All ${escapeHtml(data.league.code)} fixtures and results`) : '',

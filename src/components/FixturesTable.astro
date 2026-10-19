@@ -1,11 +1,27 @@
 ---
-import { fixturesTableHtml } from '../lib/tables'
+import { fixturesTableHtml, type TeamHref } from '../lib/tables'
 import type { FixtureRow } from '../server/competition/adapter'
 
 // Fixtures and results, grouped by night (src/lib/tables.ts; the page editor's Fixtures block uses the same
 // renderer). No Duty column for leagues without team duty (TVSL). Under 640px each game is a small card.
-type Props = { rows: FixtureRow[]; caption?: string; showDuty?: boolean; emptyText?: string; showDate?: boolean; legend?: boolean }
-const { rows, caption, showDuty = true, emptyText = "The draw hasn't been published yet.", showDate = true, legend = true } = Astro.props
+type Props = {
+  rows: FixtureRow[]
+  caption?: string
+  showDuty?: boolean
+  emptyText?: string
+  showDate?: boolean
+  legend?: boolean
+  teamHref?: TeamHref
+}
+const {
+  rows,
+  caption,
+  showDuty = true,
+  emptyText = "The draw hasn't been published yet.",
+  showDate = true,
+  legend = true,
+  teamHref,
+} = Astro.props
 const html = fixturesTableHtml(rows, {
   ...(caption ? { caption } : {}),
   label: caption ?? 'Fixtures and results',
@@ -13,6 +29,7 @@ const html = fixturesTableHtml(rows, {
   showDate,
   legend,
   emptyText,
+  ...(teamHref ? { teamHref } : {}),
 })
 ---
 

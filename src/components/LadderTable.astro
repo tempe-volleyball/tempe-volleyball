@@ -1,12 +1,19 @@
 ---
-import { ladderTableHtml } from '../lib/tables'
+import { ladderTableHtml, type TeamHref } from '../lib/tables'
 import type { LadderRow } from '../server/competition/adapter'
 
 // The ladder: full (Pos, Team, Pts, P, W, D, L, S+, S-, P+, P-, Ratio; Pos and Team stay put while it scrolls
 // sideways on phones) or compact for widgets (to L, top N). Rendered by src/lib/tables.ts, like the Ladder block.
-type Props = { rows: LadderRow[]; caption?: string; compact?: boolean; limit?: number }
-const { rows, caption, compact = false, limit } = Astro.props
-const html = ladderTableHtml(rows, { ...(caption ? { caption } : {}), label: caption ?? 'Ladder', compact, ...(limit ? { limit } : {}) })
+// Team names link to their team pages when `teamHref` is given.
+type Props = { rows: LadderRow[]; caption?: string; compact?: boolean; limit?: number; teamHref?: TeamHref }
+const { rows, caption, compact = false, limit, teamHref } = Astro.props
+const html = ladderTableHtml(rows, {
+  ...(caption ? { caption } : {}),
+  label: caption ?? 'Ladder',
+  compact,
+  ...(limit ? { limit } : {}),
+  ...(teamHref ? { teamHref } : {}),
+})
 ---
 
 <Fragment set:html={html} />
