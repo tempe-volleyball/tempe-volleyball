@@ -274,7 +274,10 @@ export default function InterestForm(props: InterestFormComponentProps) {
     const first = order.find((k) => keys.includes(k)) ?? keys[0]
     if (!first) return
     const id = idFor(first)
-    const el = formRef.current?.querySelector<HTMLElement>(`[id="${id}"], [id^="${id}-"], [name="${id}"]`)
+    // The first control of that question (its help and error texts share the id prefix but can't take focus).
+    const el = formRef.current?.querySelector<HTMLElement>(
+      [`[id="${id}"]`, `[id^="${id}-"]`, `[name="${id}"]`].map((s) => `:is(input, select, textarea, button)${s}`).join(', '),
+    )
     el?.focus()
   }
 
@@ -405,7 +408,7 @@ export default function InterestForm(props: InterestFormComponentProps) {
                         />
                         <span className="min-w-0">
                           <span className="block font-semibold">{p.name}</span>
-                          <span className="text-muted block text-sm">{p.summary}</span>
+                          {p.detail && <span className="text-muted block text-sm">{p.detail}</span>}
                           {note && <span className="block text-sm font-semibold">{note}</span>}
                         </span>
                       </label>

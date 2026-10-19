@@ -518,8 +518,10 @@ export default function EnrolmentForm(props: EnrolmentFormComponentProps) {
   const focusFirstError = (errs: Errors) => {
     const first = Object.keys(errs)[0]
     if (!first) return
+    // The first control of that question (its help and error texts share the id prefix but can't take focus).
+    const id = `${idBase}-${first}`
     const el = formRef.current?.querySelector<HTMLElement>(
-      `[id="${idBase}-${first}"], [id^="${idBase}-${first}-"], [name="${idBase}-${first}"]`,
+      [`[id="${id}"]`, `[id^="${id}-"]`, `[name="${id}"]`].map((s) => `:is(input, select, textarea, button)${s}`).join(', '),
     )
     el?.focus()
   }

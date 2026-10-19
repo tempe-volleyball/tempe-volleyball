@@ -69,6 +69,8 @@ export type InterestProgrammeOption = {
   summary: string
   schedule: string
   venue: string
+  /** The line under the name on the form: the hand-written summary if there is one, else "Thursdays, 8–10pm · Robyn Webster Sports Centre, Tempe". */
+  detail: string
   /** "Next season starts Thursday 15 January 2027", or ''. */
   nextStarts: string
   depositPlayerCents: number | null
@@ -211,6 +213,7 @@ async function loadOffering(db: AppDb, now: Date): Promise<Offering> {
       summary: summaryLine(p, venue),
       schedule: scheduleText(p),
       venue: venueText(venue),
+      detail: p.summaryLine?.trim() || [scheduleText(p), venueText(venue)].filter(Boolean).join(' · '),
       nextStarts: nextStartsLine(p, next.get(p.id) ?? null),
       depositPlayerCents: p.depositPlayerCents,
       depositTeamCents: p.depositTeamCents,
