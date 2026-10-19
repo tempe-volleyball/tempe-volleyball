@@ -117,3 +117,13 @@ year. Our league pages said "Enrolment … is closed right now" between seasons,
     and position (from their EOI), and whether they're already in a team this season; "add a new player" inline.
   - Counts: players per team, players placed this season, and open individual EOIs not yet placed.
 - Roster changes save straight away (not part of the season's Save), are audited, and work on published seasons.
+
+## Status
+
+- **Rosters: done (2026-10-20, branch eoi-rosters).** Season → Setup → Teams: Add all of last season's teams,
+  Returning teams, Team EOIs, rosters with captain / move / replace / reorder, the player picker, counts and the CSV
+  (docs/admin.md §3.16, docs/api/rosters.md). Choices made where this record was open: rosters are admin-only on
+  reads too; editable on archived seasons as well as published; one team per season (the admin offers "Move");
+  retired players aren't copied with a roster; any open individual EOI is placed when its player joins a team,
+  however they were picked; "New season" copying the latest copies its rosters too; a team EOI whose team is already
+  in the season can add its members to that roster.

@@ -69,7 +69,7 @@ those), so results being typed for such a day will get a `409` on the next save.
 | `PATCH /api/admin/seasons/:id`                            | admin  | `{ baseUpdatedAt, settings: SettingsPatch }`                                                                   | `SeasonView & { cache }`                           |
 | `DELETE /api/admin/seasons/:id?baseUpdatedAt=…`           | admin  | (or `{ baseUpdatedAt }`)                                                                                       | `{ ok: true }`                                     |
 | `PUT /api/admin/seasons/:id/draw`                         | admin  | `{ baseUpdatedAt, weeks, generatedFrom?, edited?, settings? }`                                                 | `{ season, issues, matchDays, cache }`             |
-| `PUT /api/admin/seasons/:id/teams`                        | admin  | `{ baseUpdatedAt, teamIds }`                                                                                   | `SeasonView`                                       |
+| `PUT /api/admin/seasons/:id/teams`                        | admin  | `{ baseUpdatedAt, teamIds, rosterFrom? }` ([rosters.md](rosters.md))                                           | `SeasonView & { rosterCopy }`                      |
 | `POST /api/admin/seasons/:id/status`                      | admin  | `{ baseUpdatedAt, status }`                                                                                    | `SeasonView & { cache }`                           |
 | `GET /api/admin/seasons/:id/clashes?from=&to=`            | editor |                                                                                                                | `ClashDraws`                                       |
 | `PUT /api/admin/seasons/:id/match-days/:dayId/results`    | editor | `{ baseUpdatedAt, results: { [matchId]: Result \| null } }`                                                    | `{ matchDay }`                                     |
@@ -232,7 +232,8 @@ type ClashDraws = {
 `PUT /api/admin/seasons/:id/teams { baseUpdatedAt, teamIds }` replaces a **draft** season's teams, in that order
 (the order `shapeKey()` sees, so keep it stable or the draw goes stale). Published: `409 draw_locked`. Teams must
 exist (create them with `POST /api/admin/teams`). It doesn't touch an existing draw: if it's now stale
-(`isStale(competition)`), regenerate.
+(`isStale(competition)`), regenerate. Rosters follow in the same batch: teams leaving lose their roster for the
+season, and `rosterFrom` copies a joining team's last roster or a team EOI's members ([rosters.md](rosters.md)).
 
 ### Saving the draw
 
