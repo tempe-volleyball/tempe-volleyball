@@ -1,5 +1,6 @@
 // WordPress pages and posts -> pages, posts; the menu; and the redirect map from old URLs.
 
+import { teamPath } from '../../src/lib/teams'
 import sanitizeHtml from 'sanitize-html'
 import type { LeagueCode } from '../../src/server/db/schema/enums'
 import { EMBED_HOSTS, safeEmbedSrc } from '../../src/lib/content/render'
@@ -204,8 +205,8 @@ export function buildContent(
 
   for (const e of data.events) add(e.link, seasonPath(e.seasons[0]) ?? LEAGUES_ROUTE, 'event')
   for (const t of data.teams) {
-    const s = comp.teamLastSeason.get(t.id)
-    add(t.link, s ? seasonRoute(s.leagueSlug, s.slug) : LEAGUES_ROUTE, 'team')
+    // A team that played has its own page now (docs/public-site.md "Team pages").
+    add(t.link, comp.teamLastSeason.get(t.id) ? teamPath(t.slug) : LEAGUES_ROUTE, 'team')
   }
   for (const t of data.tables) {
     const code = leagueOf(t.leagues, t.seasons)

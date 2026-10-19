@@ -1,0 +1,77 @@
+---
+import { FIXTURE_LIST_ROUTE } from '../lib/fixture-lists'
+import { WEEKDAYS, byDate, monthBodyHtml, monthLabel, type MonthNight } from '../lib/month-calendar'
+
+// The home page calendar (docs/public-site.md "Calendar"), in the old site's colours: blue month bar, grey day
+// names, amber days. Game nights link to that night's games (/leagues/fixtures?date=…). Every published night is in
+// the page, so the arrows switch months instantly in the browser; without JavaScript it shows this month.
+type Props = { nights: MonthNight[]; today: string }
+const { nights, today } = Astro.props
+const month = today.slice(0, 7)
+const days = byDate(nights)
+const dayHref = (date: string) => `${FIXTURE_LIST_ROUTE}?date=${date}`
+---
+
+<section class="home-calendar" aria-labelledby="calendar-heading" data-calendar data-month={month} data-today={today}>
+  <h2 id="calendar-heading" class="section-title">
+    Calendar
+  </h2>
+  <div class="cal">
+    <div class="cal-bar">
+      <button type="button" class="cal-nav" data-step="-1" aria-label="Previous month" hidden>
+        <svg aria-hidden="true" width="18" height="18" viewBox="0 0 20 20" fill="currentColor">
+          <path d="M12.7 4.3a1 1 0 0 1 0 1.4L8.4 10l4.3 4.3a1 1 0 1 1-1.4 1.4l-5-5a1 1 0 0 1 0-1.4l5-5a1 1 0 0 1 1.4 0Z"></path>
+        </svg>
+      </button>
+      <p class="cal-month" aria-live="polite" data-label>
+        {monthLabel(month)}
+      </p>
+      <button type="button" class="cal-nav" data-step="1" aria-label="Next month" hidden>
+        <svg aria-hidden="true" width="18" height="18" viewBox="0 0 20 20" fill="currentColor">
+          <path d="M7.3 15.7a1 1 0 0 1 0-1.4l4.3-4.3-4.3-4.3a1 1 0 1 1 1.4-1.4l5 5a1 1 0 0 1 0 1.4l-5 5a1 1 0 0 1-1.4 0Z"></path>
+        </svg>
+      </button>
+    </div>
+    <table class="cal-table">
+      <caption class="sr-only" data-caption>{`Game nights in ${monthLabel(month)}`}</caption>
+      <thead>
+        <tr>
+          {WEEKDAYS.map(([short, long]) => (
+            <th scope="col">
+              <abbr title={long}>{short}</abbr>
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody data-body set:html={monthBodyHtml(month, days, today, dayHref)} />
+    </table>
+  </div>
+  <script type="application/json" data-nights set:html={JSON.stringify(nights).replace(/</g, '\\u003c')} />
+</section>
+
+<script>
+  import { addMonths, byDate, monthBodyHtml, monthLabel, type MonthNight } from '../lib/month-calendar'
+  import { FIXTURE_LIST_ROUTE } from '../lib/fixture-lists'
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-calendar]')) {
+    const nights = JSON.parse(root.querySelector('[data-nights]')?.textContent ?? '[]') as MonthNight[]
+    const days = byDate(nights)
+    const today = root.dataset.today ?? ''
+    const body = root.querySelector('[data-body]')!
+    const label = root.querySelector('[data-label]')!
+    const caption = root.querySelector('[data-caption]')!
+    let month = root.dataset.month ?? today.slice(0, 7)
+    const show = () => {
+      body.innerHTML = monthBodyHtml(month, days, today, (d) => `${FIXTURE_LIST_ROUTE}?date=${d}`)
+      label.textContent = monthLabel(month)
+      caption.textContent = `Game nights in ${monthLabel(month)}`
+    }
+    for (const b of root.querySelectorAll<HTMLButtonElement>('[data-step]')) {
+      b.hidden = false
+      b.addEventListener('click', () => {
+        month = addMonths(month, Number(b.dataset.step))
+        show()
+      })
+    }
+  }
+</script>

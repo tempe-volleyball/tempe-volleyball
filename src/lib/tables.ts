@@ -32,7 +32,14 @@ export type FixtureTableRow = {
   referee?: string
   /** The date the night (or this game) was first scheduled for, when it moved; ''. */
   movedFrom?: string
+  /** The sides as shown (capitals), when the row is a game: lets the renderer link each team. */
+  parts?: { title: string; home: string; away: string }
+  /** Resolved team ids (null = a finals placeholder, never linked). */
+  teamIds?: { home: string | null; away: string | null; duty: string | null }
 }
+
+/** A team's public page, or null when it has none (docs/public-site.md "Team pages"). */
+export type TeamHref = (teamId: string) => string | null
 
 export type FixtureTableOptions = {
   /** The amber caption above the table ("TNL Q4 2026 Fixtures"); none when omitted. */
@@ -50,12 +57,20 @@ export type FixtureTableOptions = {
   /** The key under the table explaining duty, moved nights and statuses (default on). */
   legend?: boolean
   emptyText: string
+  /** Links team names to their pages. */
+  teamHref?: TeamHref
 }
 
 const OFF = new Set(['Cancelled', 'Postponed', 'TBD', 'Moved'])
 
 const attr = (s: string) => escapeHtml(s)
 const sub = (s: string, cls = 'fx-sub') => (s ? `<span class="${cls}">${escapeHtml(s)}</span>` : '')
+
+/** A team name, linked to its page when it has one. */
+const teamName = (text: string, id: string | null | undefined, href?: TeamHref) => {
+  const to = id && href ? href(id) : null
+  return to ? `<a class="team-link" href="${attr(to)}">${escapeHtml(text)}</a>` : escapeHtml(text)
+}
 
 /** "2 - 0" -> "2–0"; other results as they are. */
 const score = (r: string) => (/^\d+ - \d+$/.test(r) ? r.replace(' - ', '–') : r)
@@ -109,12 +124,19 @@ export function fixturesTableHtml(rows: readonly FixtureTableRow[], o: FixtureTa
       const team = bye ? r.match.replace(/^BYE - /, '') : r.match
       // "HOME vs AWAY": the teams stay in capitals (the old site's style), the "vs" doesn't shout.
       const vs = team.indexOf(' vs ')
-      const teams =
-        vs < 0 ? escapeHtml(team) : `${escapeHtml(team.slice(0, vs))} <span class="fx-vs">vs</span> ${escapeHtml(team.slice(vs + 4))}`
+      const ids = r.teamIds
+      const teams = bye
+        ? teamName(team, ids?.home, o.teamHref)
+        : r.parts
+          ? `${r.parts.title ? `${escapeHtml(r.parts.title)} - ` : ''}${teamName(r.parts.home, ids?.home, o.teamHref)} <span class="fx-vs">vs</span> ${teamName(r.parts.away, ids?.away, o.teamHref)}`
+          : vs < 0
+            ? escapeHtml(team)
+            : `${escapeHtml(team.slice(0, vs))} <span class="fx-vs">vs</span> ${escapeHtml(team.slice(vs + 4))}`
       const movedOwn =
         r.movedFrom && !nightMoved ? `<span class="badge badge-moved">Moved from ${escapeHtml(formatAU(r.movedFrom))}</span>` : ''
       const match = `${bye ? '<span class="badge badge-bye">Bye</span> ' : ''}<span class="fx-teams">${teams}</span>${details && r.referee ? sub(`Referee: ${r.referee}`) : ''}${movedOwn}${bye ? sub(r.note ?? '', 'fx-note') : ''}`
-      const duty = r.duty && r.duty !== '-' ? `<span class="fx-label" aria-hidden="true">Duty </span>${escapeHtml(r.duty)}` : ''
+      const duty =
+        r.duty && r.duty !== '-' ? `<span class="fx-label" aria-hidden="true">Duty </span>${teamName(r.duty, ids?.duty, o.teamHref)}` : ''
       const cells = [
         `<td role="cell" class="fx-time">${bye ? '' : escapeHtml(formatTime(r.time) || r.time)}</td>`,
         `<td role="cell" class="fx-match team">${match}</td>`,
@@ -169,6 +191,7 @@ export type LadderTableRow = {
   pointsAgainst: number
   ratio: string
   withdrawn?: boolean
+  teamId?: string
 }
 
 export type LadderTableOptions = {
@@ -180,6 +203,8 @@ export type LadderTableOptions = {
   /** Compact only: hide W, D and L under 640px too (narrow blocks in a page body). */
   narrow?: boolean
   limit?: number
+  /** Links team names to their pages. */
+  teamHref?: TeamHref
 }
 
 const LADDER_COLS: [string, string, boolean][] = [
@@ -221,7 +246,7 @@ export function ladderTableHtml(rows: readonly LadderTableRow[], o: LadderTableO
     ? shown
         .map(
           (r) =>
-            `<tr><td class="lt-pos">${r.pos}</td><th scope="row" class="lt-team team">${escapeHtml(r.name)}${r.withdrawn ? '<span class="fx-sub">Withdrawn</span>' : ''}</th>${values(
+            `<tr><td class="lt-pos">${r.pos}</td><th scope="row" class="lt-team team"${compact ? ` title="${attr(r.name)}"` : ''}>${teamName(r.name, r.teamId, o.teamHref)}${r.withdrawn ? '<span class="fx-sub">Withdrawn</span>' : ''}</th>${values(
               r,
             )
               .map((v, i) => `<td class="num${i === 0 ? ' lt-pts' : ''}${hide(cols[i]![0])}">${escapeHtml(String(v))}</td>`)

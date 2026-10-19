@@ -198,6 +198,8 @@ export type FixtureRow = {
   teamIds: { home: string | null; away: string | null; duty: string | null }
   /** The match as written for people rather than tables: "Hit For Brains vs Ice Cold", "Semi Final 1: (2nd) vs (3rd)". */
   label: string
+  /** Games: the sides as `match` shows them, so the table can link each team. */
+  parts?: { title: string; home: string; away: string }
 }
 
 const label = (r: Ref, names: Map<string, string>) => (isTeam(r) ? (names.get(r.team) ?? 'Unknown team') : `(${r.label.toUpperCase()})`)
@@ -295,6 +297,7 @@ export function fixtureRows(c: SeasonCompetition, matches: Pick<Match, 'id' | 's
         date: w.date,
         matchDay: w.matchDay,
         time,
+        parts: { title: (g.title ?? '').toUpperCase(), home: name(g.home).toUpperCase(), away: name(g.away).toUpperCase() },
         match: g.title ? `${g.title.toUpperCase()} - ${vs}` : vs,
         label: g.title ? `${g.title}: ${plainVs}` : plainVs,
         teamIds: { home: resolvedTeam(g.home), away: resolvedTeam(g.away), duty: resolvedTeam(g.duty) },

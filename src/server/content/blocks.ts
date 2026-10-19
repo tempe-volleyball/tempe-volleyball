@@ -1,3 +1,4 @@
+import { teamPath } from '../../lib/teams'
 import { asc, eq } from 'drizzle-orm'
 import {
   dataBlocksIn,
@@ -91,6 +92,7 @@ export function leagueBlockData(view: LeagueSeason): LeagueBlockData {
     fixtures,
     rowTeams,
     dutyEnabled: data.season.dutyEnabled,
+    teamPaths: new Map(data.teams.map((t) => [t.id, teamPath(t.slug)])),
   }
 }
 

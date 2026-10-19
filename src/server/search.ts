@@ -2,10 +2,11 @@ import { and, eq, ne, sql, type SQL } from 'drizzle-orm'
 import { describeHtml, prettyTitle } from '../lib/content'
 import { categoryPath, programmePath } from '../lib/programmes'
 import { MAX_RESULTS, rankHits, searchTerms, type SearchHit } from '../lib/seo/search'
+import { teamPath } from '../lib/teams'
 import { postRoute } from '../lib/wp-import/routes'
 import { likeEscaped, likePattern } from './content/common'
 import { runBatch, type AppDb } from './db'
-import { categories, pages, posts, programmes, type ProgrammeKind } from './db/schema'
+import { categories, pages, posts, programmes, teams, type ProgrammeKind } from './db/schema'
 
 // Site search (/search?q=): published pages, programmes, categories and news posts whose title or text contains
 // every word. Four queries in one batch; each reads only the first SNIPPET characters of a body for the snippet,
@@ -67,13 +68,25 @@ export async function searchSite(db: AppDb, q: string): Promise<{ terms: string[
       .from(posts)
       .where(and(eq(posts.status, 'published'), eq(posts.noindex, false), allTerms(postText, terms)))
       .limit(PER_KIND),
+    // Teams with a page (they played in a published or archived season).
+    db
+      .select({ slug: teams.slug, name: teams.name })
+      .from(teams)
+      .where(
+        and(
+          allTerms(sql`${teams.name}`, terms),
+          sql`exists (select 1 from season_teams st join seasons s on s.id = st.season_id where st.team_id = ${teams.id} and s.status in ('published', 'archived'))`,
+        ),
+      )
+      .limit(PER_KIND),
   ])
   type Row<T> = T[]
-  const [pageRows, programmeRows, categoryRows, postRows] = res as unknown as [
+  const [pageRows, programmeRows, categoryRows, postRows, teamRows] = res as unknown as [
     Row<{ path: string; title: string; description: string | null; html: string }>,
     Row<{ kind: ProgrammeKind; slug: string; name: string; summary: string | null; html: string }>,
     Row<{ slug: string; name: string; description: string | null; html: string }>,
     Row<{ slug: string; title: string; excerpt: string | null; publishedAt: string | null; html: string }>,
+    Row<{ slug: string; name: string }>,
   ]
   const text = (typed: string | null | undefined, html: string) => typed?.trim() || describeHtml(html) || ''
   const hits: SearchHit[] = [
@@ -97,6 +110,7 @@ export async function searchSite(db: AppDb, q: string): Promise<{ terms: string[
       text: text(p.excerpt, p.html),
       date: p.publishedAt,
     })),
+    ...teamRows.map((t) => ({ kind: 'team' as const, path: teamPath(t.slug), title: t.name, text: 'Fixtures, results and seasons' })),
   ]
   return { terms, hits: rankHits(hits, terms) }
 }

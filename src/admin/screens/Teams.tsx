@@ -182,8 +182,16 @@ export function Teams({ me }: { me: Me }) {
                     {t.seasons === 0 ? 'No seasons yet' : `${t.seasons} season${t.seasons === 1 ? '' : 's'}`}
                     {t.lastSeason ? ` · last ${t.lastSeason.name}` : ''}
                   </span>
+                  <span className="ml-auto flex gap-3">
+                    {/* A public page once the team has played in a published or archived season. */}
+                    {t.history.some((h) => h.status === 'published' || h.status === 'archived') && (
+                      <a className="text-brand text-sm underline" href={`/teams/${t.slug}`} target="_blank" rel="noopener">
+                        View page<span className="sr-only"> for {t.name} (opens in a new tab)</span>
+                      </a>
+                    )}
+                  </span>
                   {isAdmin && (
-                    <span className="ml-auto flex gap-3">
+                    <span className="flex gap-3">
                       <Button variant="link" onClick={() => setRenaming(t)}>
                         Rename
                       </Button>
@@ -220,7 +228,7 @@ export function Teams({ me }: { me: Me }) {
           team={renaming}
           onDone={(name, cache) => {
             setRenaming(null)
-            done(`Renamed to ${name} everywhere.${purgeNote(cache)}`)
+            done(`Renamed to ${name} everywhere. Its page moved with the name; the old address redirects.${purgeNote(cache)}`)
           }}
           onCancel={() => setRenaming(null)}
         />

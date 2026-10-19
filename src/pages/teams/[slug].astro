@@ -1,0 +1,130 @@
+---
+// A team's page, /teams/<slug> (docs/public-site.md "Team pages"): the leagues it's in this season with its ladder
+// position, fixtures and results, a calendar link, and the seasons it played before with its final position.
+// Generated from the competition data; nothing to edit. No page for a team only in a draft season; a renamed or
+// merged team's old slug 301s through the redirects table.
+import FixturesTable from '../../components/FixturesTable.astro'
+import NotFound from '../../components/NotFound.astro'
+import Breadcrumbs from '../../components/programmes/Breadcrumbs.astro'
+import BaseLayout from '../../layouts/BaseLayout.astro'
+import { DEFAULT_DESCRIPTION, documentTitle } from '../../lib/content'
+import { teamCalendarPath } from '../../lib/fixture-lists'
+import { webcalUrl } from '../../lib/ical'
+import { teamHrefFor, teamPath } from '../../lib/teams'
+import { sydneyDate } from '../../lib/time'
+import { leagueRoute, normalisePath, seasonRoute } from '../../lib/wp-import/routes'
+import { cachePublic } from '../../server/cache'
+import { loadTeamPage, ordinal } from '../../server/competition/team-page'
+import { publicDb, publicSite, redirectFor } from '../../server/public'
+
+const slug = (Astro.params.slug ?? '').toLowerCase()
+const db = publicDb()
+const site = await publicSite(db)
+const today = sydneyDate(new Date())
+const page = await loadTeamPage(db, site, slug, today)
+
+if (!page) {
+  const redirect = await redirectFor(Astro, db, normalisePath(Astro.url.pathname))
+  if (redirect) return redirect
+  Astro.response.status = 404
+} else cachePublic(Astro.cache)
+
+const leagues = page ? [...new Map(page.current.map((c) => [c.view.league.id, c.view.league])).values()] : []
+const description = page
+  ? leagues.length
+    ? `${page.team.name}: ${leagues.map((l) => l.code).join(' and ')} fixtures, results and ladder position, and past seasons.`
+    : `${page.team.name}: past seasons and results at Tempe Volleyball.`
+  : ''
+const standing = (pos: number | null, of: number) => (pos ? `${ordinal(pos)} of ${of}` : '')
+---
+
+{page ? (
+  <BaseLayout title={documentTitle(page.team.name)} description={description} site={site} canonicalPath={teamPath(page.team.slug)}>
+    <Breadcrumbs items={[{ label: 'Leagues', href: '/leagues' }, { label: page.team.name }]} />
+    <h1 class="page-title">{page.team.name}</h1>
+    {leagues.length > 0 && (
+      <p class="badge-row -mt-3">
+        {leagues.map((l) => (
+          <a class="badge badge-info" href={leagueRoute(l.slug)}>
+            {l.name}
+          </a>
+        ))}
+      </p>
+    )}
+
+    {page.current.map((c) => {
+      const s = c.view.summary
+      const league = c.view.league
+      const href = teamHrefFor(c.view.data.teams)
+      const pos = standing(c.row?.pos ?? null, c.teamsOnLadder)
+      const feed = teamCalendarPath(league.slug, page.team.slug)
+      return (
+        <section class="mt-10" aria-labelledby={`season-${s.id}`}>
+          <h2 id={`season-${s.id}`} class="section-title">
+            {s.name}
+          </h2>
+          {c.row && (
+            <p class="mb-6 text-lg">
+              <strong>{pos}</strong> on the{' '}
+              <a class="link" href={`${leagueRoute(league.slug)}#ladder`}>
+                {league.code} ladder
+              </a>{' '}
+              · {c.row.points} pts
+            </p>
+          )}
+          <FixturesTable
+            rows={c.upcoming}
+            caption={`${s.name} Fixtures`}
+            showDuty={c.view.data.season.dutyEnabled}
+            emptyText="No more games this season."
+            teamHref={href}
+          />
+          <div class="mt-8">
+            <FixturesTable
+              rows={c.played}
+              caption={`${s.name} Results`}
+              showDuty={c.view.data.season.dutyEnabled}
+              emptyText="No results yet."
+              teamHref={href}
+              legend={false}
+            />
+          </div>
+          <p class="mt-4 text-sm">
+            <a class="link" href={webcalUrl(new URL(feed, Astro.url))}>
+              Subscribe to {page.team.name} games in {league.code}
+            </a>{' '}
+            (
+            <a class="link" href={feed}>
+              download the calendar
+            </a>
+            )
+          </p>
+        </section>
+      )
+    })}
+
+    {page.past.length > 0 && (
+      <section class="mt-12" aria-labelledby="past-heading">
+        <h2 id="past-heading" class="section-title">
+          {page.current.length ? 'Past seasons' : 'Seasons'}
+        </h2>
+        <ul class="card divide-line divide-y p-0 sm:p-0">
+          {page.past.map((p) => (
+            <li class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-4 py-3">
+              <a class="link font-semibold" href={seasonRoute(p.leagueSlug, p.seasonSlug)}>
+                {p.seasonName}
+              </a>
+              <span class="text-muted text-sm">
+                {p.withdrawn ? 'Withdrew' : p.position ? `${standing(p.position, p.teamsOnLadder)} · ${p.points} pts` : ''}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </section>
+    )}
+  </BaseLayout>
+) : (
+  <BaseLayout title={documentTitle('Page not found')} description={DEFAULT_DESCRIPTION} site={site}>
+    <NotFound site={site} />
+  </BaseLayout>
+)}

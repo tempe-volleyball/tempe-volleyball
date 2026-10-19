@@ -1,3 +1,4 @@
+import type { TeamHref } from './tables'
 // Team list helpers (Admin → Teams). Pure. SportsPress grew duplicates ("Ice Cold" and "ICE COLD!", "The Aces" and
 // "Aces"), so the list suggests teams that look like the same team and haven't played in the same season (two teams in
 // one season are two real teams, and the server refuses to merge them).
@@ -42,4 +43,19 @@ export function duplicateGroups<T extends TeamLike>(teams: T[]): T[][] {
     if (mergeable.length) out.push([keep!, ...mergeable])
   }
   return out.toSorted((a, b) => a[0]!.name.localeCompare(b[0]!.name))
+}
+
+// ── Team pages (docs/public-site.md "Team pages"): one page per team across leagues, at /teams/<slug>. ──
+
+export const TEAMS_PREFIX = '/teams'
+
+export const teamPath = (slug: string) => `${TEAMS_PREFIX}/${slug}`
+
+/** A TeamHref for the teams of a season (every team in a published season has a page). */
+export function teamHrefFor(teams: readonly { id: string; slug: string }[]): TeamHref {
+  const bySlug = new Map(teams.map((t) => [t.id, t.slug]))
+  return (id) => {
+    const slug = bySlug.get(id)
+    return slug ? teamPath(slug) : null
+  }
 }

@@ -34,7 +34,10 @@ type Props = {
 }
 const { title, description, site, sidebar: wantsSidebar = false, canonicalPath, ogImage, ogType = 'website', seo, home } = Astro.props
 const ladders = site.settings.ladders
-const sidebar = wantsSidebar && ladders.placement === 'sidebar' && site.current.length > 0
+const ladderSidebar = wantsSidebar && ladders.placement === 'sidebar' && site.current.length > 0
+// The home page's calendar (slot "calendar") sits in the sidebar too, with or without the ladders.
+const hasCalendar = Astro.slots.has('calendar')
+const sidebar = ladderSidebar || (wantsSidebar && hasCalendar)
 const canonical = new URL(canonicalPath ?? normalisePath(Astro.url.pathname), Astro.site)
 // Edited in the admin (Site settings); changing it purges every cached page (tag `site`).
 const banner = site.settings.announcement
@@ -91,13 +94,22 @@ const tracking = analyticsTags(site.settings.analytics, isIndexable(Astro.url, e
           <main id="content" class="min-w-0">
             <slot />
           </main>
-          <aside aria-labelledby="sidebar-ladders" class="space-y-6">
-            <h2 id="sidebar-ladders" class="section-title">
-              Ladders
-            </h2>
-            {site.current.map((item) => (
-              <LadderWidget item={item} rows={ladders.rows} />
-            ))}
+          <aside aria-label="Calendar and ladders" class="flex flex-col gap-10">
+            {hasCalendar && (
+              <div class="order-last lg:order-first">
+                <slot name="calendar" />
+              </div>
+            )}
+            {ladderSidebar && (
+              <section aria-labelledby="sidebar-ladders" class="space-y-6">
+                <h2 id="sidebar-ladders" class="section-title">
+                  Ladders
+                </h2>
+                {site.current.map((item) => (
+                  <LadderWidget item={item} rows={ladders.rows} />
+                ))}
+              </section>
+            )}
           </aside>
         </div>
       ) : (

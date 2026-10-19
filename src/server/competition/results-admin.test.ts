@@ -357,6 +357,7 @@ describe('merging teams', () => {
     expect((await db.select().from(seasonTeams).where(eq(seasonTeams.teamId, a))).length).toBe(2)
     expect(await db.select({ from: redirects.fromPath, to: redirects.toPath }).from(redirects)).toEqual([
       { from: '/leagues/tnl/teams/ice-cold-2.ics', to: '/leagues/tnl/teams/ice-cold.ics' },
+      { from: '/teams/ice-cold-2', to: '/teams/ice-cold' },
     ])
     const list = await listTeams(db)
     expect(list.find((t) => t.id === a)).toMatchObject({ seasons: 2 })

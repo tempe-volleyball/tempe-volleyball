@@ -1,6 +1,7 @@
 import { isIntroPagePath } from '../content/paths'
 import { categoryPath, PROGRAMME_PATH_PREFIX, programmePath } from '../programmes'
 import { FIXTURE_LIST_ROUTE } from '../fixture-lists'
+import { teamPath } from '../teams'
 import { ENROL_ROUTE, LEAGUES_ROUTE, NEWS_ROUTE, postRoute, seasonRoute } from '../wp-import/routes'
 import type { ProgrammeKind, ProgrammeStatus, SignupMode } from '../../server/db/schema/enums'
 import { INTEREST_ROUTE, takesInterest } from '../interest'
@@ -45,6 +46,8 @@ export type SitemapRows = {
     resultsPublishedAt: string | null
   }[]
   posts: { slug: string; updatedAt: string; publishedAt: string | null; noindex: boolean }[]
+  /** Teams that played in a published or archived season (each has a page, /teams/<slug>). */
+  teams?: { slug: string; updatedAt: string }[]
 }
 
 const newest = (...dates: (string | null | undefined)[]) =>
@@ -118,6 +121,8 @@ export function sitemapEntries(rows: SitemapRows): SitemapEntry[] {
     if (!league || s.status === 'draft' || current.has(s.id)) continue
     add(seasonRoute(league, s.slug), newest(s.updatedAt, s.resultsPublishedAt))
   }
+
+  for (const t of rows.teams ?? []) add(teamPath(t.slug), t.updatedAt)
 
   const posts = rows.posts.filter((p) => !p.noindex)
   add(NEWS_ROUTE, newest(...posts.map((p) => p.updatedAt)))

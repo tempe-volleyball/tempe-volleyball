@@ -19,9 +19,9 @@ describe('admin navigation', () => {
   it('finds the section for nested locations', () => {
     expect(navItemFor('/')?.item.label).toBe('Home')
     expect(navItemFor('/seasons/abc/results')?.item.label).toBe('Leagues')
-    expect(navItemFor('/seasons/abc/results')?.group?.label).toBe('Competition')
+    expect(navItemFor('/seasons/abc/results')?.group?.label).toBe('Competitions')
     expect(navItemFor('/training/x/details')?.item.label).toBe('Training')
-    expect(navItemFor('/enrolments/season/x')?.group?.label).toBe('Programmes & enrolment')
+    expect(navItemFor('/enrolments/season/x')?.group?.label).toBe('Programmes')
     expect(navItemFor('/interest/abc')?.item.label).toBe('Interest')
     expect(navItemFor('/players/training/abc')?.item.label).toBe('Players')
     expect(navItemFor('/players/competition')?.group?.label).toBe('Players')

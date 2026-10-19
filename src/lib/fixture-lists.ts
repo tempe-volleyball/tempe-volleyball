@@ -58,7 +58,15 @@ export type FixtureView = (typeof FIXTURE_VIEWS)[number]
 
 export const FIXTURE_VIEW_LABELS: Record<FixtureView, string> = { week: 'This week', upcoming: 'Upcoming' }
 
-export type FixtureQuery = { view: FixtureView; league: string; team: string }
+/** `date` (YYYY-MM-DD): one night's games across leagues (the home page calendar links here); it overrides `view`. */
+export type FixtureQuery = { view: FixtureView; league: string; team: string; date?: string }
+
+const cleanDate = (v: string | null) => {
+  const d = (v ?? '').trim()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return ''
+  const t = new Date(`${d}T00:00:00Z`)
+  return !Number.isNaN(t.getTime()) && t.toISOString().slice(0, 10) === d ? d : ''
+}
 
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
@@ -74,13 +82,15 @@ export function parseFixtureQuery(params: URLSearchParams): FixtureQuery {
     view: (FIXTURE_VIEWS as readonly string[]).includes(view ?? '') ? (view as FixtureView) : 'week',
     league: cleanSlug(params.get('league')),
     team: cleanSlug(params.get('team')),
+    date: cleanDate(params.get('date')),
   }
 }
 
 /** The query string for a fixture list (defaults left out), "" when everything is default. */
 export function fixtureQueryString(q: Partial<FixtureQuery>): string {
   const p = new URLSearchParams()
-  if (q.view && q.view !== 'week') p.set('view', q.view)
+  if (q.date) p.set('date', q.date)
+  else if (q.view && q.view !== 'week') p.set('view', q.view)
   if (q.league) p.set('league', q.league)
   if (q.team) p.set('team', q.team)
   const s = p.toString()

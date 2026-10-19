@@ -20,6 +20,7 @@ export const RESERVED_PREFIXES = [
   '/events',
   // The expression-of-interest form (src/pages/interest/): /interest itself may hold its intro page (below).
   '/interest',
+  '/teams',
 ] as const
 /** Exact paths owned by routes or files. */
 export const RESERVED_PATHS = [
