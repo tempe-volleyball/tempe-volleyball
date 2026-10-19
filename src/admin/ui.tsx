@@ -184,12 +184,18 @@ export function Dialog({
   onCancel,
   children,
   wide,
+  sheet,
+  footer,
   dirty,
 }: {
   title: string
   onCancel: () => void
   children: ReactNode
   wide?: boolean
+  /** Full screen below 640 px (a long list, like the player picker), with the body filling the height. */
+  sheet?: boolean
+  /** Stays below the scrolling body (the picker's "Add 3 players"). */
+  footer?: ReactNode
   /**
    * Has unsaved edits: Escape and × ask before throwing them away. Left out, the dialog counts as edited once
    * anything inside one of its forms is typed in or changed (so every form dialog is guarded without wiring).
@@ -221,7 +227,9 @@ export function Dialog({
     <dialog
       ref={ref}
       aria-labelledby={titleId}
-      className={`m-auto w-[calc(100%-1.5rem)] rounded bg-white p-0 shadow-xl backdrop:bg-black/50 ${wide ? 'max-w-4xl' : 'max-w-lg'}`}
+      className={`m-auto w-[calc(100%-1.5rem)] rounded bg-white p-0 shadow-xl backdrop:bg-black/50 ${wide ? 'max-w-4xl' : 'max-w-lg'} ${
+        sheet ? 'max-sm:h-dvh max-sm:max-h-none max-sm:w-full max-sm:max-w-none max-sm:rounded-none sm:max-h-[90vh]' : ''
+      } ${sheet || footer ? 'flex-col open:flex' : ''}`}
       onCancel={(e) => {
         e.preventDefault()
         cancel()
@@ -233,7 +241,7 @@ export function Dialog({
         if (e.target instanceof Element && e.target.closest('form')) touched.current = true
       }}
     >
-      <div className="flex items-center justify-between border-b border-black/10 px-4 py-3 sm:px-5">
+      <div className="flex shrink-0 items-center justify-between border-b border-black/10 px-4 py-3 sm:px-5">
         <h2 id={titleId} className="text-brand text-lg font-bold">
           {title}
         </h2>
@@ -246,7 +254,8 @@ export function Dialog({
           ×
         </button>
       </div>
-      <div className="max-h-[75vh] overflow-y-auto p-4 sm:p-5">{children}</div>
+      <div className={`overflow-y-auto p-4 sm:p-5 ${sheet ? 'min-h-0 flex-1' : 'max-h-[75vh]'}`}>{children}</div>
+      {footer && <div className="border-t border-black/10 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:px-5">{footer}</div>}
     </dialog>
   )
 }
