@@ -18,7 +18,7 @@ export const HOME: NavItem = { href: '/', label: 'Home' }
 
 export const NAV: NavGroup[] = [
   {
-    label: 'Competition',
+    label: 'Competitions',
     items: [
       { href: '/leagues', label: 'Leagues', also: ['/seasons'] },
       { href: '/matches', label: 'Matches' },
@@ -27,15 +27,7 @@ export const NAV: NavGroup[] = [
     ],
   },
   {
-    // Expressions of interest and the player records (docs/interest.md): personal data, admins and owners only.
-    label: 'Players',
-    items: [
-      { href: '/interest', label: 'Interest', only: 'admin' },
-      { href: '/players', label: 'Players', only: 'admin' },
-    ],
-  },
-  {
-    label: 'Programmes & enrolment',
+    label: 'Programmes',
     items: [
       { href: '/training', label: 'Training' },
       { href: '/development', label: 'Development' },
@@ -43,6 +35,14 @@ export const NAV: NavGroup[] = [
       { href: '/categories', label: 'Categories' },
       { href: '/enrolments', label: 'Enrolments', only: 'admin' },
       { href: '/forms', label: 'Forms', only: 'admin' },
+    ],
+  },
+  {
+    // Expressions of interest and the player records (docs/interest.md): personal data, admins and owners only.
+    label: 'Players',
+    items: [
+      { href: '/interest', label: 'Interest', only: 'admin' },
+      { href: '/players', label: 'Players', only: 'admin' },
     ],
   },
   {
