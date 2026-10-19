@@ -119,3 +119,104 @@ export function entryTypesFor(kind: ProgrammeKind, settings: { allowTeamEntries:
   if (settings.allowFreeAgents) types.push('free_agent')
   return types
 }
+
+/**
+ * The EOI form's questions when Settings → Interest names no form (docs/interest.md), from the old site's two Google
+ * Forms ("Individual Player - New Entry", "New Team Entry - Social League"). On an EOI an individual answers as
+ * `free_agent` and a team as `team` (the contact is the captain); name, email and phone are always asked, and team
+ * members are their own section of the EOI form, not fields.
+ */
+export const DEFAULT_INTEREST_FIELDS: FormField[] = [
+  {
+    key: 'birth_year',
+    type: 'birth_year',
+    label: 'Year of birth',
+    required: true,
+    help: 'Players under 18 need a parent or guardian’s OK.',
+  },
+  { key: 'gender', type: 'gender', label: 'Gender', required: true, help: 'Our social leagues are mixed, so this helps us balance teams.' },
+  { key: 'suburb', type: 'suburb', label: 'Which suburb do you live in?' },
+  { key: 'vnsw_number', type: 'vnsw_number', label: 'Volleyball NSW membership (rego) number', help: 'If you have one already.' },
+  {
+    key: 'playing_level',
+    type: 'radio',
+    label: 'Playing level',
+    required: true,
+    help: 'For a team, the general level of your players.',
+    options: [
+      { value: 'beginner', label: 'Beginner' },
+      { value: 'intermediate', label: 'Intermediate' },
+      { value: 'advanced', label: 'Advanced' },
+    ],
+  },
+  {
+    key: 'position',
+    type: 'radio',
+    label: 'What position do you play, or would you like to play?',
+    help: "We can't promise the position will be free.",
+    appliesTo: ['free_agent'],
+    options: [
+      { value: 'setter', label: 'Setter' },
+      { value: 'middle', label: 'Middle hitter' },
+      { value: 'outside', label: 'Outside hitter' },
+      { value: 'opposite', label: 'Opposite' },
+      { value: 'libero', label: 'Libero' },
+      { value: 'not_sure', label: 'Not sure' },
+    ],
+  },
+  {
+    key: 'captain',
+    type: 'radio',
+    label: 'Would you be willing to captain a team?',
+    help: 'The captain is the team’s point of contact. That’s the only extra job.',
+    appliesTo: ['free_agent'],
+    options: [
+      { value: 'yes', label: 'Yes' },
+      { value: 'no', label: 'No' },
+    ],
+  },
+  {
+    key: 'usyd_student',
+    type: 'text',
+    label: 'USYD students: your student ID',
+    help: 'For a team, the names and IDs of any USYD students.',
+    maxLength: 500,
+  },
+  { key: 'experience', type: 'textarea', label: 'Your playing experience, and any questions or feedback', maxLength: 2000 },
+  {
+    key: 'heard_from',
+    type: 'checkboxes',
+    label: 'Where did you hear about Tempe Volleyball?',
+    options: [
+      { value: 'facebook', label: 'Facebook' },
+      { value: 'instagram', label: 'Instagram' },
+      { value: 'website', label: 'This website' },
+      { value: 'friends', label: 'Friends' },
+      { value: 'other', label: 'Somewhere else' },
+    ],
+  },
+  { key: 'guardian', type: 'guardian', label: 'If you’re under 18: your parent or carer' },
+  {
+    key: 'share_details',
+    type: 'consent',
+    label:
+      'I understand my details will be shared with my team-mates to form a team, and I’ll join a WhatsApp group for team and fixture news.',
+    required: true,
+  },
+  {
+    key: 'placed_randomly',
+    type: 'consent',
+    label: 'I understand that as an individual I’ll be placed in a team with other players.',
+    required: true,
+    appliesTo: ['free_agent'],
+  },
+  {
+    key: 'waiver',
+    type: 'consent',
+    label: 'I agree to the disclaimer and liability waiver',
+    help: 'I accept the risks of taking part in Tempe Volleyball (SUVC) activities, where accidents may cause injury or damage to or loss of property, and that injuries are my own responsibility, not Tempe Volleyball’s. I consent to photos and videos taken at Tempe Volleyball events being published on social media and Tempe Volleyball’s websites. If I’m under 18, my parent or guardian has agreed to me playing with adults.',
+    required: true,
+  },
+]
+
+export const defaultInterestFields = (): FormField[] => structuredClone(DEFAULT_INTEREST_FIELDS)

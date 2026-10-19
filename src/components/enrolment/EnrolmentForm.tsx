@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { ENTRY_TYPE_LABELS } from '../../lib/enrolment/defaults'
-import type { FormEntryType, FormField } from '../../lib/enrolment/forms'
+import { GENDER_OPTIONS, type FormEntryType, type FormField } from '../../lib/enrolment/forms'
 import { visibleFields } from '../../lib/enrolment/validate'
 import type { EnrolmentFormProps, PublicTarget } from '../../server/enrolment/public'
 import { loadTurnstile } from '../turnstile'
@@ -138,8 +138,9 @@ const ErrorText = ({ id, error }: { id: string; error?: string }) =>
     </p>
   ) : null
 
-function Question({
-  field,
+/** One question. Exported for the EOI form (src/components/interest/), which asks the same field types. */
+export function Question({
+  field: rawField,
   value,
   error,
   onChange,
@@ -151,6 +152,8 @@ function Question({
   onChange: (v: unknown) => void
   idBase: string
 }) {
+  // A gender question is a fixed set of choices (players.gender values).
+  const field: FormField = rawField.type === 'gender' ? { ...rawField, type: 'radio', options: [...GENDER_OPTIONS] } : rawField
   const id = `${idBase}-${field.key}`
   const errId = `${id}-error`
   const helpId = `${id}-help`

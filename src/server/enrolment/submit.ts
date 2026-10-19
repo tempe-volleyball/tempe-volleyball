@@ -15,6 +15,8 @@ import {
   registrations,
   type PendingDetails,
   type RegistrationSource,
+  poolOfKind,
+  type PlayerPool,
 } from '../db/schema'
 import { isUniqueFailure } from '../content/common'
 import { getSettings } from '../content/settings'
@@ -110,7 +112,7 @@ const parseEntryType = (v: unknown, allowed: FormEntryType[]): FormEntryType => 
 }
 
 /** The person's player row (matched by email and name, so siblings sharing a parent's email stay separate). */
-async function findPlayer(db: AppDb, person: PersonInput, productId: string) {
+async function findPlayer(db: AppDb, person: PersonInput, productId: string, pool: PlayerPool) {
   return db
     .select({
       id: players.id,
@@ -133,6 +135,7 @@ async function findPlayer(db: AppDb, person: PersonInput, productId: string) {
     )
     .where(
       and(
+        eq(players.pool, pool),
         eq(players.email, person.email),
         sql`lower(${players.firstName}) = lower(${person.firstName})`,
         sql`lower(${players.lastName}) = lower(${person.lastName})`,
@@ -202,7 +205,9 @@ export async function createEntry(
       .get()
     if (taken) throw teamTaken(teamName)
   }
-  const existing = await findPlayer(db, person, product.id)
+  // Competition players (leagues, events) are kept apart from training players (docs/interest.md).
+  const pool = poolOfKind(target.programme.kind)
+  const existing = await findPlayer(db, person, product.id, pool)
   if (existing?.liveId)
     throw duplicate(target, {
       registrationId: existing.liveId,
@@ -240,6 +245,8 @@ export async function createEntry(
           firstName: person.firstName,
           lastName: person.lastName,
           email: person.email,
+          pool,
+          source: opts.source === 'public' ? 'enrolment' : opts.source,
           notes: null,
           createdAt: at,
           updatedAt: at,
@@ -265,6 +272,8 @@ export async function createEntry(
           lastName: person.lastName,
           email: person.email,
           ...details,
+          pool,
+          source: opts.source === 'public' ? 'enrolment' : opts.source,
           notes: null,
           createdAt: at,
           updatedAt: at,

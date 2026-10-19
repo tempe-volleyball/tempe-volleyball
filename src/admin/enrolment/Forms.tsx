@@ -47,6 +47,9 @@ export const FIELD_TYPE_LABELS: Record<FormFieldType, string> = {
   birth_year: 'Year of birth',
   team_name: 'Team name (team entries)',
   vnsw_membership: 'Volleyball NSW membership',
+  gender: 'Gender',
+  suburb: 'Suburb',
+  vnsw_number: 'Volleyball NSW rego number',
   heading: 'Heading',
   paragraph: 'Paragraph of text',
 }
@@ -214,6 +217,9 @@ const ADDABLE: FormFieldType[] = [
   'emergency_contact',
   'team_name',
   'vnsw_membership',
+  'vnsw_number',
+  'gender',
+  'suburb',
   'heading',
   'paragraph',
 ]

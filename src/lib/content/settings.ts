@@ -72,6 +72,34 @@ export type EnrolmentSettings = {
  * The contact form (docs/admin.md §3.15): its topics, who is told about new messages, the optional automatic reply
  * to the sender, and how long handled messages are kept.
  */
+/** Off, asked but optional, or required: each team member detail on the EOI form (docs/interest.md). */
+export const memberFieldModes = ['off', 'optional', 'required'] as const
+export type MemberFieldMode = (typeof memberFieldModes)[number]
+export const memberDetailKeys = ['email', 'phone', 'gender', 'birthYear', 'vnswNumber'] as const
+export type MemberDetailKey = (typeof memberDetailKeys)[number]
+
+/** Expressions of interest (docs/interest.md): the EOI form at /interest and the Admin → Interest inbox. */
+export type InterestSettings = {
+  /** The enrolment form whose questions the EOI form asks. Empty = the built-in default (defaultInterestFields). */
+  formId: string
+  /** The most programmes one EOI can pick. 0 = no limit. */
+  maxProgrammes: number
+  /** The most people on a team EOI, counting the captain (1 = just the captain). */
+  maxMembers: number
+  /** Which details are asked for each team member besides the captain (first and last name always are). */
+  memberFields: Record<MemberDetailKey, MemberFieldMode>
+  /** Email the person (or captain) what they sent, with its reference. */
+  acknowledge: boolean
+  /** Email the contact address (and notifyEmails) about each EOI. */
+  notify: boolean
+  notifyEmails: string[]
+  /** The form's intro and the thank-you line shown after sending. */
+  introText: string
+  successText: string
+  /** Days to keep archived EOIs before the cron deletes them. 0 = keep. */
+  archivedRetentionDays: number
+}
+
 export type ContactFormSettings = {
   /** Off: Contact form blocks show the contact details instead of the form, and the API refuses messages. */
   enabled: boolean
@@ -173,6 +201,7 @@ export type SiteSettings = {
   enrolment: EnrolmentSettings
   security: SecuritySettings
   contactForm: ContactFormSettings
+  interest: InterestSettings
   privacy: PrivacySettings
   seo: SeoSettings
   home: HomeSettings
@@ -191,6 +220,7 @@ export const settingKeys = [
   'enrolment',
   'security',
   'contactForm',
+  'interest',
   'privacy',
   'seo',
   'home',
@@ -210,6 +240,8 @@ export const settingMinRole: Record<SettingKey, UserRole> = {
   security: 'owner',
   // Where messages (personal data) are emailed and how long they're kept.
   contactForm: 'admin',
+  // Where EOIs (personal data) are emailed and how long they're kept.
+  interest: 'admin',
   privacy: 'editor',
   seo: 'editor',
   home: 'editor',
@@ -252,6 +284,19 @@ export const DEFAULT_SETTINGS: SiteSettings = {
     autoReplyText: 'Thanks for getting in touch. We read every message and will reply as soon as we can, usually within a few days.',
     successText: 'Thanks, your message has been sent. We’ll reply by email, usually within a few days.',
     retentionDays: 365,
+  },
+  interest: {
+    formId: '',
+    maxProgrammes: 0,
+    maxMembers: 8,
+    memberFields: { email: 'optional', phone: 'optional', gender: 'optional', birthYear: 'off', vnswNumber: 'optional' },
+    acknowledge: true,
+    notify: true,
+    notifyEmails: [],
+    introText:
+      'Tell us you’re interested and we’ll be in touch before the next season starts. Come on your own and we’ll find you a team, or enter a whole team.',
+    successText: 'Thanks, we’ve got your details. We’ll be in touch before the next season starts.',
+    archivedRetentionDays: 365,
   },
   privacy: { pagePath: '/privacy' },
   seo: { description: '', imageId: '', alternateName: 'Tempe VB', foundingYear: '2005', sameAs: [] },
@@ -468,6 +513,38 @@ const checkers: { [K in SettingKey]: (v: unknown) => SiteSettings[K] } = {
       autoReplyText: str(o.autoReplyText, 'The automatic reply', L.text) || d.autoReplyText,
       successText: str(o.successText, 'The thank-you text', L.text) || d.successText,
       retentionDays: intIn(o.retentionDays, 'Days to keep handled messages', 30, 3650, d.retentionDays),
+    }
+  },
+  interest: (v) => {
+    const o = obj(v, 'Expressions of interest')
+    const d = DEFAULT_SETTINGS.interest
+    const formId = str(o.formId, 'The form', 64)
+    if (formId && !/^[A-Za-z0-9_-]{1,64}$/.test(formId)) throw new Invalid('Pick the form from the list.')
+    const mf = o.memberFields && typeof o.memberFields === 'object' ? (o.memberFields as Record<string, unknown>) : {}
+    const memberFields = Object.fromEntries(
+      memberDetailKeys.map((k) => [
+        k,
+        memberFieldModes.includes(mf[k] as MemberFieldMode) ? (mf[k] as MemberFieldMode) : d.memberFields[k],
+      ]),
+    ) as Record<MemberDetailKey, MemberFieldMode>
+    if (o.notifyEmails !== undefined && o.notifyEmails !== null && !Array.isArray(o.notifyEmails))
+      throw new Invalid('Notification addresses must be a list.')
+    const notifyEmails = [
+      ...new Set(((o.notifyEmails as unknown[] | undefined) ?? []).map((e) => email(e, 'A notification address')).filter(Boolean)),
+    ]
+    if (notifyEmails.length > CONTACT_FORM_LIMITS.notifyEmails)
+      throw new Invalid(`At most ${CONTACT_FORM_LIMITS.notifyEmails} notification addresses.`)
+    return {
+      formId,
+      maxProgrammes: intIn(o.maxProgrammes, 'Most programmes per entry', 0, 20, d.maxProgrammes),
+      maxMembers: intIn(o.maxMembers, 'Most team members', 1, 30, d.maxMembers),
+      memberFields,
+      acknowledge: o.acknowledge !== false,
+      notify: o.notify !== false,
+      notifyEmails,
+      introText: str(o.introText, 'The intro', CONTACT_FORM_LIMITS.text) || d.introText,
+      successText: str(o.successText, 'The thank-you text', CONTACT_FORM_LIMITS.text) || d.successText,
+      archivedRetentionDays: intIn(o.archivedRetentionDays, 'Days to keep archived EOIs', 0, 3650, d.archivedRetentionDays),
     }
   },
   privacy: (v) => {
