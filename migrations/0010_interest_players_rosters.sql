@@ -82,6 +82,7 @@ CREATE TABLE `season_team_players` (
 	FOREIGN KEY (`updated_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE set null
 );
 --> statement-breakpoint
+CREATE UNIQUE INDEX `season_team_players_season_player_unique` ON `season_team_players` (`season_id`,`player_id`);--> statement-breakpoint
 CREATE INDEX `season_team_players_player_id_idx` ON `season_team_players` (`player_id`,`season_id`);--> statement-breakpoint
 CREATE INDEX `season_team_players_team_id_idx` ON `season_team_players` (`team_id`);--> statement-breakpoint
 CREATE INDEX `season_team_players_interest_id_idx` ON `season_team_players` (`interest_id`);--> statement-breakpoint

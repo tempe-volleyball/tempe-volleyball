@@ -32,10 +32,10 @@ export function pickerCounts(players: readonly DirectoryPlayer[]): Record<Picker
   return out
 }
 
+/** One collator for every comparison (localeCompare with options builds one per call: slow over 3,000 players). */
+const collator = new Intl.Collator('en', { sensitivity: 'base' })
 const byName = (a: DirectoryPlayer, b: DirectoryPlayer) =>
-  a.firstName.localeCompare(b.firstName, 'en', { sensitivity: 'base' }) ||
-  a.lastName.localeCompare(b.lastName, 'en', { sensitivity: 'base' }) ||
-  a.id.localeCompare(b.id)
+  collator.compare(a.firstName, b.firstName) || collator.compare(a.lastName, b.lastName) || a.id.localeCompare(b.id)
 const spotOf = (p: DirectoryPlayer) => p.lastInLeague ?? p.lastAnywhere
 
 /**
@@ -48,10 +48,7 @@ export function pickerRows(players: readonly DirectoryPlayer[], tab: PickerTab, 
   if (tab === 'interest')
     return rows.toSorted((a, b) => (b.interest?.createdAt ?? '').localeCompare(a.interest?.createdAt ?? '') || byName(a, b))
   if (tab === 'last')
-    return rows.toSorted(
-      (a, b) =>
-        (a.lastInLeague?.teamName ?? '').localeCompare(b.lastInLeague?.teamName ?? '', 'en', { sensitivity: 'base' }) || byName(a, b),
-    )
+    return rows.toSorted((a, b) => collator.compare(a.lastInLeague?.teamName ?? '', b.lastInLeague?.teamName ?? '') || byName(a, b))
   if (tab === 'past') return rows.toSorted((a, b) => (spotOf(b)?.startDate ?? '').localeCompare(spotOf(a)?.startDate ?? '') || byName(a, b))
   return rows.toSorted(byName)
 }

@@ -488,6 +488,7 @@ export async function undoMerge(
   const goneFeed = `/teams/${b.slug}.ics`
   const createdFeeds = r.feeds.filter((f) => f.previousToPath === null).map((f) => f.fromPath)
   const restoredFeeds = r.feeds.filter((f) => f.previousToPath !== null)
+  const undoSeasonIds = [...new Set([...r.seasonIds, ...r.memberSeasonIds, ...(r.rosterSeasonIds ?? [])])]
   await runBatch(db, [
     // The WordPress id is unique, so A gives it back before B returns.
     ...(r.wpIdMoved && b.wpId !== null
@@ -523,27 +524,25 @@ export async function undoMerge(
       .update(groups)
       .set({ teamId: b.id, updatedAt: at })
       .where(and(eq(groups.teamId, r.keepId), inJson(groups.id, r.groupIds))),
-    ...(r.rosterSeasonIds?.length
-      ? [
-          db
-            .update(seasonTeamPlayers)
-            .set({ teamId: b.id, ...by })
-            .where(and(eq(seasonTeamPlayers.teamId, r.keepId), inJson(seasonTeamPlayers.seasonId, r.rosterSeasonIds))),
-        ]
-      : []),
-    ...(r.interestKeys?.length
-      ? [
-          db
-            .update(interestProgrammes)
-            .set({ teamId: b.id, ...by })
-            .where(
-              and(
-                eq(interestProgrammes.teamId, r.keepId),
-                sql`(${interestProgrammes.interestId} || '|' || ${interestProgrammes.programmeId}) in (select value from json_each(${JSON.stringify(r.interestKeys)}))`,
-              ),
-            ),
-        ]
-      : []),
+    // Rosters and EOI placements go back by season: in B's seasons, A's rows are B's (a merge across a shared season
+    // is refused), including players added or EOIs placed into "A" there since the merge.
+    db
+      .update(seasonTeamPlayers)
+      .set({ teamId: b.id, ...by })
+      .where(and(eq(seasonTeamPlayers.teamId, r.keepId), inJson(seasonTeamPlayers.seasonId, undoSeasonIds))),
+    db
+      .update(interestProgrammes)
+      .set({ teamId: b.id, ...by })
+      .where(
+        and(
+          eq(interestProgrammes.teamId, r.keepId),
+          or(
+            inJson(interestProgrammes.seasonId, undoSeasonIds),
+            // Placements recorded without a season (programmes with none) go back by key, as merged.
+            sql`(${interestProgrammes.interestId} || '|' || ${interestProgrammes.programmeId}) in (select value from json_each(${JSON.stringify(r.interestKeys ?? [])}))`,
+          ),
+        ),
+      ),
     db
       .update(seasons)
       .set({ generatedFrom: sql`replace(${seasons.generatedFrom}, ${quoted(r.keepId)}, ${quoted(b.id)})` })

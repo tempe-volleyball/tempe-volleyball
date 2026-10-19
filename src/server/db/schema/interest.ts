@@ -131,6 +131,8 @@ export const seasonTeamPlayers = sqliteTable(
   },
   (t) => [
     primaryKey({ columns: [t.seasonId, t.teamId, t.playerId] }),
+    // One team per player per season (docs/interest.md): adds, moves and merges that race map this to a 409.
+    uniqueIndex('season_team_players_season_player_unique').on(t.seasonId, t.playerId),
     index('season_team_players_player_id_idx').on(t.playerId, t.seasonId),
     index('season_team_players_team_id_idx').on(t.teamId),
     index('season_team_players_interest_id_idx').on(t.interestId),

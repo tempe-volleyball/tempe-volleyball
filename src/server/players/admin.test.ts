@@ -1,10 +1,11 @@
-import { eq } from 'drizzle-orm'
+import { eq, inArray } from 'drizzle-orm'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { createTestDb, type TestDb } from '../db/testing'
+import { createTestDb, planOf, type QueryStats, type TestDb } from '../db/testing'
 import {
   auditLog,
   groups,
   interestMembers,
+  interestProgrammes,
   leagues,
   players,
   products,
@@ -14,8 +15,11 @@ import {
   teams,
   user,
 } from '../db/schema'
+import { isUniqueFailure } from '../content/common'
 import { HttpError } from '../http'
+import { groupOf, leagueWindow } from '../../lib/players/groups'
 import { createInterest, emptyDetails } from './core'
+import { competitionDirectory } from './directory'
 import {
   createPlayer,
   deletePlayer,
@@ -79,8 +83,10 @@ const comp = (id: string, firstName: string, lastName: string, extra: Record<str
 })
 
 let db: TestDb
+let sqlite: ReturnType<typeof createTestDb>['sqlite']
+let stats: QueryStats
 beforeEach(async () => {
-  db = createTestDb().db
+  ;({ db, sqlite, stats } = createTestDb())
   await db.insert(user).values({ id: 'adm', name: 'Michael', email: 'michael@example.com', emailVerified: true, role: 'admin' })
   await db.insert(leagues).values([
     { id: 'tnl', code: 'TNL', name: 'Thursday Night League', slug: 'tnl', weekday: 4 },
@@ -297,7 +303,30 @@ describe('merge', () => {
     expect(r.player).toMatchObject({ phone: '0400 111 222', email: 'ana@example.com', notes: 'Prefers Thursdays' })
     const a = (await db.select().from(auditLog).where(eq(auditLog.action, 'player.merge')))[0]!
     expect(a.targetId).toBe('ana')
-    expect(a.before).toMatchObject({ merged: { id: 'ana2', firstName: 'Ana', lastName: 'Cruz' } })
+    // The audit row is written in the merge's batch: ids, initials and counts, never the duplicate's name.
+    expect(a.before).toEqual({ merged: { id: 'ana2', initials: 'A. C.', source: null, createdAt: '2026-01-01T00:00:00.000Z' } })
+    expect(a.after).toEqual({ ...r.merge })
+    expect(JSON.stringify(a)).not.toContain('Cruz')
+  })
+
+  it('refuses to put the kept player in two teams of one season (409 two_teams); the index backs it up', async () => {
+    await db.insert(players).values(comp('ana2', 'Ana', 'Cruz'))
+    // Ana is in ACES in TNL Q4; her duplicate is in KBU that season.
+    await db.insert(seasonTeamPlayers).values({ seasonId: 'tnl4', teamId: 'kbu', playerId: 'ana2' })
+    const e = await rejects(mergePlayers(db, admin, 'ana', { mergeId: 'ana2' }, NOW), 409, /TNL Q4 2026 \(ACES and KBU\)/)
+    expect(e.code).toBe('two_teams')
+    expect(e.details?.seasons).toEqual([{ seasonId: 'tnl4', seasonName: 'TNL Q4 2026', keepTeam: 'ACES', mergeTeam: 'KBU' }])
+    expect(await db.select().from(players).where(eq(players.id, 'ana2'))).toHaveLength(1)
+    expect(await db.select().from(auditLog).where(eq(auditLog.action, 'player.merge'))).toHaveLength(0)
+    // One player, two teams, one season: the database refuses it too.
+    const err = await db
+      .insert(seasonTeamPlayers)
+      .values({ seasonId: 'tnl4', teamId: 'kbu', playerId: 'ana' })
+      .then(
+        () => null,
+        (x: unknown) => x,
+      )
+    expect(isUniqueFailure(err, 'season_team_players')).toBe(true)
   })
 
   it('keeps the kept player’s details with fillBlanks off; the duplicate captain row makes the kept one captain', async () => {
@@ -343,5 +372,155 @@ describe('CSV', () => {
     expect(t.csv).not.toContain('Last team')
     expect(await db.select().from(auditLog).where(eq(auditLog.action, 'player.export'))).toHaveLength(2)
     expect(playersCsv('training', [])).toContain('"First name"')
+  })
+})
+
+describe('at scale (D1 limits)', () => {
+  // Three years (2023 to 2025) of three leagues: 36 seasons of 10 teams of 10 (3,600 roster rows), 1,500 competition players and
+  // 300 open EOIs. The Players screen must page in SQL without reading the roster history (D1 bills rows read),
+  // stay within 50 queries and 100 parameters, and give exactly groupOf()'s groups.
+  const seed = () => {
+    const insert = (table: string, cols: string[], rows: unknown[][]) => {
+      const stmt = sqlite.prepare(`insert into ${table} (${cols.join(', ')}) values (${cols.map(() => '?').join(', ')})`)
+      sqlite.exec('BEGIN')
+      for (const r of rows) stmt.run(...(r as never[]))
+      sqlite.exec('COMMIT')
+    }
+    const leaguesOf = ['tnl', 'fnl', 'snl']
+    insert('leagues', ['id', 'code', 'name', 'slug', 'weekday'], [['snl', 'SNL', 'Saturday Night League', 'snl', 6]])
+    const ss: { id: string; leagueId: string; year: number; quarter: number; startDate: string }[] = []
+    for (const l of leaguesOf)
+      for (let i = 0; i < 12; i++) {
+        const y = 2023 + Math.floor(i / 4)
+        const qn = (i % 4) + 1
+        ss.push({
+          id: `${l}-${y}-${qn}`,
+          leagueId: l,
+          year: y,
+          quarter: qn,
+          startDate: `${y}-${String(qn * 3 - 2).padStart(2, '0')}-1${leaguesOf.indexOf(l)}`,
+        })
+      }
+    insert(
+      'seasons',
+      ['id', 'league_id', 'name', 'slug', 'year', 'quarter', 'start_date', 'settings'],
+      ss.map((x) => [x.id, x.leagueId, x.id.toUpperCase(), `s-${x.id}`, x.year, x.quarter, x.startDate, JSON.stringify(settings)]),
+    )
+    insert(
+      'teams',
+      ['id', 'name', 'slug'],
+      Array.from({ length: 30 }, (_, i) => [`t${i}`, `Team ${i}`, `team-${i}`]),
+    )
+    insert(
+      'players',
+      ['id', 'pool', 'first_name', 'last_name', 'email', 'created_at', 'retired_at'],
+      Array.from({ length: 1500 }, (_, i) => [
+        `p${i}`,
+        'competition',
+        `First${i}`,
+        `Last${String(i).padStart(4, '0')}`,
+        `p${i}@example.com`,
+        `2025-01-01T00:00:${String(i % 60).padStart(2, '0')}.000Z`,
+        i % 97 === 0 ? '2026-01-01T00:00:00.000Z' : null,
+      ]),
+    )
+    const rosters: unknown[][] = []
+    ss.forEach((x, si) => {
+      for (let t = 0; t < 10; t++)
+        for (let k = 0; k < 10; k++) rosters.push([x.id, `t${(si % 3) * 10 + t}`, `p${(si * 37 + t * 10 + k) % 1500}`])
+    })
+    insert('season_team_players', ['season_id', 'team_id', 'player_id'], rosters)
+    const eois: unknown[][] = []
+    const members: unknown[][] = []
+    const progs: unknown[][] = []
+    for (let i = 0; i < 300; i++) {
+      const at = `2026-${String((i % 10) + 1).padStart(2, '0')}-15T00:00:00.000Z`
+      eois.push([`e${i}`, 'player', `EOI-${String(i).padStart(4, '0')}`, at])
+      members.push([`m${i}`, `e${i}`, `p${(i * 7) % 1500}`, JSON.stringify(emptyDetails('X', 'Y'))])
+      progs.push([`e${i}`, leaguesOf[i % 3], i % 5 === 0 ? 'placed' : 'new', at])
+    }
+    insert('interests', ['id', 'kind', 'reference', 'created_at'], eois)
+    insert('interest_members', ['id', 'interest_id', 'player_id', 'details'], members)
+    insert('interest_programmes', ['interest_id', 'programme_id', 'status', 'created_at'], progs)
+  }
+
+  it('pages, counts and groups competition players in SQL, never scanning the rosters', async () => {
+    seed()
+    for (const leagueId of ['tnl', null]) {
+      stats.reset()
+      const l = await listPlayers(db, q({ leagueId, retired: 'any' }), NOW)
+      expect(stats.queries).toBeLessThanOrEqual(10)
+      expect(stats.maxParams).toBeLessThan(100)
+      for (const s of stats.log) expect(planOf(sqlite, s).filter((d) => /^SCAN (season_team_players|r|h|l)\b/.test(d))).toEqual([])
+      expect(l.rows).toHaveLength(50)
+      expect(l.total).toBe(1504)
+      // The same groups groupOf() gives, for everyone.
+      const all = await db.select({ id: players.id, retiredAt: players.retiredAt }).from(players).where(eq(players.pool, 'competition'))
+      const seasonsAll = await db.select({ id: seasons.id, leagueId: seasons.leagueId, startDate: seasons.startDate }).from(seasons)
+      const spots = await db.select().from(seasonTeamPlayers)
+      const open = await db
+        .select({
+          playerId: interestMembers.playerId,
+          programmeId: interestProgrammes.programmeId,
+          createdAt: interestProgrammes.createdAt,
+        })
+        .from(interestProgrammes)
+        .innerJoin(interestMembers, eq(interestMembers.interestId, interestProgrammes.interestId))
+        .where(inArray(interestProgrammes.status, ['new', 'contacted']))
+      const leagueOf = new Map(seasonsAll.map((x) => [x.id, x.leagueId]))
+      const expected: Record<string, number> = { interest: 0, last: 0, past: 0, retired: 0, other: 0 }
+      const rank = ['interest', 'last', 'past', 'other']
+      for (const p of all) {
+        const mine = spots.filter((x) => x.playerId === p.id)
+        const forLeague = (lid: string) =>
+          groupOf(
+            {
+              retiredAt: p.retiredAt,
+              leagueSeasonIds: mine.filter((x) => leagueOf.get(x.seasonId) === lid).map((x) => x.seasonId),
+              playedElsewhere: mine.some((x) => leagueOf.get(x.seasonId) !== lid),
+              openInterestDates: open.filter((o) => o.playerId === p.id && o.programmeId === lid).map((o) => o.createdAt.slice(0, 10)),
+            },
+            leagueWindow(
+              seasonsAll.filter((x) => x.leagueId === lid),
+              { today: '2026-10-20' },
+            ),
+          )
+        const g = leagueId
+          ? forLeague(leagueId)
+          : p.retiredAt
+            ? 'retired'
+            : (['tnl', 'fnl', 'snl'].map(forLeague).toSorted((a, b) => rank.indexOf(a) - rank.indexOf(b))[0] ?? 'other')
+        expected[g]!++
+      }
+      expect(l.groupCounts).toMatchObject(expected)
+      expect(Object.values(expected).reduce((a, b) => a + b, 0)).toBe(1504)
+    }
+    // A later page and a group page, still within the limits.
+    stats.reset()
+    const page3 = await listPlayers(db, q({ leagueId: 'fnl', group: 'past', page: 3 }), NOW)
+    expect(page3.page).toBe(3)
+    expect(page3.rows.every((r) => r.group === 'past')).toBe(true)
+    expect(stats.queries).toBeLessThanOrEqual(10)
+  })
+
+  it("the season builder's picker reads this league's rosters plus one latest spot per player", async () => {
+    seed()
+    stats.reset()
+    const d = await competitionDirectory(db, { leagueId: 'tnl', seasonId: 'tnl-2025-4', today: '2026-10-20' })
+    expect(stats.queries).toBeLessThanOrEqual(8)
+    expect(stats.maxParams).toBeLessThan(100)
+    expect(d.players).toHaveLength(1504)
+    expect(d.lastSeason?.id).toBe('tnl-2025-3')
+    const inSeason = d.players.filter((p) => p.inSeason.length > 0)
+    expect(inSeason).toHaveLength(100)
+    // The season being built isn't anyone's "last" spot.
+    expect(d.players.some((p) => p.lastInLeague?.seasonId === 'tnl-2025-4' || p.lastAnywhere?.seasonId === 'tnl-2025-4')).toBe(false)
+  })
+
+  it('exports up to EXPORT_LIMIT and says when it stopped', async () => {
+    seed()
+    const r = await exportPlayers(db, admin, q({ retired: 'any' }), NOW)
+    expect(r.truncated).toBe(false)
+    expect(r.csv.trim().split('\r\n')).toHaveLength(1505)
   })
 })

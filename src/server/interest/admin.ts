@@ -22,6 +22,8 @@ import {
   poolOfKind,
   programmes,
   seasons,
+  seasonTeamPlayers,
+  seasonTeams,
   teams,
   user,
   type Gender,
@@ -48,6 +50,7 @@ import {
 } from '../content/common'
 import { getSettings } from '../content/settings'
 import { PAYMENT_METHODS, type PaymentMethod } from '../enrolment/admin'
+import { HttpError } from '../http'
 import { createInterest, emptyDetails } from '../players/core'
 
 // Admin → Interest (docs/interest.md, docs/admin.md §3.16, docs/api/interest-admin.md): the inbox of expressions of
@@ -817,7 +820,8 @@ async function loadInterestRow(db: AppDb, id: string) {
 }
 
 /**
- * Where an EOI was placed: a season of that programme and, optionally, a team. Checked against the database; null
+ * Where an EOI was placed: a season of that programme and, optionally, a team that plays in that season (in its
+ * team list). A team without a season only for a programme that has no seasons. Checked against the database; null
  * ids clear them.
  */
 async function placement(db: AppDb, programmeId: string, seasonId: unknown, teamId: unknown) {
@@ -825,13 +829,85 @@ async function placement(db: AppDb, programmeId: string, seasonId: unknown, team
   const tid = teamId === undefined || teamId === null || teamId === '' ? null : teamId
   if (sid !== null && !isId(sid)) throw invalid('Pick the season from the list.')
   if (tid !== null && !isId(tid)) throw invalid('Pick the team from the list.')
-  const [s, t] = await Promise.all([
+  const [s, t, inSeason, anySeason] = await Promise.all([
     sid ? db.select({ id: seasons.id, leagueId: seasons.leagueId }).from(seasons).where(eq(seasons.id, sid)).get() : null,
     tid ? db.select({ id: teams.id }).from(teams).where(eq(teams.id, tid)).get() : null,
+    sid && tid
+      ? db
+          .select({ teamId: seasonTeams.teamId })
+          .from(seasonTeams)
+          .where(and(eq(seasonTeams.seasonId, sid), eq(seasonTeams.teamId, tid)))
+          .get()
+      : null,
+    tid && !sid ? db.select({ id: seasons.id }).from(seasons).where(eq(seasons.leagueId, programmeId)).limit(1).get() : null,
   ])
   if (sid && (!s || s.leagueId !== programmeId)) throw invalid('That season isn’t one of this programme’s.')
   if (tid && !t) throw invalid('That team no longer exists.')
+  if (sid && tid && !inSeason)
+    throw invalid('That team isn’t in that season’s team list. Add it to the season first, or pick another team.')
+  if (tid && !sid && anySeason) throw invalid('Pick the season the team plays in.')
   return { seasonId: sid as string | null, teamId: tid as string | null }
+}
+
+/**
+ * Placed programme rows of these EOIs whose people are on a season roster because of them (the roster row's
+ * interest_id is the EOI, in the season it was placed in). Leaving `placed` is refused for those: taking someone off
+ * a roster should be deliberate, in the season builder, which puts the EOI back to contacted itself.
+ */
+async function rosterHolds(db: AppDb, ids: readonly string[], programmeId: string | null) {
+  return db
+    .select({
+      interestId: interestProgrammes.interestId,
+      reference: interests.reference,
+      programmeId: interestProgrammes.programmeId,
+      seasonId: seasonTeamPlayers.seasonId,
+      seasonName: seasons.name,
+      teamId: seasonTeamPlayers.teamId,
+      teamName: teams.name,
+      players: sql<number>`count(*)`,
+    })
+    .from(interestProgrammes)
+    .innerJoin(interests, eq(interests.id, interestProgrammes.interestId))
+    .innerJoin(
+      seasonTeamPlayers,
+      and(eq(seasonTeamPlayers.interestId, interestProgrammes.interestId), eq(seasonTeamPlayers.seasonId, interestProgrammes.seasonId)),
+    )
+    .innerJoin(seasons, eq(seasons.id, seasonTeamPlayers.seasonId))
+    .innerJoin(teams, eq(teams.id, seasonTeamPlayers.teamId))
+    .where(
+      and(
+        sql`${interestProgrammes.interestId} in (select value from json_each(${JSON.stringify(ids)}))`,
+        programmeId ? eq(interestProgrammes.programmeId, programmeId) : undefined,
+        eq(interestProgrammes.status, 'placed'),
+      ),
+    )
+    .groupBy(interestProgrammes.interestId, interestProgrammes.programmeId, seasonTeamPlayers.seasonId, seasonTeamPlayers.teamId)
+    .all()
+}
+
+/** 409 on_roster: "take them out of <team> first", with where (Season → Setup → Teams) for a link. */
+function onRoster(holds: Awaited<ReturnType<typeof rosterHolds>>) {
+  const h = holds[0]!
+  const where = holds.map((x) => `${x.teamName} in ${x.seasonName}`).join(', ')
+  return new HttpError(
+    409,
+    'on_roster',
+    holds.length === 1 && Number(h.players) <= 1
+      ? `${h.reference} is on ${h.teamName}’s roster in ${h.seasonName}. Take them out of ${h.teamName} first (the season’s Setup → Teams), and the EOI goes back to contacted.`
+      : `${[...new Set(holds.map((x) => x.reference))].join(', ')}: their people are on rosters (${where}). Take them out of the team first (the season’s Setup → Teams), and the EOI goes back to contacted.`,
+    {
+      rosters: holds.map((x) => ({
+        interestId: x.interestId,
+        reference: x.reference,
+        programmeId: x.programmeId,
+        seasonId: x.seasonId,
+        seasonName: x.seasonName,
+        teamId: x.teamId,
+        teamName: x.teamName,
+        path: `/seasons/${x.seasonId}/setup`,
+      })),
+    },
+  )
 }
 
 /** One change to an EOI (see interestActions). Audited as interest.update with what changed (no personal values). */
@@ -893,6 +969,10 @@ export async function interestAction(db: AppDb, actor: Editor, id: string, input
         .where(and(eq(interestProgrammes.interestId, id), eq(interestProgrammes.programmeId, programmeId)))
         .get()
       if (!current) throw notFound('programme on this expression of interest')
+      if (current.status === 'placed' && status !== 'placed') {
+        const holds = await rosterHolds(db, [id], programmeId)
+        if (holds.length) throw onRoster(holds)
+      }
       const place = status === 'placed' ? await placement(db, programmeId, input.seasonId, input.teamId) : { seasonId: null, teamId: null }
       await runBatch(db, [
         db
@@ -936,8 +1016,35 @@ export async function interestAction(db: AppDb, actor: Editor, id: string, input
     case 'add_programme': {
       if (!isId(input.programmeId)) throw invalid('Which programme?')
       const programmeId = input.programmeId
-      const p = await db.select({ id: programmes.id, kind: programmes.kind }).from(programmes).where(eq(programmes.id, programmeId)).get()
+      const [found, pools, kinds] = (await runBatch(db, [
+        db
+          .select({ id: programmes.id, kind: programmes.kind, name: programmes.name })
+          .from(programmes)
+          .where(eq(programmes.id, programmeId)),
+        db
+          .selectDistinct({ pool: players.pool })
+          .from(interestMembers)
+          .innerJoin(players, eq(players.id, interestMembers.playerId))
+          .where(eq(interestMembers.interestId, id)),
+        db
+          .select({ kind: programmes.kind })
+          .from(interestProgrammes)
+          .innerJoin(programmes, eq(programmes.id, interestProgrammes.programmeId))
+          .where(eq(interestProgrammes.interestId, id)),
+      ])) as unknown as [{ id: string; kind: ProgrammeKind; name: string }[], { pool: PlayerPool }[], { kind: ProgrammeKind }[]]
+      const p = found[0]
       if (!p) throw invalid('That programme no longer exists.')
+      // Competition and training players are kept apart: an EOI's people are in one pool, so it can't take a
+      // programme of the other (a training EOI can't go on a league or event, nor a league EOI on training).
+      const pool = pools[0]?.pool ?? (kinds.length ? poolOfKind(kinds[0]!.kind) : null)
+      if (pool && poolOfKind(p.kind) !== pool)
+        throw new HttpError(
+          409,
+          'wrong_pool',
+          pool === 'training'
+            ? `This EOI’s people are training players, and ${p.name} takes competition players (leagues and events are kept apart from training). Add a new EOI for it instead.`
+            : `This EOI’s people are competition players, and ${p.name} takes training players (training is kept apart from leagues and events). Add a new EOI for it instead.`,
+        )
       const status = input.status === undefined ? 'new' : parseStatus(input.status)
       try {
         await runBatch(db, [
@@ -961,6 +1068,10 @@ export async function interestAction(db: AppDb, actor: Editor, id: string, input
       const it = all.find((p) => p.programmeId === programmeId)
       if (!it) throw notFound('programme on this expression of interest')
       if (all.length === 1) throw conflict('An EOI needs at least one programme. Archive or delete it instead.')
+      if (it.status === 'placed') {
+        const holds = await rosterHolds(db, [id], programmeId)
+        if (holds.length) throw onRoster(holds)
+      }
       await runBatch(db, [
         db.delete(interestProgrammes).where(and(eq(interestProgrammes.interestId, id), eq(interestProgrammes.programmeId, programmeId))),
         db.update(interests).set(touch).where(eq(interests.id, id)),
@@ -1023,6 +1134,24 @@ async function applyDetails(db: AppDb, actor: Editor, interestId: string, input:
   ])
 }
 
+/**
+ * One audit row per target in one statement (INSERT … SELECT FROM json_each: one parameter for the rows), so a bulk
+ * action shows in each EOI's history. Rows: { id, before, after } for target type `interest`.
+ */
+export function auditEach(
+  db: AppDb,
+  actor: Editor,
+  action: 'interest.update' | 'interest.delete',
+  rows: readonly { id: string; before: unknown; after: unknown }[],
+  at: string,
+) {
+  const json = JSON.stringify(rows.map((r) => ({ k: crypto.randomUUID(), t: r.id, b: r.before ?? null, a: r.after ?? null })))
+  return db.insert(auditLog).select(
+    sql`select json_extract(j.value, '$.k'), ${at}, ${actor.id}, ${action}, 'interest', json_extract(j.value, '$.t'),
+          json_extract(j.value, '$.b'), json_extract(j.value, '$.a'), ${actor.ip ?? null} from json_each(${json}) as j where true`,
+  )
+}
+
 const parseIds = (v: unknown): string[] => {
   if (!Array.isArray(v) || v.length === 0) throw invalid('Choose some expressions of interest.')
   const ids = [...new Set(v.filter(isId))]
@@ -1044,17 +1173,22 @@ export async function bulkInterestAction(
   const ids = parseIds(input.ids)
   const at = now.toISOString()
   const touch = { updatedAt: at, updatedBy: actor.id }
+  // One audit row per EOI (so each EOI's history shows it), in one statement.
   const auditRow = (after: Record<string, unknown>) =>
-    db
-      .insert(auditLog)
-      .values(
-        auditEntry(actor, 'interest.update', { type: 'interest', id: ids.length === 1 ? ids[0]! : 'bulk' }, null, { ...after, ids }, at),
-      )
+    auditEach(
+      db,
+      actor,
+      'interest.update',
+      ids.map((id) => ({ id, before: null, after: { ...after, bulk: ids.length } })),
+      at,
+    )
   if (input.action === 'status') {
     const status = parseStatus(input.status)
     if (status === 'placed') throw invalid('Place them one at a time, from each EOI’s page (it needs the season).')
     const programmeId = input.programmeId === undefined || input.programmeId === null || input.programmeId === '' ? null : input.programmeId
     if (programmeId !== null && !isId(programmeId)) throw invalid('Which programme?')
+    const holds = await rosterHolds(db, ids, programmeId)
+    if (holds.length) throw onRoster(holds)
     const [changed] = (await runBatch(db, [
       db
         .update(interestProgrammes)
@@ -1088,73 +1222,62 @@ export async function bulkInterestAction(
 }
 
 /**
- * Deletes EOIs for good, with an audit row that records the references and how many people, never who. By default
- * the player rows each EOI created are deleted too when nothing else uses them (a spam EOI leaves nothing behind);
- * players who were already on file, or who have since enrolled, played or sent another EOI, are kept.
+ * Players created by the EOIs in `set` (a subquery or json_each of ids) that nothing outside them uses: created with
+ * one of them (same created_at, source interest or admin) and with no other EOI, enrolment, roster or captaincy.
+ * A WHERE on `players`; the first condition (uncorrelated) keeps it to those EOIs' people, so it reads only them.
+ */
+export const createdOnlyBy = (set: SQL) =>
+  and(
+    sql`${players.id} in (select m.player_id from interest_members m where m.interest_id in ${set})`,
+    inArray(players.source, ['interest', 'admin']),
+    sql`exists (select 1 from interest_members m join interests i on i.id = m.interest_id where m.player_id = ${players.id} and m.interest_id in ${set} and i.created_at = ${players.createdAt})`,
+    sql`not exists (select 1 from interest_members m2 where m2.player_id = ${players.id} and m2.interest_id not in ${set})`,
+    sql`not exists (select 1 from registrations r where r.player_id = ${players.id})`,
+    sql`not exists (select 1 from season_team_players s where s.player_id = ${players.id})`,
+    sql`not exists (select 1 from groups g where g.captain_player_id = ${players.id})`,
+  )
+
+/**
+ * Deletes EOIs for good, with one audit row per EOI that records its reference and how many people, never who. By
+ * default the player rows each EOI created are deleted too when nothing else uses them (a spam EOI leaves nothing
+ * behind); players who were already on file, or who have since enrolled, played or sent another EOI, are kept. Two
+ * reads and one batch (ids go in as one JSON parameter, so there's no cap on the people beyond MAX_BULK EOIs).
  */
 export async function deleteInterests(db: AppDb, actor: Editor, rawIds: unknown, opts: { keepPlayers?: boolean } = {}, now = new Date()) {
   const ids = parseIds(rawIds)
   const at = now.toISOString()
-  const found = await db
-    .select({ id: interests.id, reference: interests.reference, createdAt: interests.createdAt })
-    .from(interests)
-    .where(inArray(interests.id, ids))
-  if (found.length === 0) return { deleted: 0, playersDeleted: 0 }
-  const memberRows = await db
-    .select({ playerId: interestMembers.playerId, interestId: interestMembers.interestId })
-    .from(interestMembers)
-    .where(inArray(interestMembers.interestId, ids))
-  // The player rows these EOIs created (created with the EOI, from a form or by hand), as candidates; the delete
-  // below keeps any that something else now uses.
-  const createdAtOf = new Map(found.map((f) => [f.id, f.createdAt]))
-  const memberPlayers = [...new Set(memberRows.map((m) => m.playerId).filter((p): p is string => !!p))].slice(0, 90)
-  const playerRows =
-    opts.keepPlayers || memberPlayers.length === 0
-      ? []
-      : await db
-          .select({ id: players.id, createdAt: players.createdAt, source: players.source })
-          .from(players)
-          .where(inArray(players.id, memberPlayers))
-  const candidates = playerRows
-    .filter(
-      (p) =>
-        (p.source === 'interest' || p.source === 'admin') &&
-        memberRows.some((m) => m.playerId === p.id && createdAtOf.get(m.interestId) === p.createdAt),
-    )
-    .map((p) => p.id)
-  const statements = [
+  const set = sql`(select value from json_each(${JSON.stringify(ids)}))`
+  const [found, people] = (await runBatch(db, [
+    db.select({ id: interests.id, reference: interests.reference }).from(interests).where(inArray(interests.id, ids)),
     db
-      .insert(auditLog)
-      .values(
-        auditEntry(
-          actor,
-          'interest.delete',
-          { type: 'interest', id: found.length === 1 ? found[0]!.id : 'bulk' },
-          { references: found.map((f) => f.reference), people: memberRows.length },
-          { playersDeleted: candidates.length },
-          at,
-        ),
-      ),
+      .select({ interestId: interestMembers.interestId, n: sql<number>`count(*)`.as('n') })
+      .from(interestMembers)
+      .where(inArray(interestMembers.interestId, ids))
+      .groupBy(interestMembers.interestId),
+  ])) as unknown as [{ id: string; reference: string }[], { interestId: string; n: number }[]]
+  if (found.length === 0) return { deleted: 0, playersDeleted: 0 }
+  const peopleOf = new Map(people.map((p) => [p.interestId, Number(p.n)]))
+  const statements = [
+    auditEach(
+      db,
+      actor,
+      'interest.delete',
+      found.map((f) => ({
+        id: f.id,
+        before: { reference: f.reference, people: peopleOf.get(f.id) ?? 0 },
+        after: { keepPlayers: !!opts.keepPlayers },
+      })),
+      at,
+    ),
+    // Before the EOIs go (their members say which players they created).
+    ...(opts.keepPlayers ? [] : [db.delete(players).where(createdOnlyBy(set)).returning({ id: players.id })]),
     db.delete(interests).where(inArray(interests.id, ids)).returning({ id: interests.id }),
   ]
-  if (candidates.length > 0) {
-    statements.push(
-      db
-        .delete(players)
-        .where(
-          and(
-            inArray(players.id, candidates),
-            sql`not exists (select 1 from interest_members m where m.player_id = ${players.id})`,
-            sql`not exists (select 1 from registrations r where r.player_id = ${players.id})`,
-            sql`not exists (select 1 from season_team_players s where s.player_id = ${players.id})`,
-            sql`not exists (select 1 from groups g where g.captain_player_id = ${players.id})`,
-          ),
-        )
-        .returning({ id: players.id }) as never,
-    )
+  const results = (await runBatch(db, statements as never)) as unknown as unknown[][]
+  return {
+    deleted: (results.at(-1) as unknown[]).length,
+    playersDeleted: opts.keepPlayers ? 0 : (results[1] as unknown[]).length,
   }
-  const results = (await runBatch(db, statements)) as unknown as [unknown, { id: string }[], { id: string }[] | undefined]
-  return { deleted: results[1].length, playersDeleted: results[2]?.length ?? 0 }
 }
 
 // ── Added by hand ─────────────────────────────────────────────────────────────
@@ -1315,85 +1438,94 @@ export async function addInterestByHand(db: AppDb, actor: Editor, input: AdminIn
  */
 export async function exportInterests(db: AppDb, actor: Editor, filter: InterestFilter, now = new Date()) {
   const options = await interestProgrammeOptions(db, now)
-  const rows = await db
-    .select({
-      id: interests.id,
-      kind: interests.kind,
-      reference: interests.reference,
-      teamName: interests.teamName,
-      answers: interests.answers,
-      formId: interests.formId,
-      depositCents: interests.depositCents,
-      paidAt: interests.paidAt,
-      paymentNote: interests.paymentNote,
-      note: interests.note,
-      source: interests.source,
-      archivedAt: interests.archivedAt,
-      createdAt: interests.createdAt,
-    })
+  const where = filterWhere(db, filter, options)
+  // The EOIs exported, as a subquery: members, programmes and forms are read for the same set in one batch of four
+  // statements, whatever the number of EOIs (D1's 50 queries), each well under 100 parameters.
+  const chosen = db
+    .select({ id: interests.id })
     .from(interests)
-    .where(filterWhere(db, filter, options))
+    .where(where)
     .orderBy(desc(interests.createdAt), desc(interests.id))
     .limit(EXPORT_LIMIT)
-  // Members and programmes in chunks of 90 ids (D1's 100 parameters), forms by id.
-  const memberRows: { interestId: string; sort: number; role: RosterRole; details: MemberDetails }[] = []
-  const progRows: (InterestProgrammeRow & { interestId: string })[] = []
-  const formIds = [...new Set(rows.map((r) => r.formId).filter((f): f is string => !!f))]
-  const chunks: string[][] = []
-  for (let i = 0; i < rows.length; i += 90) chunks.push(rows.slice(i, i + 90).map((r) => r.id))
-  const statements = [
-    ...chunks.flatMap((ids) => [
-      db
-        .select({
-          interestId: interestMembers.interestId,
-          sort: interestMembers.sort,
-          role: interestMembers.role,
-          details: interestMembers.details,
-        })
-        .from(interestMembers)
-        .where(inArray(interestMembers.interestId, ids)),
-      programmeRowsQuery(db, inArray(interestProgrammes.interestId, ids)),
-    ]),
-    ...(formIds.length
-      ? [
-          db
-            .select({ id: enrolmentForms.id, fields: enrolmentForms.fields })
-            .from(enrolmentForms)
-            .where(inArray(enrolmentForms.id, formIds.slice(0, 90))),
-        ]
-      : []),
+  const [found, memberRows, progRows, forms] = (await runBatch(db, [
+    db
+      .select({
+        id: interests.id,
+        kind: interests.kind,
+        reference: interests.reference,
+        teamName: interests.teamName,
+        answers: interests.answers,
+        formId: interests.formId,
+        depositCents: interests.depositCents,
+        paidAt: interests.paidAt,
+        paymentNote: interests.paymentNote,
+        note: interests.note,
+        source: interests.source,
+        archivedAt: interests.archivedAt,
+        createdAt: interests.createdAt,
+      })
+      .from(interests)
+      .where(where)
+      .orderBy(desc(interests.createdAt), desc(interests.id))
+      .limit(EXPORT_LIMIT + 1),
+    db
+      .select({
+        interestId: interestMembers.interestId,
+        sort: interestMembers.sort,
+        role: interestMembers.role,
+        details: interestMembers.details,
+      })
+      .from(interestMembers)
+      .where(inArray(interestMembers.interestId, chosen))
+      .orderBy(interestMembers.interestId, interestMembers.sort),
+    programmeRowsQuery(db, inArray(interestProgrammes.interestId, chosen)),
+    db
+      .select({ id: enrolmentForms.id, fields: enrolmentForms.fields })
+      .from(enrolmentForms)
+      .where(inArray(enrolmentForms.id, db.selectDistinct({ f: interests.formId }).from(interests).where(inArray(interests.id, chosen)))),
+  ])) as unknown as [
+    (Omit<CsvInterest, 'members' | 'programmes'> & { id: string; formId: string | null })[],
+    { interestId: string; sort: number; role: RosterRole; details: MemberDetails | string }[],
+    (InterestProgrammeRow & { interestId: string })[],
+    { id: string; fields: FormField[] | string }[],
   ]
-  const results = statements.length ? ((await runBatch(db, statements as never)) as unknown as unknown[][]) : []
-  chunks.forEach((_, i) => {
-    memberRows.push(...(results[i * 2] as typeof memberRows))
-    progRows.push(...(results[i * 2 + 1] as typeof progRows))
-  })
-  const forms = formIds.length ? (results.at(-1) as { id: string; fields: FormField[] }[]) : []
+  const truncated = found.length > EXPORT_LIMIT
+  const rows = found.slice(0, EXPORT_LIMIT)
+  // Grouped with maps (one pass each), not filtered per EOI.
+  const membersOf = new Map<string, { role: RosterRole; details: MemberDetails }[]>()
+  for (const m of memberRows) {
+    const details = (typeof m.details === 'string' ? JSON.parse(m.details) : m.details) as MemberDetails
+    const list = membersOf.get(m.interestId)
+    if (list) list.push({ role: m.role, details })
+    else membersOf.set(m.interestId, [{ role: m.role, details }])
+  }
+  const progsOf = new Map<string, (InterestProgrammeRow & { interestId: string })[]>()
+  for (const p of progRows) {
+    const list = progsOf.get(p.interestId)
+    if (list) list.push(p)
+    else progsOf.set(p.interestId, [p])
+  }
   const csv = interestsCsv(
-    rows.map((r) => ({
-      ...r,
-      members: memberRows.filter((m) => m.interestId === r.id).sort((a, b) => a.sort - b.sort),
-      programmes: progRows.filter((p) => p.interestId === r.id),
-    })),
+    rows.map((r) => ({ ...r, members: membersOf.get(r.id) ?? [], programmes: progsOf.get(r.id) ?? [] })),
     [
       ...forms.flatMap((f) => (typeof f.fields === 'string' ? (JSON.parse(f.fields) as FormField[]) : f.fields)),
       ...defaultInterestFields(),
     ],
   )
-  const people = memberRows.length
   await audit(
     db,
     actor,
     'interest.export',
     { type: 'interest', id: filter.programmeId ?? 'all' },
     null,
-    { filter, rows: people, interests: rows.length },
+    { filter, rows: memberRows.length, interests: rows.length, truncated },
     now.toISOString(),
   )
+  const name = filter.programmeId ? (options.find((o) => o.id === filter.programmeId)?.code ?? 'programme') : 'all'
   return {
     csv,
-    filename:
-      `interest-${filter.programmeId ? (options.find((o) => o.id === filter.programmeId)?.code ?? 'programme') : 'all'}-${now.toISOString().slice(0, 10)}.csv`.toLowerCase(),
+    filename: `interest-${name}-${now.toISOString().slice(0, 10)}${truncated ? `-first-${EXPORT_LIMIT}` : ''}.csv`.toLowerCase(),
+    truncated,
   }
 }
 
@@ -1500,28 +1632,39 @@ export function interestsCsv(rows: readonly CsvInterest[], fields: readonly Form
 /** Archived EOIs the cron deletes per run (each delete cascades to its members and programmes). */
 export const PRUNE_LIMIT = 200
 
+/** The EOIs a prune run deletes: archived before the cutoff, oldest first, at most PRUNE_LIMIT (deterministic, so
+ * the players statement and the EOI delete in one batch see the same set). */
+const prunable = (db: AppDb, retentionDays: number, now: Date) =>
+  db
+    .select({ id: interests.id })
+    .from(interests)
+    .where(
+      and(isNotNull(interests.archivedAt), lt(interests.archivedAt, new Date(now.getTime() - retentionDays * 24 * HOUR).toISOString())),
+    )
+    .orderBy(interests.archivedAt, interests.id)
+    .limit(PRUNE_LIMIT)
+
 /**
  * Cron: deletes EOIs archived longer ago than Settings → Interest's retention (0 = keep: no statement), at most
- * PRUNE_LIMIT a run. One bounded statement for the housekeeping batch; the player rows stay (they're the directory).
+ * PRUNE_LIMIT a run. One bounded statement for the housekeeping batch, after prunePlayersOfInterestsStatement().
  */
 export const pruneInterestsStatement = (db: AppDb, retentionDays: number, now = new Date()) =>
   retentionDays > 0
     ? db
         .delete(interests)
-        .where(
-          inArray(
-            interests.id,
-            db
-              .select({ id: interests.id })
-              .from(interests)
-              .where(
-                and(
-                  isNotNull(interests.archivedAt),
-                  lt(interests.archivedAt, new Date(now.getTime() - retentionDays * 24 * HOUR).toISOString()),
-                ),
-              )
-              .limit(PRUNE_LIMIT),
-          ),
-        )
+        .where(inArray(interests.id, prunable(db, retentionDays, now)))
         .returning({ id: interests.id })
+    : null
+
+/**
+ * Cron, just before pruneInterestsStatement() in the same batch: the player rows those EOIs created that nothing
+ * else uses (createdOnlyBy, as a delete for good does), so retention removes the person too. Players on file before,
+ * or who enrolled, played or sent another EOI since, stay in the directory. Bounded by the same PRUNE_LIMIT EOIs.
+ */
+export const prunePlayersOfInterestsStatement = (db: AppDb, retentionDays: number, now = new Date()) =>
+  retentionDays > 0
+    ? db
+        .delete(players)
+        .where(createdOnlyBy(sql`(${prunable(db, retentionDays, now)})`))
+        .returning({ id: players.id })
     : null

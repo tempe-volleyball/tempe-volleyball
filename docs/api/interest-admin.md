@@ -74,9 +74,12 @@ type InterestProgrammeOption = {
 `GET /api/admin/interest/options` → `{ programmes: InterestProgrammeOption[], form: { id, name, fields }, maxMembers }`
 for the "Add EOI" dialog (the form is Settings → Interest's, else the built-in default; mapped fields left out).
 
-`GET /api/admin/interest/export.csv?<the inbox's query>`: every matching EOI (at most 5000), one row per person (the
-contact first, then team members) with the EOI's columns on every row and its answers on the contact's row. Cells are
-quoted and formula-safe like the enrolment CSV (`csvCell`). Audited as `interest.export` with the filter and counts.
+`GET /api/admin/interest/export.csv?<the inbox's query>`: every matching EOI (at most 5000, `EXPORT_LIMIT`), one row
+per person (the contact first, then team members) with the EOI's columns on every row and its answers on the
+contact's row. One batch of four statements whatever the count: the EOIs, then their members, programmes and forms
+with the filter as a subquery (grouped with maps). When more match, the file is named `…-first-5000.csv` and the
+response has `X-Export-Truncated: 1`. Cells are quoted and formula-safe like the enrolment CSV (`csvCell`). Audited as
+`interest.export` with the filter, counts and `truncated`.
 
 ## Bulk, add by hand, delete
 
@@ -92,14 +95,19 @@ guardianPhone?, emergencyContact? }`; names are required and the contact needs a
   deposits unless `depositCents` is sent (`null` = none). Existing players are matched and never changed. → `201
 { id, reference, createdAt, members }`.
 - `{ action: 'status', ids, status, programmeId? }`: sets the status on every programme of those EOIs (or just
-  `programmeId`), clearing placements; `placed` is refused (it needs a season: do it per EOI). → `{ changed }`.
+  `programmeId`), clearing placements; `placed` is refused (it needs a season: do it per EOI), and so is the whole
+  request when one of the placed rows has its people on a roster because of it (`409 on_roster`, below).
+  → `{ changed }`.
 - `{ action: 'archive' | 'unarchive', ids }` → `{ changed }`.
 - `{ action: 'delete', ids, keepPlayers? }` → `{ deleted, playersDeleted }`.
 
-At most 90 ids. Deleting is for good and audited (`interest.delete`) with the references and how many people, never
-who. Unless `keepPlayers`, the player rows the EOIs created (same `created_at`, source `interest` or `admin`) are
-deleted in the same batch when nothing else uses them (no other EOI, enrolment, roster or team captaincy), so a
-spam EOI leaves nothing behind; people who were already on file are kept.
+At most 90 ids. Every bulk action writes **one audit row per EOI** (one INSERT … SELECT FROM json_each), so each EOI's
+history shows it; `after.bulk` is how many were in the request. Deleting is for good and audited (`interest.delete`,
+one row per EOI) with its reference and how many people, never who. Unless `keepPlayers`, the player rows the EOIs
+created (same `created_at`, source `interest` or `admin`) are deleted in the same batch when nothing else uses them (no
+other EOI, enrolment, roster or team captaincy: `createdOnlyBy()`), so a spam EOI leaves nothing behind; people who
+were already on file are kept. The ids go in as one JSON parameter, so every such player goes, however many people
+the 90 EOIs had.
 
 ## One EOI
 
@@ -126,26 +134,41 @@ Names compare case-insensitively, emails lower-cased and phones without spaces, 
 `POST /api/admin/interest/:id` `{ action, … }` → `InterestDetail`, each audited as `interest.update` (what changed,
 never personal values; a note is recorded as "changed"):
 
-| Action                | Body                                                | Notes                                                                                                        |
-| --------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `note`                | `{ note }`                                          | ≤ 2000; empty clears                                                                                         |
-| `mark_paid`           | `{ method: payid\|cash\|bank\|card\|other, note? }` | payment note "PayID: 12/10", like enrolments                                                                 |
-| `mark_unpaid`         | `{ note? }`                                         |                                                                                                              |
-| `status`              | `{ programmeId, status, seasonId?, teamId? }`       | placed takes a season of that programme and a team; other statuses clear them                                |
-| `archive`/`unarchive` |                                                     | archived EOIs leave the inbox and start the retention clock                                                  |
-| `team_name`           | `{ teamName }`                                      | team EOIs                                                                                                    |
-| `add_programme`       | `{ programmeId, status? }`                          | `409` if already on it                                                                                       |
-| `remove_programme`    | `{ programmeId }`                                   | `409` for the last one                                                                                       |
-| `apply_details`       | `{ memberId, fields: DetailField[] }`               | "Use these details": copies those sent details onto the player; audited `player.update` with the field names |
+| Action                | Body                                                | Notes                                                                                                                                                                                                                                            |
+| --------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `note`                | `{ note }`                                          | ≤ 2000; empty clears                                                                                                                                                                                                                             |
+| `mark_paid`           | `{ method: payid\|cash\|bank\|card\|other, note? }` | payment note "PayID: 12/10", like enrolments                                                                                                                                                                                                     |
+| `mark_unpaid`         | `{ note? }`                                         |                                                                                                                                                                                                                                                  |
+| `status`              | `{ programmeId, status, seasonId?, teamId? }`       | placed takes a season of that programme and a team in that season's team list (a team alone only for a programme with no seasons); other statuses clear them; leaving placed is `409 on_roster` while its people are on the roster because of it |
+| `archive`/`unarchive` |                                                     | archived EOIs leave the inbox and start the retention clock                                                                                                                                                                                      |
+| `team_name`           | `{ teamName }`                                      | team EOIs                                                                                                                                                                                                                                        |
+| `add_programme`       | `{ programmeId, status? }`                          | `409` if already on it; `409 wrong_pool` for a programme of the other pool (a training EOI on a league or event, or the reverse)                                                                                                                 |
+| `remove_programme`    | `{ programmeId }`                                   | `409` for the last one; `409 on_roster` as for status                                                                                                                                                                                            |
+| `apply_details`       | `{ memberId, fields: DetailField[] }`               | "Use these details": copies those sent details onto the player; audited `player.update` with the field names                                                                                                                                     |
 
 `DELETE /api/admin/interest/:id` (`?keepPlayers=1`) → `{ deleted, playersDeleted }`, as the bulk delete.
+
+**`409 on_roster`**: a placed programme row can't leave `placed` (status change, bulk status, or removing the
+programme) while a roster row in the season it was placed in came from this EOI (`season_team_players.interest_id`).
+Taking someone off a roster should be deliberate, so the answer says who and where ("Take them out of ACES first")
+with `rosters: [{ interestId, reference, programmeId, seasonId, seasonName, teamId, teamName, path }]` (`path` is the
+season's Setup tab, `/seasons/<id>/setup`, where Teams is). Removing them from the team there puts the EOI back to
+contacted itself. The EOI page links each placed programme to its season's rosters.
+
+**"Matched by email and name, not verified"**: on a public EOI, a person matched to a player already on file (not
+created by it) is marked so on the EOI page, and "Use these details" asks for a confirm first: anyone can send the
+public form with someone else's email and name.
 
 ## Retention
 
 The hourly cron's housekeeping batch deletes EOIs archived longer ago than Settings → Interest → "Delete archived
-EOIs after" (`archivedRetentionDays`, default 365; 0 = keep), at most 200 a run (`pruneInterestsStatement`); members
-and programmes go with them (cascade), player rows stay. Open (not archived) EOIs are never pruned.
+EOIs after" (`archivedRetentionDays`, default 365; 0 = keep), at most 200 a run, oldest archived first
+(`pruneInterestsStatement`); members and programmes go with them (cascade). Just before, in the same batch,
+`prunePlayersOfInterestsStatement` deletes the player rows those same EOIs created that nothing else uses (the
+delete-for-good rule, `createdOnlyBy()`), so retention removes the person too; players on file before, or who have
+enrolled, played or sent another EOI since, stay. Open (not archived) EOIs are never pruned.
 
 **Cost:** the inbox is the programme options batch (3 reads), a batch of the page and its count, and a batch of the
 page's members and programmes (≤ 50 ids). An EOI's page is one batch of four reads. Bulk actions are one statement plus
-the audit row.
+one audit statement (a row per EOI), after one read for the roster check; a delete is one read and one batch of three.
+The export is the options batch, one batch of four and the audit row (tested at 3,000 EOIs).

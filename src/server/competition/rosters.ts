@@ -22,7 +22,7 @@ import {
   type RosterRole,
   type SeasonStatus,
 } from '../db/schema'
-import { audit, notFound, type Editor } from '../content/common'
+import { audit, isUniqueFailure, notFound, type Editor } from '../content/common'
 import { HttpError } from '../http'
 import { chunk, emptyDetails, matchPeople, newPlayerRow, rowsPerInsert } from '../players/core'
 import { competitionDirectory, type Directory } from '../players/directory'
@@ -127,6 +127,8 @@ const levelOf = (answers: unknown) => {
 }
 const positionOf = (answers: unknown) => str(((answers ?? {}) as Record<string, unknown>).position)
 const nameOf = (p: { firstName: string; lastName: string }) => `${p.firstName} ${p.lastName}`.trim()
+/** One collator for name sorts (localeCompare with options builds one per call: too slow for 10 ms of CPU). */
+const collator = new Intl.Collator('en', { sensitivity: 'base' })
 const newestFirst = (a: { startDate: string }, b: { startDate: string }) =>
   a.startDate < b.startDate ? 1 : a.startDate > b.startDate ? -1 : 0
 
@@ -494,12 +496,7 @@ export async function rosterSources(db: AppDb, seasonId: string): Promise<Roster
     })
   }
   const groupRank = { last: 0, league: 1, other: 2 }
-  sources.sort(
-    (a, b) =>
-      groupRank[a.group] - groupRank[b.group] ||
-      newestFirst(a.from, b.from) ||
-      a.teamName.localeCompare(b.teamName, 'en', { sensitivity: 'base' }),
-  )
+  sources.sort((a, b) => groupRank[a.group] - groupRank[b.group] || newestFirst(a.from, b.from) || collator.compare(a.teamName, b.teamName))
 
   // The rosters that would be copied: each source team's roster in its `from` season.
   const pairs = new Set(sources.map((x) => `${x.from.seasonId}|${x.teamId}`))
@@ -785,6 +782,29 @@ export async function changeRoster(
       ids = input.withPlayerId !== undefined && input.withPlayerId !== null ? [idOf(input.withPlayerId, 'Replacement')] : []
       fresh = ids.length ? [] : [parseNewPlayer(input.newPlayer, 'The new player')]
     }
+    if (teamInterest) {
+      // Like rosterFrom: an open (new or contacted), unarchived team EOI for this league.
+      const open = await db
+        .select({ id: interestProgrammes.interestId })
+        .from(interestProgrammes)
+        .innerJoin(interests, eq(interests.id, interestProgrammes.interestId))
+        .where(
+          and(
+            eq(interestProgrammes.interestId, teamInterest),
+            eq(interestProgrammes.programmeId, ctx.season.leagueId),
+            inArray(interestProgrammes.status, [...openInterestStatuses]),
+            isNull(interests.archivedAt),
+            eq(interests.kind, 'team'),
+          ),
+        )
+        .get()
+      if (!open)
+        throw new HttpError(
+          409,
+          'interest_not_open',
+          'That team EOI isn’t open for this league any more (placed, declined, withdrawn, archived, or not for this league). Reload the team sources.',
+        )
+    }
     const { list, newRows } = await resolvePlayers(db, ids, fresh)
     const out = action === 'replace' ? onTeam(input.playerId as string) : null
     if (out && list.some((p) => p.id === out.playerId)) throw invalid('Pick someone else to replace them with.')
@@ -935,8 +955,27 @@ export async function changeRoster(
       at,
     ),
   )
-  await runBatch(db, items)
+  try {
+    await runBatch(db, items)
+  } catch (e) {
+    // Someone put one of them in another team of this season since we looked (the one-team-per-season index):
+    // the same 409 as when we'd seen it, so the admin can offer "Move them".
+    if (isUniqueFailure(e, 'season_team_players') && (action === 'add' || action === 'replace')) throw await raceAnswer(db, ctx, teamId)
+    throw e
+  }
   return { ...(await readRosters(db, ctx.season)), done }
+}
+
+/** After a unique failure on add/replace: who's now in another team, as already_in_team, else roster_changed. */
+async function raceAnswer(db: AppDb, ctx: Ctx, teamId: string) {
+  const now = await loadCtx(db, ctx.season.id)
+  const before = new Set(ctx.rows.map((r) => `${r.playerId}|${r.teamId}`))
+  const who = now.rows
+    .filter((r) => r.teamId !== teamId && !before.has(`${r.playerId}|${r.teamId}`))
+    .map((r) => ({ playerId: r.playerId, name: r.name, teamId: r.teamId, teamName: now.teams.get(r.teamId) ?? '?' }))
+  return who.length
+    ? alreadyInTeam(who)
+    : new HttpError(409, 'roster_changed', 'Someone changed this season’s rosters just now. Reload and try again.')
 }
 
 // ── Team list changes (the season's Save) ─────────────────────────────────────
@@ -1006,7 +1045,7 @@ export async function rosterCopyStatements(
     const f = ctx.rosterFrom.get(t)!
     return 'interestId' in f ? [{ teamId: t, interestId: f.interestId }] : []
   })
-  const [current, seasonRosters, interestRows] = (await runBatch(db, [
+  const [current, seasonRosters, interestRows, openRows] = (await runBatch(db, [
     // Who's in a team this season and staying (rows of teams leaving are deleted in the same batch).
     db
       .select({ playerId: seasonTeamPlayers.playerId, teamId: seasonTeamPlayers.teamId })
@@ -1047,6 +1086,7 @@ export async function rosterCopyStatements(
         firstName: players.firstName,
         lastName: players.lastName,
         retiredAt: players.retiredAt,
+        pool: players.pool,
       })
       .from(interestMembers)
       .innerJoin(interests, eq(interests.id, interestMembers.interestId))
@@ -1060,6 +1100,24 @@ export async function rosterCopyStatements(
           : sql`0`,
       )
       .orderBy(asc(interestMembers.sort)),
+    // The EOIs named: each must still be open (new or contacted) and unarchived for this league.
+    db
+      .select({ interestId: interestProgrammes.interestId, kind: interests.kind })
+      .from(interestProgrammes)
+      .innerJoin(interests, eq(interests.id, interestProgrammes.interestId))
+      .where(
+        fromInterest.length
+          ? and(
+              eq(interestProgrammes.programmeId, ctx.leagueId),
+              inArray(interestProgrammes.status, [...openInterestStatuses]),
+              isNull(interests.archivedAt),
+              inJson(
+                interestProgrammes.interestId,
+                fromInterest.map((f) => f.interestId),
+              ),
+            )
+          : sql`0`,
+      ),
   ])) as unknown as [
     { playerId: string; teamId: string }[],
     {
@@ -1081,14 +1139,27 @@ export async function rosterCopyStatements(
       firstName: string
       lastName: string
       retiredAt: string | null
+      pool: string
     }[],
+    { interestId: string; kind: string }[],
   ]
-  for (const f of fromInterest)
-    if (
-      !interestRows.some((r) => r.interestId === f.interestId && r.kind === 'team') &&
-      interestRows.some((r) => r.interestId === f.interestId)
-    )
+  for (const f of fromInterest) {
+    const open = openRows.find((r) => r.interestId === f.interestId)
+    if (open && open.kind !== 'team')
       throw invalid('rosterFrom: that EOI is from a player, not a team. Add its player from the picker instead.')
+    if (!open)
+      throw new HttpError(
+        409,
+        'interest_not_open',
+        'That team EOI isn’t open for this league any more (placed, declined, withdrawn, archived, or not for this league). Reload the team sources.',
+      )
+    if (interestRows.some((r) => r.interestId === f.interestId && r.pool !== 'competition'))
+      throw new HttpError(
+        409,
+        'wrong_pool',
+        'That team EOI has training players on it, and rosters only take competition players. Fix its people first.',
+      )
+  }
 
   const placed = new Set(current.filter((c) => kept.has(c.teamId)).map((c) => c.playerId))
   const rows: RosterInsert[] = []
@@ -1151,14 +1222,33 @@ export async function rosterCopyStatements(
 
 /**
  * "New season" copying an earlier one (createSeason): every roster of the source season comes along with the teams,
- * roles and order kept, minus retired players. One INSERT … SELECT.
+ * roles and order kept, minus retired players (one INSERT … SELECT), and, like every other add, copied players'
+ * open individual EOIs for the league become placed in their team (one UPDATE, after the insert in the same batch).
  */
-export function copySeasonRostersStatement(db: AppDb, c: { fromSeasonId: string; toSeasonId: string; at: string; actorId: string }) {
-  return db.insert(seasonTeamPlayers).select(
-    sql`select ${c.toSeasonId}, s.team_id, s.player_id, s.role, s.sort, null, ${c.fromSeasonId}, ${c.at}, ${c.at}, ${c.actorId}
-        from ${seasonTeamPlayers} as s join ${players} as p on p.id = s.player_id
-        where s.season_id = ${c.fromSeasonId} and p.retired_at is null`,
-  )
+export function copySeasonRostersStatements(
+  db: AppDb,
+  c: { fromSeasonId: string; toSeasonId: string; leagueId: string; at: string; actorId: string },
+) {
+  const teamOf = sql`(select r.team_id from ${seasonTeamPlayers} as r join ${interestMembers} as m on m.player_id = r.player_id
+    where r.season_id = ${c.toSeasonId} and m.interest_id = ${interestProgrammes.interestId} limit 1)`
+  return [
+    db.insert(seasonTeamPlayers).select(
+      sql`select ${c.toSeasonId}, s.team_id, s.player_id, s.role, s.sort, null, ${c.fromSeasonId}, ${c.at}, ${c.at}, ${c.actorId}
+          from ${seasonTeamPlayers} as s join ${players} as p on p.id = s.player_id
+          where s.season_id = ${c.fromSeasonId} and p.retired_at is null`,
+    ),
+    db
+      .update(interestProgrammes)
+      .set({ status: 'placed', seasonId: c.toSeasonId, teamId: sql`${teamOf}`, updatedAt: c.at, updatedBy: c.actorId })
+      .where(
+        and(
+          eq(interestProgrammes.programmeId, c.leagueId),
+          inArray(interestProgrammes.status, [...openInterestStatuses]),
+          sql`${interestProgrammes.interestId} in (select ${interests.id} from ${interests} where ${interests.kind} = 'player' and ${interests.archivedAt} is null)`,
+          sql`${teamOf} is not null`,
+        ),
+      ),
+  ]
 }
 
 // ── CSV ───────────────────────────────────────────────────────────────────────

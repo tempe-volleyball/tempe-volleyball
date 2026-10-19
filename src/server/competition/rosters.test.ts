@@ -17,8 +17,8 @@ import {
 import { HttpError } from '../http'
 import { createInterest, emptyDetails } from '../players/core'
 import { changeRoster, exportRosters, getRosters, rosterSources, seasonPlayerDirectory } from './rosters'
-import { createSeason, setSeasonTeams, type SeasonView } from './seasons'
-import { createTeam } from './teams'
+import { createSeason, deleteSeason, setSeasonTeams, type SeasonView } from './seasons'
+import { createTeam, mergeTeams, recentMerges, undoMerge } from './teams'
 
 const NOW = new Date('2026-10-20T00:00:00.000Z')
 const at = (minutes: number) => new Date(NOW.getTime() + minutes * 60_000)
@@ -481,5 +481,109 @@ describe('CSV export', () => {
       targetId: last,
       after: { players: 5 },
     })
+  })
+})
+
+describe('review fixes', () => {
+  const playerEoi = (first: string, email: string, last = 'Eoi') =>
+    createInterest(db, {
+      kind: 'player',
+      pool: 'competition',
+      teamName: null,
+      members: [emptyDetails(first, last, email)],
+      programmeIds: ['tnl'],
+      answers: {},
+      formId: null,
+      formVersion: null,
+      depositCents: null,
+      source: 'public',
+      now: at(4),
+    })
+  const progOf = (interestId: string) =>
+    db
+      .select({ status: interestProgrammes.status, seasonId: interestProgrammes.seasonId, teamId: interestProgrammes.teamId })
+      .from(interestProgrammes)
+      .where(and(eq(interestProgrammes.interestId, interestId), eq(interestProgrammes.programmeId, 'tnl')))
+      .get()
+
+  it('an add that races another team’s add gets the usual 409 already_in_team (one team per season, by index)', async () => {
+    const id = next.season.id
+    // Between our read and our write, someone puts Cat in Chaos.
+    const batch = db.batch.bind(db)
+    let n = 0
+    db.batch = (async (items: Parameters<typeof batch>[0]) => {
+      if (++n === 2) await db.insert(seasonTeamPlayers).values({ seasonId: id, teamId: chaos, playerId: 'p3' })
+      return batch(items)
+    }) as unknown as typeof db.batch
+    const e = await rejects(changeRoster(db, admin, id, { action: 'add', teamId: aces, playerIds: ['p3'] }, at(5)), 409, 'already_in_team')
+    db.batch = batch
+    expect(e.details?.players).toEqual([{ playerId: 'p3', name: 'Cat Test', teamId: chaos, teamName: 'Chaos' }])
+    expect(names(await getRosters(db, id))).toEqual({ Aces: [], Chaos: ['Cat'] })
+  })
+
+  it('rosterFrom { interestId } needs an open team EOI for this league with competition players', async () => {
+    const id = next.season.id
+    const digDeep = (await createTeam(db, admin, { name: 'Dig Deep' }, at(4))).id
+    const team = await createInterest(db, {
+      kind: 'team',
+      pool: 'competition',
+      teamName: 'Dig Deep',
+      members: [emptyDetails('Cap', 'Tain', 'cap@example.com')],
+      programmeIds: ['tnl', 'fnl'],
+      answers: {},
+      formId: null,
+      formVersion: null,
+      depositCents: null,
+      source: 'public',
+      now: at(4),
+    })
+    const save = () =>
+      setSeasonTeams(
+        db,
+        admin,
+        id,
+        { baseUpdatedAt: next.season.updatedAt, teamIds: [aces, chaos, digDeep], rosterFrom: { [digDeep]: { interestId: team.id } } },
+        at(5),
+      )
+    await db.update(interestProgrammes).set({ status: 'declined' }).where(eq(interestProgrammes.programmeId, 'tnl'))
+    await rejects(save(), 409, 'interest_not_open')
+    await db.update(interestProgrammes).set({ status: 'contacted' }).where(eq(interestProgrammes.programmeId, 'tnl'))
+    await db.update(players).set({ pool: 'training' }).where(eq(players.firstName, 'Cap'))
+    await rejects(save(), 409, 'wrong_pool')
+    await db.update(players).set({ pool: 'competition' }).where(eq(players.firstName, 'Cap'))
+    expect((await save()).rosterCopy.copied).toBe(1)
+  })
+
+  it('"New season" copying the latest places the copied players’ open EOIs', async () => {
+    const ann = await playerEoi('Ann', 'p1@example.com', 'Test')
+    expect(ann.members[0]!.playerId).toBe('p1')
+    await db.delete(seasons).where(eq(seasons.id, next.season.id))
+    const v = await createSeason(db, admin, { leagueId: 'tnl', year: 2026, quarter: 4 }, at(5))
+    expect(await progOf(ann.id)).toEqual({ status: 'placed', seasonId: v.season.id, teamId: aces })
+  })
+
+  it('deleting a draft season puts the EOIs placed in it back to contacted', async () => {
+    const id = next.season.id
+    const ivy = await playerEoi('Ivy', 'ivy@example.com')
+    await changeRoster(db, admin, id, { action: 'add', teamId: aces, playerIds: [ivy.members[0]!.playerId] }, at(5))
+    expect((await progOf(ivy.id))?.status).toBe('placed')
+    await deleteSeason(db, admin, id, { baseUpdatedAt: next.season.updatedAt }, at(6))
+    expect(await progOf(ivy.id)).toEqual({ status: 'contacted', seasonId: null, teamId: null })
+  })
+
+  it('undoing a team merge carries rosters and EOI placements made into the kept team since, by season', async () => {
+    const id = next.season.id
+    // Chaos (this season only) merges into Blockers (last season only).
+    await mergeTeams(db, admin, blockers, { mergeId: chaos }, at(5))
+    // Since the merge: Ivy is added to "Blockers" this season, which places her EOI there.
+    const ivy = await playerEoi('Ivy', 'ivy@example.com')
+    await changeRoster(db, admin, id, { action: 'add', teamId: blockers, playerIds: [ivy.members[0]!.playerId] }, at(6))
+    expect((await progOf(ivy.id))?.teamId).toBe(blockers)
+    const [m] = await recentMerges(db, at(7))
+    await undoMerge(db, admin, m!.auditId, at(7))
+    expect(names(await getRosters(db, id))).toEqual({ Aces: [], Chaos: ['Ivy'] })
+    expect(await progOf(ivy.id)).toEqual({ status: 'placed', seasonId: id, teamId: chaos })
+    // Last season's Blockers roster stays Blockers'.
+    expect(names(await getRosters(db, last))).toEqual({ Aces: ['Ann*', 'Ben', 'Cat'], Blockers: ['Dan', 'Eve'] })
   })
 })

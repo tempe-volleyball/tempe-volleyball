@@ -172,9 +172,10 @@ export function Players({ pool }: { pool: Pool }) {
       </div>
 
       {error && !loading && <LoadError message={error} onRetry={() => setRetry((n) => n + 1)} />}
-      {data?.truncated && (
-        <Notice kind="warning">
-          There are more competition players than this screen loads at once; the oldest aren’t listed. Search to find them.
+      {data && data.total > (data.exportLimit ?? Infinity) && (
+        <Notice kind="info">
+          {data.total.toLocaleString('en-AU')} players match. Export CSV writes the first {data.exportLimit.toLocaleString('en-AU')} in this
+          order; narrow the filters to export the rest.
         </Notice>
       )}
       {!data && !error && (
