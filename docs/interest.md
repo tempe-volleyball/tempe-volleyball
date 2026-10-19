@@ -117,3 +117,26 @@ year. Our league pages said "Enrolment … is closed right now" between seasons,
     and position (from their EOI), and whether they're already in a team this season; "add a new player" inline.
   - Counts: players per team, players placed this season, and open individual EOIs not yet placed.
 - Roster changes save straight away (not part of the season's Save), are audited, and work on published seasons.
+
+## Status: public side done (2026-10-20)
+
+Built on branch `eoi-public` (docs/api/interest.md, docs/public-site.md "Joining"): the form at `/interest` and
+`/interest/<slug>`, `POST /api/interest`, the acknowledgement and notification emails, join sections on interest
+programmes' pages, "Taking sign-ups" badges and Register interest buttons, `/enrol`'s interest section, the Programme
+list filter, the sitemap, and the old sign-up URLs (`INTEREST_REDIRECTS`) going to `/interest`. Decisions made on the
+way (the more robust or configurable option each time):
+
+- `/interest/<slug>` of a real programme that isn't taking EOIs is a **302** (not 301) to `/interest`: EOIs may open
+  again, and browsers keep 301s.
+- `/interest` is an intro-page path (a page published there adds a title, intro and meta description) as well as
+  Settings → Interest → Intro; `/interest/*` is reserved.
+- Notifications go to the contact email **and** the Notify addresses (each once), at most Settings → Interest →
+  `notifyPerDay` (new, default 30, 1–50) a day, like the contact form.
+- A honeypot field, as on the contact form (bots get the normal answer, nothing is stored).
+- A chosen form's `team_name` question is dropped (the team name is the form's own field); an archived or missing
+  form falls back to the built-in questions. Programme age limits aren't checked (an EOI can name several programmes).
+- `interest_text`, when set, replaces the join section's whole text; otherwise the next start plus a generic line.
+- Interest-mode programmes never show enrolment on the public site (their page has no enrolment form even if the old
+  enrolment switch is on). `POST /api/enrol` itself is unchanged.
+- `/2023-enrolment` was an EOI page too ("interested in playing … submit one of the below entries"), so every old
+  sign-up URL goes to `/interest`; the content map repoints rows earlier runs aimed at `/enrol` (unless edited).

@@ -62,7 +62,8 @@ src/pages/           Routes. api/health.ts is the deploy smoke test. robots.txt.
 src/layouts/         BaseLayout.astro: the public shell (hero header + <details> menu, optional ladder sidebar, footer).
 src/components/      Public Astro components: SiteHeader, SiteFooter, LadderTable/Widget, FixturesTable, SeasonView. Design
                      system: docs/public-site.md; styles in src/styles/ (tokens.css shared, site.css components,
-                     global.css = public entry, inlined; admin.css = admin entry).
+                     global.css = public entry, inlined; admin.css = admin entry). interest/: the EOI form island
+                     (InterestForm.tsx) and its page; programmes/JoinSection.astro, an interest programme's join section.
 src/lib/             Pure logic with tests. No bindings, no `cloudflare:*` imports, no DOM. time.ts, indexing.ts,
                      tables.ts (fixtures + ladder HTML for league pages and data blocks), brand.ts (header images).
 src/lib/fixtures/    The demo's fixtures logic, ported (Phase 4): types, scheduler (+ rng, dates, holidays),
@@ -95,6 +96,8 @@ src/server/          Code that touches bindings: db/schema.ts + db/index.ts (Dri
                      content/: pages, posts, menu, media (R2 streaming), settings: validation, batched writes,
                      audit, 301s on path changes. cache.ts: edge-cache tags + purge() after publishes.
                      contact/messages.ts: the contact form (POST /api/contact) and Admin → Messages (Phase 7).
+                     interest/: the public EOI form (docs/interest.md, docs/api/interest.md): public.ts
+                     (loadInterestForm, submitInterest for POST /api/interest), route.ts (/interest pages).
                      email/: createMailer().sendEmail(to, template, data) via email_outbox + 95/day cap + Resend. db/schema.ts re-exports the tables in db/schema/ (one file per
                      area; enums.ts holds the `as const` value lists). db/testing.ts gives tests an in-memory
                      SQLite (node:sqlite) with every migration applied: `const { db } = createTestDb()`.
