@@ -1,6 +1,6 @@
 ---
 // A team's page, /teams/<slug> (docs/public-site.md "Team pages"): the leagues it's in this season with its ladder
-// position, fixtures and results, a calendar link, and the seasons it played before with its final position.
+// position, fixtures and results, and the seasons it played before with its final position.
 // Generated from the competition data; nothing to edit. No page for a team only in a draft season; a renamed or
 // merged team's old slug 301s through the redirects table.
 import FixturesTable from '../../components/FixturesTable.astro'
@@ -8,8 +8,6 @@ import NotFound from '../../components/NotFound.astro'
 import Breadcrumbs from '../../components/programmes/Breadcrumbs.astro'
 import BaseLayout from '../../layouts/BaseLayout.astro'
 import { DEFAULT_DESCRIPTION, documentTitle } from '../../lib/content'
-import { teamCalendarPath } from '../../lib/fixture-lists'
-import { webcalUrl } from '../../lib/ical'
 import { teamHrefFor, teamPath } from '../../lib/teams'
 import { sydneyDate } from '../../lib/time'
 import { leagueRoute, normalisePath, seasonRoute } from '../../lib/wp-import/routes'
@@ -57,7 +55,6 @@ const standing = (pos: number | null, of: number) => (pos ? `${ordinal(pos)} of 
       const league = c.view.league
       const href = teamHrefFor(c.view.data.teams)
       const pos = standing(c.row?.pos ?? null, c.teamsOnLadder)
-      const feed = teamCalendarPath(league.slug, page.team.slug)
       return (
         <section class="mt-10" aria-labelledby={`season-${s.id}`}>
           <h2 id={`season-${s.id}`} class="section-title">
@@ -89,16 +86,6 @@ const standing = (pos: number | null, of: number) => (pos ? `${ordinal(pos)} of 
               legend={false}
             />
           </div>
-          <p class="mt-4 text-sm">
-            <a class="link" href={webcalUrl(new URL(feed, Astro.url))}>
-              Subscribe to {page.team.name} games in {league.code}
-            </a>{' '}
-            (
-            <a class="link" href={feed}>
-              download the calendar
-            </a>
-            )
-          </p>
         </section>
       )
     })}

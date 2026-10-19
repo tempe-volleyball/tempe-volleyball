@@ -13,16 +13,13 @@ import {
   FIXTURE_VIEWS,
   filterFixtureRows,
   fixtureQueryString,
-  leagueCalendarPath,
   parseFixtureQuery,
-  teamCalendarPath,
   weekRange,
 } from '../../lib/fixture-lists'
 import { trackingQuery, withTracking } from '../../lib/canonical-query'
 import { teamHrefFor } from '../../lib/teams'
 import { documentTitle } from '../../lib/content'
 import { formatDateLong } from '../../lib/programme-text'
-import { webcalUrl } from '../../lib/ical'
 import { sydneyDate } from '../../lib/time'
 import { leagueRoute } from '../../lib/wp-import/routes'
 import { cachePublic, tags } from '../../server/cache'
@@ -91,12 +88,6 @@ const description = q.date
 const linkClass = 'link'
 const select = 'border-ink/30 hover:border-ink/50 focus:border-brand block min-h-11 w-full rounded-lg border bg-white px-3 py-2'
 const feedLeague = teamHit?.view ?? leagueView
-const feed = (path: string) => ({ webcal: webcalUrl(new URL(path, Astro.url)), https: path })
-const calendar = feedLeague
-  ? teamHit
-    ? feed(teamCalendarPath(feedLeague.league.slug, teamHit.team.slug))
-    : feed(leagueCalendarPath(feedLeague.league.slug))
-  : null
 
 cachePublic(Astro.cache, tags.page(FIXTURE_LIST_ROUTE), ...seasons.map((c) => tags.league(c.league.slug)))
 ---
@@ -171,17 +162,6 @@ cachePublic(Astro.cache, tags.page(FIXTURE_LIST_ROUTE), ...seasons.map((c) => ta
         {subject ? ` (${subject})` : ''}
       </a>
     ))}
-    {calendar && (
-      <span>
-        <a class={linkClass} href={calendar.webcal}>
-          Subscribe in your calendar
-        </a>
-        {' · '}
-        <a class="text-muted underline underline-offset-2" href={calendar.https}>
-          .ics file
-        </a>
-      </span>
-    )}
     {feedLeague && (
       <a class={linkClass} href={leagueRoute(feedLeague.league.slug)}>
         {feedLeague.league.code} ladder and results

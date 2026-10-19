@@ -8,12 +8,10 @@ import Breadcrumbs from '../../../components/programmes/Breadcrumbs.astro'
 import EnrolSection from '../../../components/programmes/EnrolSection.astro'
 import JoinSection from '../../../components/programmes/JoinSection.astro'
 import ProgrammeIntro from '../../../components/programmes/ProgrammeIntro.astro'
-import SeasonView, { type CalendarLinks } from '../../../components/SeasonView.astro'
+import SeasonView from '../../../components/SeasonView.astro'
 import BaseLayout from '../../../layouts/BaseLayout.astro'
 import { DEFAULT_DESCRIPTION, documentTitle } from '../../../lib/content'
-import { leagueCalendarPath, teamCalendarPath } from '../../../lib/fixture-lists'
 import { interestPath, isInterestMode, takesInterest } from '../../../lib/interest'
-import { webcalUrl } from '../../../lib/ical'
 import { nextStartsLine, summaryLine } from '../../../lib/programme-text'
 import { categoryPath } from '../../../lib/programmes'
 import { sydneyDate } from '../../../lib/time'
@@ -56,19 +54,6 @@ const enrolmentOpen = !!page?.enrolment?.targets.length
 const interest = league && isInterestMode(league) ? { open: takesInterest(league), href: interestPath(league.slug) } : null
 const closedText = `Enrolment for ${league?.name ?? 'this league'} is closed right now.${nextStarts ? ` ${nextStarts}.` : ''}`
 
-// Calendar feeds follow the current season, so they're offered only on the current (published) season.
-const feed = (path: string) => new URL(path, Astro.url)
-const calendar: CalendarLinks | undefined =
-  view && view.summary.status === 'published'
-    ? {
-        league: { webcal: webcalUrl(feed(leagueCalendarPath(slug))), https: leagueCalendarPath(slug) },
-        teams: view.data.teams
-          .filter((t) => !t.withdrawnAt)
-          .map((t) => ({ name: t.name, webcal: webcalUrl(feed(teamCalendarPath(slug, t.slug))), https: teamCalendarPath(slug, t.slug) }))
-          .toSorted((a, b) => a.name.localeCompare(b.name)),
-      }
-    : undefined
-
 // JSON-LD: the current season as a SportsEvent, with an Offer while that season takes entries.
 const origin = (Astro.site ?? Astro.url).origin
 const seasonTarget = view && page?.enrolment?.targets.find((t) => t.kind === 'season' && t.id === view.summary.id)
@@ -97,7 +82,7 @@ if (league && page)
     seo={{ imageIds: [league.imageId], jsonLd }}
   >
     {view ? (
-      <SeasonView view={view} others={publicSeasons(site.seasons, view.league.id)} current today={today} calendar={calendar}>
+      <SeasonView view={view} others={publicSeasons(site.seasons, view.league.id)} current today={today}>
         <Breadcrumbs slot="before" items={crumbs} />
         <ProgrammeIntro
           programme={league}

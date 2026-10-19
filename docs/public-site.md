@@ -313,7 +313,7 @@ page-editor blocks); finals placeholders ("Winner SF1") stay text. Renderers tak
 
 One page per team across leagues (`src/pages/teams/[slug].astro`, `src/server/competition/team-page.ts`): the
 leagues it's in this season; for each, its ladder position ("6th of 9 · 6 pts"), its fixtures and results (games,
-duties, byes, nights off; the league page's tables) and a calendar subscribe link; then its past seasons with the
+duties, byes, nights off; the league page's tables); then its past seasons with the
 final position, each linking to that season's page. Generated only; nothing to edit. Player names never show
 (rosters are admin-only).
 

@@ -56,7 +56,7 @@ export function Teams({ me }: { me: Me }) {
     if (
       !(await confirmAction({
         title: `Undo merging ${m.merged.name} into ${m.kept.name}?`,
-        body: `${m.merged.name} comes back as its own team, with its seasons, games, duties, ladder adjustments, enrolments and calendar feeds. Anything added to those seasons since goes with it.`,
+        body: `${m.merged.name} comes back as its own team, with its seasons, games, duties, ladder adjustments, enrolments and its own page. Anything added to those seasons since goes with it.`,
         confirmLabel: 'Undo merge',
       }))
     )
@@ -377,8 +377,8 @@ function MergeDialog({
           <p>
             {merge.name}’s {merge.seasons} season{merge.seasons === 1 ? '' : 's'} ({merge.history.map((h) => h.name).join(', ') || 'none'}),
             its games, duties, ladder adjustments and enrolment groups move to <strong>{keep.name}</strong>, which keeps its name and web
-            address. {merge.name} is then deleted, and its calendar feeds redirect to {keep.name}’s. You can undo it for 30 days from Recent
-            merges on this screen.
+            address. {merge.name} is then deleted, and its page redirects to {keep.name}’s. You can undo it for 30 days from Recent merges
+            on this screen.
           </p>
         )}
       </div>

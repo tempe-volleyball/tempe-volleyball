@@ -1,7 +1,6 @@
 import { and, asc, desc, eq, gte, inArray, isNotNull, like, or, sql } from 'drizzle-orm'
 import type { AnySQLiteColumn } from 'drizzle-orm/sqlite-core'
 import { slugify } from '../../lib/content/paths'
-import { teamCalendarPath } from '../../lib/fixture-lists'
 import { teamPath } from '../../lib/teams'
 import { tags } from '../cache'
 import { runBatch, type AppDb } from '../db'
@@ -26,10 +25,10 @@ import { id as idOf, text } from './input'
 
 // Teams persist across seasons (SportsPress had 88). Admins create, rename and merge them (Admin → Teams); who plays
 // in a season is season_teams (seasons.ts setSeasonTeams). A team's page is /teams/<slug> (docs/public-site.md
-// "Team pages"): renaming moves the slug to the new name and leaves 301s from the old page and calendar feeds (the
+// "Team pages"): renaming moves the slug to the new name and leaves a 301 from the old page (the
 // redirects that pointed at the old page are re-pointed, so there are no chains and old /team/<slug>/ links from
-// the WordPress site still reach the team they were imported from). A new team may take a freed slug: its page and
-// feeds then stop redirecting.
+// the WordPress site still reach the team they were imported from). A new team may take a freed slug: its page then
+// stops redirecting.
 
 /** One season a team played in, for its history. */
 export type TeamSeason = Pick<Season, 'id' | 'name' | 'year' | 'quarter' | 'leagueId' | 'status'> & {
@@ -118,11 +117,8 @@ async function freeSlug(db: AppDb, name: string, selfId?: string) {
   for (let i = 2; ; i++) if (!taken.has(`${base}-${i}`)) return `${base}-${i}`
 }
 
-/** A slug's page and feeds now belong to a team: drop redirects left there by a team that was renamed or merged. */
-const claimSlugStatements = (db: AppDb, slug: string) => [
-  db.delete(redirects).where(eq(redirects.fromPath, teamPath(slug))),
-  db.delete(redirects).where(and(like(redirects.fromPath, '/leagues/%'), like(redirects.fromPath, `%/teams/${slug}.ics`))),
-]
+/** A slug's page now belongs to a team: drop the redirect left there by a team that was renamed or merged. */
+const claimSlugStatements = (db: AppDb, slug: string) => [db.delete(redirects).where(eq(redirects.fromPath, teamPath(slug)))]
 
 /** The team page moved from one slug to another: re-point redirects to the old page, then 301 the old page. */
 const movePageStatements = (db: AppDb, from: string, to: string, by: { updatedAt: string; updatedBy: string }) => [
@@ -181,46 +177,13 @@ export async function renameTeam(
   const fits = team.slug === slugify(name, 60) || team.slug.startsWith(`${slugify(name, 60)}-`)
   const slug = fits ? team.slug : await freeSlug(db, name, teamId)
   const moved = slug !== team.slug
-  const leagueSlugs = moved
-    ? (
-        await db
-          .selectDistinct({ slug: leagues.slug })
-          .from(seasonTeams)
-          .innerJoin(seasons, eq(seasons.id, seasonTeams.seasonId))
-          .innerJoin(leagues, eq(leagues.id, seasons.leagueId))
-          .where(eq(seasonTeams.teamId, teamId))
-      ).map((l) => l.slug)
-    : []
-  const oldFeed = `/teams/${team.slug}.ics`
   await runBatch(db, [
     ...(moved ? claimSlugStatements(db, slug) : []),
     db
       .update(teams)
       .set({ name, slug, ...by })
       .where(eq(teams.id, teamId)),
-    ...(moved
-      ? [
-          ...movePageStatements(db, team.slug, slug, by),
-          db
-            .update(redirects)
-            .set({ toPath: sql`replace(${redirects.toPath}, ${oldFeed}, ${`/teams/${slug}.ics`})`, ...by })
-            .where(like(redirects.toPath, `%${oldFeed}`)),
-          ...leagueSlugs.map((l) =>
-            db
-              .insert(redirects)
-              .values({
-                id: crypto.randomUUID(),
-                fromPath: teamFeedPath(l, team.slug),
-                toPath: teamFeedPath(l, slug),
-                status: 301,
-                source: 'manual',
-                createdAt: at,
-                ...by,
-              })
-              .onConflictDoUpdate({ target: redirects.fromPath, set: { toPath: teamFeedPath(l, slug), ...by } }),
-          ),
-        ]
-      : []),
+    ...(moved ? movePageStatements(db, team.slug, slug, by) : []),
     audit(db, actor, 'team.rename', { type: 'team', id: teamId }, { name: team.name, slug: team.slug }, { name, slug }, at),
   ])
   return { result: { id: teamId, name, slug, updatedAt: at }, purge: { tags: [tags.site] } }
@@ -228,9 +191,6 @@ export async function renameTeam(
 
 export type MergeTeamsInput = { mergeId?: unknown }
 export type MergeResult = { team: Pick<Team, 'id' | 'name' | 'slug' | 'updatedAt'>; merged: { id: string; name: string }; seasons: number }
-
-/** A team's calendar feed (src/pages/leagues/[league]/teams/[team].ics.ts). */
-const teamFeedPath = teamCalendarPath
 
 /** How long a merge can be undone (Admin → Teams, "Recent merges"). */
 export const MERGE_UNDO_DAYS = 30
@@ -272,7 +232,7 @@ const quoted = (id: string) => JSON.stringify(id)
  * Merges duplicate team B (`mergeId`) into team A (`keepId`): every season B played in, its games (home, away and
  * duty), ladder adjustments and enrolment groups now point at A, and B is deleted. Refused when the two were in the
  * same season, or one has games in the other's season (that's two real teams). A keeps its name and slug; B's team
- * calendar feeds 301 to A's, and B's WordPress id moves to A when A has none (so a re-import finds it). Seasons'
+ * page 301s to A's, and B's WordPress id moves to A when A has none (so a re-import finds it). Seasons'
  * draw keys (generated_from) follow, so B's seasons don't look out of date. One batch whatever the number of games:
  * each re-point is a single UPDATE … WHERE team_id = B. Admins. Audited as team.merge with what undoMerge() needs to
  * put it back; purges the site.
@@ -288,7 +248,6 @@ export async function mergeTeams(
   const mergeId = idOf(input.mergeId, 'Team to merge')
   if (mergeId === keepId) throw new HttpError(400, 'invalid_input', 'Pick a different team to merge in.')
   const both = [keepId, mergeId]
-  const feedOf = sql`'%/teams/' || (select ${teams.slug} from ${teams} where ${teams.id} = ${mergeId}) || '.ics'`
   const [teamRows, memberRows, homeRows, awayRows, dutyRows, adjustmentRows, groupRows, redirectRows, rosterRows, placedRows] =
     (await runBatch(db, [
       db.select().from(teams).where(inArray(teams.id, both)),
@@ -316,8 +275,6 @@ export async function mergeTeams(
         .from(redirects)
         .where(
           or(
-            sql`${redirects.toPath} like ${feedOf}`,
-            sql`${redirects.fromPath} like ${feedOf}`,
             sql`${redirects.toPath} = '/teams/' || (select ${teams.slug} from ${teams} where ${teams.id} = ${mergeId})`,
             sql`${redirects.fromPath} = '/teams/' || (select ${teams.slug} from ${teams} where ${teams.id} = ${mergeId})`,
           ),
@@ -365,16 +322,6 @@ export async function mergeTeams(
   }
   const at = now.toISOString()
   const by = { updatedAt: at, updatedBy: actor.id }
-  const feeds = [...new Set(theirs.map((m) => m.leagueSlug))].map((slug) => ({
-    id: crypto.randomUUID(),
-    fromPath: teamFeedPath(slug, gone.slug),
-    toPath: teamFeedPath(slug, keep.slug),
-    status: 301,
-    source: 'manual' as const,
-    createdAt: at,
-    ...by,
-  }))
-  const goneFeed = `/teams/${gone.slug}.ics`
   const memberSeasonIds = theirs.map((m) => m.seasonId)
   const wpIdMoved = keep.wpId === null && gone.wpId !== null
   const undo: MergeUndoRecord = {
@@ -388,11 +335,9 @@ export async function mergeTeams(
     rosterSeasonIds: [...new Set(rosterRows.filter((r) => r.teamId === mergeId).map((r) => r.seasonId))],
     interestKeys: placedRows.map((r) => `${r.interestId}|${r.programmeId}`),
     groupIds: groupRows.map((g) => g.id),
-    repointedRedirectIds: redirectRows.filter((r) => r.toPath.endsWith(goneFeed)).map((r) => r.id),
-    feeds: feeds.map((f) => ({
-      fromPath: f.fromPath,
-      previousToPath: redirectRows.find((r) => r.fromPath === f.fromPath)?.toPath ?? null,
-    })),
+    // Calendar feeds are gone (2026-10-20); kept empty so undo reads old and new records the same way.
+    repointedRedirectIds: [],
+    feeds: [],
     pageRedirectIds: redirectRows.filter((r) => r.toPath === teamPath(gone.slug)).map((r) => r.id),
     pagePreviousToPath: redirectRows.find((r) => r.fromPath === teamPath(gone.slug))?.toPath ?? null,
   }
@@ -439,18 +384,6 @@ export async function mergeTeams(
       .update(seasons)
       .set({ generatedFrom: sql`replace(${seasons.generatedFrom}, ${quoted(mergeId)}, ${quoted(keepId)})` })
       .where(and(inJson(seasons.id, memberSeasonIds), isNotNull(seasons.generatedFrom))),
-    // Feeds that pointed at B's now point at A's (no chains), then B's own feeds redirect.
-    db
-      .update(redirects)
-      .set({ toPath: sql`replace(${redirects.toPath}, ${goneFeed}, ${`/teams/${keep.slug}.ics`})`, ...by })
-      .where(like(redirects.toPath, `%${goneFeed}`)),
-    // 5 parameters a row (id, from, to, status, source + 3 stamps): ≤ 12 rows a statement keeps under 100.
-    ...Array.from({ length: Math.ceil(feeds.length / 12) }, (_, i) =>
-      db
-        .insert(redirects)
-        .values(feeds.slice(i * 12, i * 12 + 12))
-        .onConflictDoUpdate({ target: redirects.fromPath, set: { toPath: sql`excluded.to_path`, ...by } }),
-    ),
     // B's page redirects to A's, and so does every redirect that led to it (old /team/<slug>/ links included).
     ...movePageStatements(db, gone.slug, keep.slug, by),
     db.delete(teams).where(eq(teams.id, mergeId)),

@@ -10,7 +10,7 @@ describe('queryRedirect', () => {
   it('drops parameters a page does not read (cache busting)', () => {
     expect(queryRedirect('/', '?x=123')).toBe('/')
     expect(queryRedirect('/leagues/tnl', '?view=upcoming')).toBe('/leagues/tnl')
-    expect(queryRedirect('/leagues/tnl/calendar.ics', '?nocache=1')).toBe('/leagues/tnl/calendar.ics')
+    expect(queryRedirect('/leagues/tnl', '?nocache=1')).toBe('/leagues/tnl')
   })
 
   it('keeps the fixture list parameters in a fixed order, without defaults or junk', () => {

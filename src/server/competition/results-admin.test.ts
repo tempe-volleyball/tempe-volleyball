@@ -337,7 +337,7 @@ describe('moving one game to another night', () => {
 })
 
 describe('merging teams', () => {
-  it('re-points seasons, games, adjustments and groups, leaves feed redirects, and deletes the duplicate', async () => {
+  it('re-points seasons, games, adjustments and groups, redirects its page, and deletes the duplicate', async () => {
     const a = (await createTeam(db, admin, { name: 'Ice Cold' }, NOW)).id
     const b = (await createTeam(db, admin, { name: 'Ice Cold!' }, NOW)).id
     const others = []
@@ -356,7 +356,6 @@ describe('merging teams', () => {
     expect(rows.some((m) => m.homeTeamId === b || m.awayTeamId === b || m.dutyTeamId === b)).toBe(false)
     expect((await db.select().from(seasonTeams).where(eq(seasonTeams.teamId, a))).length).toBe(2)
     expect(await db.select({ from: redirects.fromPath, to: redirects.toPath }).from(redirects)).toEqual([
-      { from: '/leagues/tnl/teams/ice-cold-2.ics', to: '/leagues/tnl/teams/ice-cold.ics' },
       { from: '/teams/ice-cold-2', to: '/teams/ice-cold' },
     ])
     const list = await listTeams(db)
@@ -394,10 +393,8 @@ describe('merging teams', () => {
       teamId: b,
       createdAt: NOW.toISOString(),
     })
-    // A redirect that already led to B's feed (an earlier merge into B).
-    await db
-      .insert(redirects)
-      .values({ fromPath: '/leagues/tnl/teams/old.ics', toPath: '/leagues/tnl/teams/ice-cold-2.ics', source: 'manual' })
+    // A redirect that already led to B's page (an old WordPress link).
+    await db.insert(redirects).values({ fromPath: '/team/ice-cold-2', toPath: '/teams/ice-cold-2', source: 'wp-import' })
     const snapshot = async () => ({
       teams: await db.select({ id: teams.id, name: teams.name, slug: teams.slug, wpId: teams.wpId }).from(teams).orderBy(teams.id),
       members: await db

@@ -338,7 +338,7 @@ export const findRedirect = async (db: AppDb, path: string) =>
 /**
  * A league's slug now, from an old one: the 301 the programmes admin left for `/leagues/<old>` (moveTreeStatements
  * keeps it pointing straight at the current URL, possibly with a #tab). Null when there's none or it leads elsewhere.
- * Lets the calendar feeds and the fixture list's ?league= follow a renamed league (their sub-paths aren't in the table).
+ * Lets the fixture list's ?league= follow a renamed league (their sub-paths aren't in the table).
  */
 export async function renamedLeagueSlug(db: AppDb, oldSlug: string): Promise<string | null> {
   if (!/^[a-z0-9-]{1,100}$/.test(oldSlug)) return null

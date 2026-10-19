@@ -339,7 +339,7 @@ All three return `{ matchDay: { id, updatedAt, resultsPublishedAt } }`. Keep the
 
 `PATCH …/match-days/:dayId/matches/:matchId { baseUpdatedAt, referee }` (editors, match day token) sets
 `matches.referee` (free text ≤ 80, spaces tidied; `''` or `null` clears it). It's `Game.referee` in the view, "Referee:
-…" on the public fixtures and in calendar feeds. Season must be published and not archived. Audited as `match.update`;
+…" on the public fixtures. Season must be published and not archived. Audited as `match.update`;
 purges the season's pages. Returns `{ matchDay, match: { id, referee }, cache }`.
 
 ### Moving one game to another night
@@ -468,9 +468,8 @@ slug doesn't (old `/team/<slug>/` URLs keep redirecting), and every public page 
 
 `POST /api/admin/teams/:id/merge { mergeId }` merges the duplicate `mergeId` into team `:id` (Admin → Teams). Its
 `season_teams`, matches (home, away and duty), ladder adjustments and enrolment groups move to `:id`, and it's deleted.
-`409 same_season` when both were in one season. `:id` keeps its name and slug; the duplicate's team calendar feeds
-(`/leagues/<league>/teams/<slug>.ics`, per league it played in) get 301 redirects to `:id`'s (the feed route follows
-the redirects table when a team slug is unknown), and redirects that pointed at them are repointed. Its `wp_id` moves
+`409 same_season` when both were in one season. `:id` keeps its name and slug; the duplicate's team page
+(`/teams/<slug>`) gets a 301 to `:id`'s, and redirects that pointed at it are repointed. Its `wp_id` moves
 to `:id` when `:id` has none. One batch of single-statement updates (2 parameters each), whatever the number of
 games: 14 queries. Audited as `team.merge` (the duplicate's id, name, slug, wp id and seasons); purges the site.
 Returns `{ team, merged: { id, name }, seasons, cache }`.
