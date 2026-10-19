@@ -44,15 +44,12 @@ year. Our league pages said "Enrolment … is closed right now" between seasons,
 - **The answer is always the same** ("Thanks, we'll be in touch"), plus the form's confirmation text and the deposit
   and PayID details when a deposit applies. No reference or "already registered" on the page.
 - **Emails** (through the outbox, never priority): an acknowledgement to the contact with what they sent and its
-  reference (Settings → Interest → "Send an acknowledgement", default on), and a notification to the contact address
-  and Settings → Interest → "Notify" addresses (default the contact email). Off-by-default spam risk is the same as
+  reference (Settings → Interest → "Send an acknowledgement", default on), and a notification to Settings → Interest →
+  "Notify" addresses (empty = the contact email). Off-by-default spam risk is the same as
   the contact form's auto-reply: the acknowledgement only goes to the address typed, at most the mailbox limits.
-- **No email confirmation by default** (no spot is held, and Michael contacts everyone anyway): Settings → Interest
-  → "Ask people to confirm their email" can turn it on later. Unconfirmed details never overwrite a player record
-  (below), so a forged EOI can't change anyone's details.
-
-### Players
-
+- **No email confirmation** (no spot is held, and Michael contacts everyone anyway). Unconfirmed details never
+  overwrite a player record (below), so a forged EOI can't change anyone's details. A setting to ask people to
+  confirm their email first wasn't built (2026-10-20); it can be added later the way enrolment does it (§3.7).
 - **Every form saves its people as players** (`players`), and **competition players are kept apart from training
   players**: `players.pool` is `competition` (leagues and events, whatever their sign-up mode) or `training`
   (training and development). A person in both is two rows, one per pool, on purpose: Michael asked for them to be
@@ -130,8 +127,8 @@ way (the more robust or configurable option each time):
   again, and browsers keep 301s.
 - `/interest` is an intro-page path (a page published there adds a title, intro and meta description) as well as
   Settings → Interest → Intro; `/interest/*` is reserved.
-- Notifications go to the contact email **and** the Notify addresses (each once), at most Settings → Interest →
-  `notifyPerDay` (new, default 30, 1–50) a day, like the contact form.
+- Notifications go to the Notify addresses, or the contact email when there are none (the contact form's rule), at
+  most Settings → Interest → `notifyPerDay` (new, default 30, 1–50) a day, like the contact form.
 - A honeypot field, as on the contact form (bots get the normal answer, nothing is stored).
 - A chosen form's `team_name` question is dropped (the team name is the form's own field); an archived or missing
   form falls back to the built-in questions. Programme age limits aren't checked (an EOI can name several programmes).

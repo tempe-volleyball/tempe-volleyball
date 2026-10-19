@@ -552,9 +552,9 @@ export async function submitInterest(deps: PublicInterestDeps, input: InterestIn
   }
 }
 
-/** The organiser's addresses: the contact email and Settings → Interest → Notify, each once. */
+/** The organiser's addresses: Settings → Interest → Notify, else the contact email (as the contact form does), each once. */
 export const interestNotifyAddresses = (contactEmail: string, notifyEmails: readonly string[]) => [
-  ...new Set([contactEmail, ...notifyEmails].map((e) => e.trim().toLowerCase()).filter(Boolean)),
+  ...new Set((notifyEmails.length > 0 ? notifyEmails : [contactEmail]).map((e) => e.trim().toLowerCase()).filter(Boolean)),
 ]
 
 async function notify(

@@ -267,8 +267,10 @@ export default function InterestForm(props: InterestFormComponentProps) {
   const idFor = (key: string) => `${idBase}-${key.replaceAll('.', '-')}`
 
   const focusFirstError = (errs: Errors) => {
-    const order = ['kind', 'programmes', 'teamName', ...PERSON_FIELDS.map(([k]) => k), ...fields.map((f) => f.key)]
     const keys = Object.keys(errs)
+    // The order the sections are on the page: team members come before the questions.
+    const memberKeys = keys.filter((k) => k === 'members' || k.startsWith('members.')).sort()
+    const order = ['kind', 'programmes', 'teamName', ...PERSON_FIELDS.map(([k]) => k), ...memberKeys, ...fields.map((f) => f.key)]
     const first = order.find((k) => keys.includes(k)) ?? keys[0]
     if (!first) return
     const id = idFor(first)
@@ -470,24 +472,6 @@ export default function InterestForm(props: InterestFormComponentProps) {
               </div>
             </fieldset>
 
-            {fields.length > 0 && (
-              <div className="space-y-6">
-                {fields.map((f) => (
-                  <Question
-                    key={f.key}
-                    field={f}
-                    value={answers[f.key]}
-                    error={errors[f.key]}
-                    onChange={(v) => {
-                      setAnswers((a) => ({ ...a, [f.key]: v }))
-                      clear(f.key)
-                    }}
-                    idBase={idBase}
-                  />
-                ))}
-              </div>
-            )}
-
             {team && maxOthers > 0 && (
               <fieldset aria-describedby={`${idFor('members')}-help${errors.members ? ` ${idFor('members')}-error` : ''}`}>
                 <legend className="font-display text-ink mb-1 text-xl font-bold">Team members</legend>
@@ -569,6 +553,24 @@ export default function InterestForm(props: InterestFormComponentProps) {
                 )}
                 <ErrorText id={`${idFor('members')}-error`} error={errors.members} />
               </fieldset>
+            )}
+
+            {fields.length > 0 && (
+              <div className="space-y-6">
+                {fields.map((f) => (
+                  <Question
+                    key={f.key}
+                    field={f}
+                    value={answers[f.key]}
+                    error={errors[f.key]}
+                    onChange={(v) => {
+                      setAnswers((a) => ({ ...a, [f.key]: v }))
+                      clear(f.key)
+                    }}
+                    idBase={idBase}
+                  />
+                ))}
+              </div>
             )}
 
             {deposit && (

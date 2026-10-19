@@ -879,6 +879,15 @@ function InterestFields({
           set({ ...v, notifyEmails: fromLines(e.target.value).filter(Boolean) })
         }}
       />
+      <Field
+        label="Notification emails a day, at most"
+        type="number"
+        min={1}
+        max={50}
+        value={v.notifyPerDay}
+        hint="Default 30. Keeps a burst of spam from using up the day’s emails; later EOIs still arrive in Admin → Interest."
+        onChange={(e) => set({ ...v, notifyPerDay: Number(e.target.value) })}
+      />
       <TextArea
         label="Intro at the top of the form"
         rows={3}

@@ -126,7 +126,7 @@ function summary(type: DataBlockType, attrs: Record<string, unknown>, choices: C
     const parts = [
       cats.length ? cats.join(', ') : 'All categories',
       a.filter.kinds?.length ? a.filter.kinds.join(', ') : '',
-      a.filter.enrolment === 'open' ? 'enrolment open' : a.filter.enrolment === 'closed' ? 'enrolment closed' : '',
+      a.filter.enrolment === 'open' ? 'taking sign-ups' : a.filter.enrolment === 'closed' ? 'not taking sign-ups' : '',
     ]
     return parts.filter(Boolean).join(' · ')
   }
@@ -374,9 +374,9 @@ function ProgrammeListSettings({
           }}
           hint="Only active programmes are ever listed; drafts and retired ones never are."
         >
-          <option value="any">Open or closed</option>
-          <option value="open">Enrolment open now</option>
-          <option value="closed">Enrolment closed</option>
+          <option value="any">Open or not</option>
+          <option value="open">Taking sign-ups now (enrolment open, or taking expressions of interest)</option>
+          <option value="closed">Not taking sign-ups</option>
         </Select>
       </div>
       <Field

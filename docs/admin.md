@@ -770,8 +770,7 @@ Decisions (each the more robust or more configurable option):
 - **"Since the last season started" is per programme and in Sydney time**: each programme's latest season whose
   start date has passed (`leagueWindow`, the same as the player groups), counted from Sydney midnight that day, not
   the UTC date. With no programme chosen every programme uses its own window. A programme with no season yet counts
-  every EOI. (The player directory's groups compare UTC dates, so an EOI sent before 11am on a season's first day can
-  differ by a day between the two; harmless, noted.)
+  every EOI. The player directory's groups use the same Sydney dates.
 - **Programmes can be added to or removed from an EOI** (a phone call that adds FNL), keeping at least one; this
   goes beyond the spec, for control.
 - **"Use these details" is per field**, ticked from a sent-vs-on-file table, and audited on the player with the field

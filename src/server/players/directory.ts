@@ -1,5 +1,6 @@
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { groupOf, leagueWindow, type PlayerGroup } from '../../lib/players/groups'
+import { sydneyDate } from '../../lib/time'
 import type { AppDb } from '../db'
 import {
   interestMembers,
@@ -207,7 +208,7 @@ export async function competitionDirectory(
           retiredAt: p.retiredAt,
           leagueSeasonIds: before.filter((s) => s.leagueId === leagueId).map((s) => s.seasonId),
           playedElsewhere: before.some((s) => s.leagueId !== leagueId),
-          openInterestDates: eois.map((e) => e.createdAt),
+          openInterestDates: eois.map((e) => sydneyDate(new Date(e.createdAt))),
         },
         w!,
         seasonId,
@@ -224,7 +225,7 @@ export async function competitionDirectory(
               retiredAt: null,
               leagueSeasonIds: before.filter((s) => s.leagueId === lid).map((s) => s.seasonId),
               playedElsewhere: before.some((s) => s.leagueId !== lid),
-              openInterestDates: eois.filter((e) => e.programmeId === lid).map((e) => e.createdAt),
+              openInterestDates: eois.filter((e) => e.programmeId === lid).map((e) => sydneyDate(new Date(e.createdAt))),
             },
             windows.get(lid) ?? { lastSeasonId: null, interestSince: null },
           )

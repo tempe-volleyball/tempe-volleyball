@@ -29,6 +29,10 @@ export const isInterestMode = (p: Pick<SignupFields, 'kind' | 'signupMode'>) => 
  */
 export const takesInterest = (p: SignupFields) => p.status === 'active' && isInterestMode(p) && p.interestOpen !== false
 
+/** The join section's invitation, under the next-start line when the programme has no text of its own. */
+export const JOIN_INVITE =
+  'Come on your own and we’ll find you a team, or enter a whole team. Tell us you’re interested and we’ll be in touch.'
+
 /**
  * The join section's line: the programme's own text (leagues.interest_text), else "Next season starts …." when a next
  * start is known, else nothing. Never "closed": EOIs are welcome all year.

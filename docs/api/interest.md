@@ -92,8 +92,8 @@ Answers:
 
 Emails go through `sendEmail()`, never priority:
 
-- `interest.notify` to the contact email (Settings → Contact) plus Settings → Interest → "Notify" addresses, each
-  once, with the contact as **reply-to**, what was sent and a link to `/admin/interest/<id>`. At most Settings →
+- `interest.notify` to Settings → Interest → "Notify" addresses, or the contact email (Settings → Contact) when
+  there are none, each once, with the contact as **reply-to**, what was sent and a link to `/admin/interest/<id>`. At most Settings →
   Interest → "Notification emails a day" (`notifyPerDay`, default 30) EOIs a rolling day are notified (key
   `interest:notify-day`); later ones are still saved.
 - `interest.ack` to the contact (Settings → Interest → acknowledge, default on): the thank-you text, the reference,

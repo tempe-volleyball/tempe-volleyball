@@ -288,7 +288,7 @@ describe('submitInterest', () => {
     expect(members[1]!.details.gender).toBe('male')
     expect(members[2]!.details.vnswNumber).toBe('V123')
     expect(await s.db.select().from(schema.players)).toHaveLength(3)
-    expect(s.sent('interest.notify').map((l) => /to=(\S+)/.exec(l)?.[1])).toEqual([DEFAULT_SETTINGS.contact.email, 'ops@example.com'])
+    expect(s.sent('interest.notify').map((l) => /to=(\S+)/.exec(l)?.[1])).toEqual(['ops@example.com'])
     const ack = s.sent('interest.ack')[0]!
     expect(ack).toContain('Pay it by PayID to 0414 911 544')
     expect(ack).toContain('Jo Park, jo@example.com')
@@ -482,11 +482,9 @@ describe('EOI emails', () => {
     expect(note.html).toContain('https://x/admin/interest/1')
   })
 
-  it('notifies the contact email and the extra addresses, each once', () => {
-    expect(interestNotifyAddresses('Tempevb@gmail.com', ['ops@example.com', 'tempevb@gmail.com'])).toEqual([
-      'tempevb@gmail.com',
-      'ops@example.com',
-    ])
+  it('notifies the Notify addresses (each once), else the contact email', () => {
+    expect(interestNotifyAddresses('Tempevb@gmail.com', ['ops@example.com', 'OPS@example.com'])).toEqual(['ops@example.com'])
+    expect(interestNotifyAddresses('Tempevb@gmail.com', [])).toEqual(['tempevb@gmail.com'])
     expect(interestNotifyAddresses('', [])).toEqual([])
   })
 })

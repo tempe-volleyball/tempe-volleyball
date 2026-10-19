@@ -1,5 +1,5 @@
 ---
-import { interestPath, joinLine } from '../../lib/interest'
+import { JOIN_INVITE, interestPath, joinLine } from '../../lib/interest'
 
 // An interest programme's join section (docs/interest.md, docs/public-site.md "Joining"), in place of the enrol
 // section: "Join <name>", then the programme's own text (leagues.interest_text, shown alone and as typed) or else
@@ -23,9 +23,7 @@ const line = joinLine(interestText, nextStarts)
       ) : (
         <>
           {line && <p class="font-display text-lg font-bold">{line}</p>}
-          <p class:list={[line && 'mt-2']}>
-            Come on your own and we’ll find you a team, or enter a whole team. Tell us you’re interested and we’ll be in touch.
-          </p>
+          <p class:list={[line && 'mt-2']}>{JOIN_INVITE}</p>
         </>
       )}
       <p class="mt-5">

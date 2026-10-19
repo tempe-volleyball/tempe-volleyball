@@ -1,3 +1,4 @@
+import { JOIN_INVITE, joinLine } from './interest'
 import type { ProgrammeLineSource } from './content/blocks'
 import { parseISO } from './fixtures/dates'
 import type { ProgrammeKind } from '../server/db/schema/enums'
@@ -141,6 +142,6 @@ export function programmeLineSource(
  * leagues.interest_text is empty: the next start, when known, then the invitation.
  */
 export function generatedInterestLine(nextStarts: string): string {
-  const invite = 'Tell us you’re interested, on your own or as a team, and we’ll be in touch.'
-  return nextStarts ? `${nextStarts}. ${invite}` : invite
+  const line = joinLine(null, nextStarts)
+  return line ? `${line} ${JOIN_INVITE}` : JOIN_INVITE
 }
